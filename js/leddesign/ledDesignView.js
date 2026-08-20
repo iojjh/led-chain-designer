@@ -66,31 +66,14 @@ function recomputeTotalPx() {
 // 사용자가 자동 할당을 다시 누르거나 수동으로 다시 배정해야 한다.
 function resetPortAssignments() {
   const cfg = getLedConfig();
-  const lanSpec = resolveLedPortSpec();
-  cfg.lanPorts = Array.from({ length: lanSpec.portCount }, () => []);
+  cfg.lanPorts = Array.from({ length: ledPortLayout().ports.length }, () => []);
   cfg.pwrPorts = Array.from({ length: PWR_PORT_COUNT }, () => []);
 }
 
-// LED 노드 상류(샌딩카드 또는 lan-ports 콘솔 직결)에서 포트 수·포트당 픽셀 상한을 가져온다.
-function resolveLedPortSpec() {
-  const graph = State.graph;
-  const upstream = upstreamOf(graph, _led.nodeId);
-  const sendingNode = upstream.find(n => n.type === 'sending');
-  const consoleNode = upstream.find(n => n.type === 'console');
-
-  if (sendingNode) {
-    const device = sendingNode.config.deviceId ? getDevice('sending', sendingNode.config.deviceId) : null;
-    return device
-      ? { portCount: device.portCount, capPerPort: device.perPortMaxPx8bit, sourceLabel: `${device.vendor} ${device.name}` }
-      : { portCount: sendingNode.config.portCount || 8, capPerPort: sendingNode.config.perPortMaxPx || MAX_PX, sourceLabel: '샌딩카드 (수동 설정)' };
-  }
-  if (consoleNode) {
-    const device = consoleNode.config.deviceId ? getDevice('console', consoleNode.config.deviceId) : null;
-    return device
-      ? { portCount: device.outputs.portCount, capPerPort: device.outputs.perPortMaxPx8bit, sourceLabel: `${device.vendor} ${device.name} (직결)` }
-      : { portCount: 8, capPerPort: MAX_PX, sourceLabel: '콘솔 (수동 설정, 직결)' };
-  }
-  return { portCount: 8, capPerPort: MAX_PX, sourceLabel: '미연결 — 기본값 사용' };
+// LED 노드 상류의 LAN 포트 그룹(샌딩카드별)은 ledPortGroups.js(순수 함수,
+// validationEngine.js와 공유)의 resolveLedPortGroups/resolveLedPortLayout을 쓴다.
+function ledPortLayout() {
+  return resolveLedPortLayout(State.graph, _led.nodeId);
 }
 
 function openLedDesignView(nodeId) {
@@ -186,8 +169,11 @@ function initLedDesignView() {
   document.getElementById('ledAutoAssignBtn').addEventListener('click', () => {
     const cfg = getLedConfig();
     if (_led.mode === 'lan') {
-      const spec = resolveLedPortSpec();
-      cfg.lanPorts = autoAssignAllZones(cfg.zones, spec.portCount, spec.capPerPort);
+      const layout = ledPortLayout();
+      // 샌딩카드마다 포트당 상한이 다를 수 있으므로, 전체 배정 한 번에 걸쳐 가장
+      // 작은 상한을 공통으로 써서 안전하게(어떤 포트에 배정되든 초과하지 않게) 채운다.
+      const safeCap = Math.min(...layout.groups.map(g => g.capPerPort));
+      cfg.lanPorts = autoAssignAllZones(cfg.zones, layout.ports.length, safeCap);
     } else {
       cfg.pwrPorts = autoAssignAllZones(cfg.zones, PWR_PORT_COUNT, PWR_PORT_CAP);
     }
@@ -451,11 +437,15 @@ function activePortsArray() {
 }
 
 function portCountForMode() {
-  return _led.mode === 'lan' ? resolveLedPortSpec().portCount : PWR_PORT_COUNT;
+  return _led.mode === 'lan' ? ledPortLayout().ports.length : PWR_PORT_COUNT;
 }
 
-function capForMode() {
-  return _led.mode === 'lan' ? resolveLedPortSpec().capPerPort : PWR_PORT_CAP;
+// 활성 포트가 실제로 속한 그룹(샌딩카드)의 상한 — LAN은 그룹마다 상한이 다를 수 있다.
+function capForActivePort() {
+  if (_led.mode !== 'lan') { return PWR_PORT_CAP; }
+  const layout = ledPortLayout();
+  const group = layout.ports[_led.activePort];
+  return group ? group.capPerPort : MAX_PX;
 }
 
 // 그래프 상류 장비가 바뀌어 포트 수가 달라졌을 수 있으므로 배열 길이를 맞춘다
@@ -954,24 +944,50 @@ function renderZoneList() {
 function renderPortPanel() {
   ensurePortsSized();
   const isLan = _led.mode === 'lan';
-  const spec = isLan ? resolveLedPortSpec() : { portCount: PWR_PORT_COUNT, capPerPort: PWR_PORT_CAP, sourceLabel: '고정 18포트' };
-  document.getElementById('ledPortSource').textContent =
-    `${spec.sourceLabel} · ${spec.portCount}포트 · 포트당 ${spec.capPerPort.toLocaleString()}px`;
-  if (_led.activePort >= spec.portCount) { _led.activePort = 0; }
+  const sourceEl = document.getElementById('ledPortSource');
+  if (isLan) {
+    const layout = ledPortLayout();
+    sourceEl.textContent = layout.groups
+      .map(g => `${g.label} ${g.portCount}포트·포트당 ${g.capPerPort.toLocaleString()}px`)
+      .join('  +  ');
+    if (_led.activePort >= layout.ports.length) { _led.activePort = 0; }
+  } else {
+    sourceEl.textContent = `고정 18포트 · 포트당 ${PWR_PORT_CAP.toLocaleString()}px`;
+    if (_led.activePort >= PWR_PORT_COUNT) { _led.activePort = 0; }
+  }
   renderPortStrip();
   renderPortDetail();
   renderCableSum();
 }
 
+// LAN 모드에서 샌딩카드가 2대 이상 연결돼 있으면 포트 칩을 카드별로 묶어서
+// 보여준다("랜 배선 탭에서 포트를 샌딩카드별로 나눠서 표기" 요청 반영).
 function renderPortStrip() {
   const ports = activePortsArray();
   const strip = document.getElementById('ledPortStrip');
-  strip.innerHTML = ports.map((keys, i) => {
+  const isLan = _led.mode === 'lan';
+
+  const chipHtml = (i, keys) => {
     const color = portColor(i);
     return `<button class="led-port-chip ${i === _led.activePort ? 'on' : ''}" data-port="${i}" style="--chip-color:${color}">
       P${i + 1}<span class="chip-count">${keys.length}</span>
     </button>`;
-  }).join('');
+  };
+
+  if (isLan) {
+    const layout = ledPortLayout();
+    let offset = 0;
+    strip.innerHTML = layout.groups.map(g => {
+      const chips = Array.from({ length: g.portCount }, (_v, i) => chipHtml(offset + i, ports[offset + i] || [])).join('');
+      offset += g.portCount;
+      return layout.groups.length > 1
+        ? `<div class="led-port-group"><div class="led-port-group-lbl">${escapeHtml(g.label)}</div><div class="led-port-group-chips">${chips}</div></div>`
+        : chips;
+    }).join('');
+  } else {
+    strip.innerHTML = ports.map((keys, i) => chipHtml(i, keys)).join('');
+  }
+
   strip.querySelectorAll('.led-port-chip').forEach(btn => {
     btn.addEventListener('click', () => {
       _led.activePort = Number(btn.dataset.port);
@@ -987,16 +1003,21 @@ function renderPortDetail() {
   const ports = activePortsArray();
   const keys = ports[_led.activePort] || [];
   const px = portPx(panels, keys);
-  const cap = capForMode();
+  const cap = capForActivePort();
   const over = isOverCapacity(px, cap);
   const pct = Math.min(100, Math.round(px / cap * 100));
   const color = portColor(_led.activePort);
+
+  const isLan = _led.mode === 'lan';
+  const layout = isLan ? ledPortLayout() : null;
+  const groupLabel = isLan && layout.groups.length > 1 && layout.ports[_led.activePort]
+    ? ` (${layout.ports[_led.activePort].label})` : '';
 
   const detail = document.getElementById('ledPortDetail');
   detail.innerHTML = `
     <div class="led-port-detail-head">
       <span class="port-swatch" style="background:${color}"></span>
-      <span class="port-name">P${_led.activePort + 1}</span>
+      <span class="port-name">P${_led.activePort + 1}${escapeHtml(groupLabel)}</span>
       <span class="port-meta">${keys.length}장 · ${px.toLocaleString()}px${over ? ' ⚠ 초과' : ''}</span>
       <button id="ledPortResetBtn" class="port-reset-btn">초기화</button>
     </div>

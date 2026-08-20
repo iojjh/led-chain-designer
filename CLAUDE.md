@@ -33,7 +33,7 @@ js/
   core/        state.js, idgen.js, nodeTypes.js, canvasRenderer.js, nodeCardRenderer.js, interactions.js, graphOps.js
   devices/     devices.js
   validation/  capacityRules.js, validationEngine.js
-  leddesign/   specs.js, betaPanels.js, betaAreaInchLabel.js, portAssignment.js, ledDesignView.js
+  leddesign/   specs.js, betaPanels.js, betaAreaInchLabel.js, portAssignment.js, ledPortGroups.js, ledDesignView.js
   save/        projectState.js, saveStore.js
   app.js
 tests/         (각 순수 모듈당 *.test.js)
@@ -52,7 +52,7 @@ GraphState = {
 포트 호환 규칙(`graphOps.js`):
 - `input.out` → `console.in`(캔버스에는 도트 하나로 통합돼 있음). `isPairAllowed`는 여전히 엣지에 실제로 저장된 물리 포트 id(예: `hdmi1-2`)가 `devices.js`의 `getConsoleInputPorts(node)` 목록에 있는지로 판정한다. 장비 프리셋의 `inputs[]` 항목은 커넥터 종류당 실제 개수를 `count`로 갖고(`{id:'hdmi1', count:4}` = HDMI 4개), `getConsoleInputPorts`가 이를 `hdmi1-1..hdmi1-4`처럼 개별 슬롯으로 펼친다 — "HDMI 포트가 4개면 인풋소스 4개가 동시에 HDMI로 연결될 수 있다"는 실제 배선을 그대로 반영하기 위함(`count` 생략 시 1개). 장비 미지정(수동 모드)이면 `config.manualInputPorts`개의 범용 포트(in1, in2, …)를 반환한다. **어느 물리 슬롯을 쓸지는 캔버스 드래그가 아니라 연결 시점에 `interactions.js`의 `resolveConsoleInputConnection`이 정한다** — 빈 슬롯이 없으면 거부(토스트), 하나만 남았으면 자동 연결, 여럿이면 `#portPicker` 팝업으로 사용자가 고른다. 슬롯 하나에는 엣지가 하나만 연결될 수 있으므로(`targetPortOccupied`) "콘솔이 몇 개의 인풋소스를 받을 수 있는지"가 장비 스펙에서 자연히 정해진다.
 - `console.out[*]`: `outputKind==='lan-ports'`면 `sending.in` 또는 `led.in`에 직접 연결 가능. `outputKind==='video-signal'`이면 `sending.in`에만 연결 가능.
-- `sending.out` → `led.in`만.
+- `sending.out` → `led.in`만. **`led.in`은 예외적으로 여러 상류 연결을 동시에 받을 수 있다**(`graphOps.js`의 `targetAllowsMultiple` — 캔버스에는 도트 하나로 통합 표시되지만 `targetPortOccupied` 점유 검사를 건너뜀). 큰 화면 하나를 샌딩카드 여러 대가 나눠 담당하는 실제 구성을 반영하기 위함. LED 설계 세부 페이지의 LAN 배선 탭은 이때 연결된 샌딩카드마다(캔버스 세로 위치 순) 포트를 그룹으로 나눠 표시한다(`ledDesignView.js`/`ledPortGroups.js`의 `resolveLedPortGroups`/`resolveLedPortLayout`). 검증(`validationEngine.js`)도 샌딩카드별로 LAN 포트 배정에서 실제 그 카드 소속 포트에 배정된 패널의 픽셀만 합산해 판정한다(`pxAssignedToSendingCard`) — 배정이 현재 그래프 구성과 안 맞으면(연결 직후 등) 보수적으로 LED 전체 요구량으로 폴백.
 - `power.out` → `distro.in`만, `distro.out` → `led.pwrIn`만 (v1은 연결만, 용량 계산 없음).
 
 인풋소스→콘솔 엣지는 캔버스에서 연결된 포트의 라벨(예: "HDMI2.0")을 라인 중간에 표시한다(`canvasRenderer.js`의 `edgeLabelFor`/`drawEdgeLabel`). **인풋소스는 해상도를 입력받지 않으므로**(사용자 요청) 이 구간의 픽셀 용량 검증은 없다 — "몇 개까지 연결 가능한지"는 포트 개수만으로 구조적으로 강제된다.

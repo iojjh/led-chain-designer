@@ -620,10 +620,20 @@ button {
 #ledGridCanvas:focus { outline: none; } /* 포커스는 캔버스 자체에 직접 그리는 링(흰색+파란색 이중선)으로 표시 */
 
 .led-port-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+
+.led-port-group { width: 100%; }
+.led-port-group + .led-port-group { margin-top: 8px; }
+.led-port-group-lbl { font-size: 10px; color: var(--text-2); margin-bottom: 4px; }
+.led-port-group-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* 포트 번호 자릿수(P1 vs P11)와 상관없이 칩 크기가 항상 동일하도록 min-width +
+   양끝 정렬 고정 — 자릿수 차이로 정렬이 들쭉날쭉해지는 것 방지 */
 .led-port-chip {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 5px;
+  min-width: 54px;
   padding: 5px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft);
@@ -633,7 +643,7 @@ button {
 }
 .led-port-chip:hover { background: var(--border); }
 .led-port-chip.on { border-color: var(--chip-color, var(--accent)); background: var(--accent-soft); color: var(--text-0); }
-.chip-count { color: var(--text-2); }
+.chip-count { color: var(--text-2); min-width: 12px; text-align: right; }
 
 .led-port-detail {
   padding: 10px;

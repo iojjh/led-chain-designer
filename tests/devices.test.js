@@ -36,11 +36,11 @@ test('MCTRL4K and MCTRL660PRO remain available as sending-card presets', () => {
 test('sending preset port caps match the vendor spec', () => {
   const mctrl4k = getDevice('sending', 'novastar-mctrl4k');
   expect(mctrl4k.portCount).toBe(16);
-  expect(mctrl4k.perPortMaxPx8bit).toBe(650000);
+  expect(mctrl4k.perPortMaxPx8bit).toBe(655360);
 
   const mctrl660pro = getDevice('sending', 'novastar-mctrl660pro');
   expect(mctrl660pro.portCount).toBe(6);
-  expect(mctrl660pro.perPortMaxPx8bit).toBe(650000);
+  expect(mctrl660pro.perPortMaxPx8bit).toBe(655360);
 });
 
 test('listDevices returns an array for every known category', () => {

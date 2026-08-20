@@ -41,12 +41,12 @@ const DEVICES = {
   sending: {
     'novastar-mctrl4k': {
       id: 'novastar-mctrl4k', vendor: 'NovaStar', name: 'MCTRL4K (내장 샌딩 포트)',
-      portCount: 16, perPortMaxPx8bit: 650000, perPortMaxPx10bit: 320000,
+      portCount: 16, perPortMaxPx8bit: 655360, perPortMaxPx10bit: 320000,
       sourcePdf: 'MCTRL4K.pdf',
     },
     'novastar-mctrl660pro': {
       id: 'novastar-mctrl660pro', vendor: 'NovaStar', name: 'MCTRL660PRO (내장 샌딩 포트)',
-      portCount: 6, perPortMaxPx8bit: 650000, perPortMaxPx10bit: 325000,
+      portCount: 6, perPortMaxPx8bit: 655360, perPortMaxPx10bit: 325000,
       sourcePdf: 'MCTRL660PRO.pdf',
     },
   },

@@ -90,6 +90,22 @@ describe('canConnect', () => {
     const graph = { nodes: [node('a', 'input'), node('b', 'console')], edges: [] };
     expect(canConnect(graph, 'a', 'out', 'b', 'in1').ok).toBe(true);
   });
+
+  test('led.in is an exception — a second, different sending card can still connect to it', () => {
+    const graph = {
+      nodes: [node('a', 'sending'), node('b', 'led'), node('c', 'sending')],
+      edges: [{ id: 'e1', kind: 'lan', from: { nodeId: 'a', portId: 'out' }, to: { nodeId: 'b', portId: 'in' } }],
+    };
+    expect(canConnect(graph, 'c', 'out', 'b', 'in').ok).toBe(true);
+  });
+
+  test('led.in still rejects a duplicate edge from the SAME sending card', () => {
+    const graph = {
+      nodes: [node('a', 'sending'), node('b', 'led')],
+      edges: [{ id: 'e1', kind: 'lan', from: { nodeId: 'a', portId: 'out' }, to: { nodeId: 'b', portId: 'in' } }],
+    };
+    expect(canConnect(graph, 'a', 'out', 'b', 'in').ok).toBe(false);
+  });
 });
 
 describe('graph traversal', () => {

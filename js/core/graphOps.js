@@ -58,6 +58,15 @@ function targetPortOccupied(edges, toNodeId, toPortId, ignoreEdgeId) {
   );
 }
 
+// LED디스플레이의 입력 포트('in')는 예외적으로 여러 샌딩카드(또는 lan-ports
+// 콘솔)를 동시에 받을 수 있다 — 실제 현장에서 큰 화면 하나를 여러 샌딩카드가
+// 나눠 담당하는 구성과 일치시키기 위함(캔버스에는 도트 하나로 통합 표시).
+// LAN 배선 탭에서 포트를 샌딩카드별로 그룹핑해 보여주는 것도 이 다중 연결을
+// 전제로 한다(ledDesignView.js의 resolveLedPortGroups).
+function targetAllowsMultiple(toNode, toPortId) {
+  return toNode.type === 'led' && toPortId === 'in';
+}
+
 function canConnect(graph, fromNodeId, fromPortId, toNodeId, toPortId) {
   if (fromNodeId === toNodeId) { return { ok: false, reason: 'self-loop' }; }
   const fromNode = graph.nodes.find(n => n.id === fromNodeId);
@@ -69,7 +78,7 @@ function canConnect(graph, fromNodeId, fromPortId, toNodeId, toPortId) {
   if (edgeExists(graph.edges, fromNodeId, fromPortId, toNodeId, toPortId)) {
     return { ok: false, reason: 'duplicate-edge' };
   }
-  if (targetPortOccupied(graph.edges, toNodeId, toPortId)) {
+  if (!targetAllowsMultiple(toNode, toPortId) && targetPortOccupied(graph.edges, toNodeId, toPortId)) {
     return { ok: false, reason: 'target-port-occupied' };
   }
   return { ok: true };

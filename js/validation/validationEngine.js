@@ -3,8 +3,42 @@
 // (runValidation) 노드 배지·엣지 색·이슈 패널에 반영한다(renderValidation).
 // power/distro 경로는 v1에서 검증하지 않는다(구조만 존재).
 
+if (typeof module !== 'undefined' && typeof resolveLedPortLayout === 'undefined') {
+  global.resolveLedPortLayout = require('../leddesign/ledPortGroups.js').resolveLedPortLayout;
+  global.betaPanels = require('../leddesign/betaPanels.js').betaPanels;
+  global.panelPx = require('../leddesign/portAssignment.js').panelPx;
+  global.downstreamOf = require('../core/graphOps.js').downstreamOf;
+  global.getDevice = require('../devices/devices.js').getDevice;
+  global.checkConsoleOutput = require('./capacityRules.js').checkConsoleOutput;
+  global.checkSendingOutput = require('./capacityRules.js').checkSendingOutput;
+}
+
 function ledRequiredPx(ledNode) {
   return ledNode.config.totalRequiredPx || 0;
+}
+
+// 샌딩카드 하나가 LED 하나에 대해 실제로 담당하는 픽셀 — LED의 LAN 포트 배정에서
+// 그 카드 소속 포트(ledPortGroups.js 그룹 순서)에 배정된 패널만 합산한다. 샌딩카드
+// 여러 대가 LED 하나를 나눠 담당할 수 있으므로(graphOps.js targetAllowsMultiple),
+// 카드별 실제 부담을 반영해야 불필요한 초과 경고를 피할 수 있다. 아직 포트 배정
+// 배열이 현재 그래프 구성(연결/해제 직후 등)과 맞지 않으면 배정 전이라 판단 불가 —
+// 이때는 보수적으로 LED 전체 요구량을 반환한다.
+function pxAssignedToSendingCard(graph, ledNode, sendingNodeId) {
+  const cfg = ledNode.config.ledDesign;
+  const layout = resolveLedPortLayout(graph, ledNode.id);
+  const lanPorts = cfg.lanPorts;
+  if (!lanPorts || lanPorts.length !== layout.ports.length) { return ledRequiredPx(ledNode); }
+
+  const panels = cfg.zones.flatMap(z => betaPanels(z));
+  let total = 0;
+  layout.ports.forEach((group, idx) => {
+    if (group.nodeId !== sendingNodeId) { return; }
+    (lanPorts[idx] || []).forEach(key => {
+      const panel = panels.find(p => p.key === key);
+      if (panel) { total += panelPx(panel); }
+    });
+  });
+  return total;
 }
 
 // sending 또는 led 노드가 실제로 요구하는 픽셀 총량(콘솔 출력 검증에 사용).
@@ -13,7 +47,7 @@ function requiredPxOfDownstreamNode(graph, node) {
   if (node.type === 'sending') {
     return downstreamOf(graph, node.id)
       .filter(n => n.type === 'led')
-      .reduce((sum, n) => sum + ledRequiredPx(n), 0);
+      .reduce((sum, ledNode) => sum + pxAssignedToSendingCard(graph, ledNode, node.id), 0);
   }
   return 0;
 }
@@ -47,7 +81,7 @@ function runValidation(graph) {
       const device = node.config.deviceId ? getDevice('sending', node.config.deviceId) : null;
       const downstream = downstreamOf(graph, node.id).filter(n => n.type === 'led');
       if (downstream.length > 0) {
-        const requiredPx = downstream.reduce((sum, n) => sum + ledRequiredPx(n), 0);
+        const requiredPx = downstream.reduce((sum, ledNode) => sum + pxAssignedToSendingCard(graph, ledNode, node.id), 0);
         const res = checkSendingOutput(node.config, device, requiredPx);
         if (!res.ok) { addNodeIssue(node.id, res); }
       }
