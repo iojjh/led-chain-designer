@@ -178,6 +178,7 @@ function initLedDesignView() {
       cfg.pwrPorts = autoAssignAllZones(cfg.zones, PWR_PORT_COUNT, PWR_PORT_CAP);
     }
     renderPortPanel();
+    drawGrid();
   });
 
   document.getElementById('ledResetAllBtn').addEventListener('click', () => {
@@ -464,6 +465,17 @@ function portIndexOfKey(key) {
   return activePortsArray().findIndex(arr => arr.includes(key));
 }
 
+// 아직 아무 패널도 없는 첫 포트(원본 §11 nextEmpty 이식). 롱프레스로 새 배선을
+// 시작할 때 빈 칸을 누르면 "다음 포트"로 자동 넘어가게 하는 데 쓴다 — 이미 채운
+// 포트를 매번 수동으로 선택하지 않아도 P1→P2→P3처럼 이어서 배정할 수 있다.
+function nextEmptyPort() {
+  const ports = activePortsArray();
+  for (let i = 0; i < ports.length; i += 1) {
+    if (ports[i].length === 0) { return i; }
+  }
+  return _led.activePort;
+}
+
 function setPanelPort(key, portIdx) {
   const ports = activePortsArray();
   ports.forEach(arr => {
@@ -514,8 +526,13 @@ function onPortMouseDown(e) {
   const isTouch = !!(e.touches && e.touches.length);
   _led.longPressTimer = setTimeout(() => {
     if (!_led.pointerDownPanel) { return; }
+    // 이미 배정된 패널을 꾹 누르면 그 소속 포트로 전환, 빈 패널을 꾹 누르면
+    // 다음(아직 하나도 안 채운) 포트로 자동 전환 — 매번 포트 칩을 직접 눌러
+    // 고르지 않아도 P1→P2→P3처럼 이어서 배정할 수 있다(원본 §11 동일 동작).
     const owner = portIndexOfKey(panel.key);
-    if (owner !== -1) { _led.activePort = owner; renderPortStrip(); renderPortDetail(); }
+    _led.activePort = owner !== -1 ? owner : nextEmptyPort();
+    renderPortStrip();
+    renderPortDetail();
     _led.isPainting = true;
     _led.focusPanelKey = null;
     setDragBadge(true);
