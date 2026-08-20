@@ -1,28 +1,37 @@
 // ── ledDesignView ───────────────────────────────────
-// LED디스플레이 노드의 세부 페이지: 구역(zone) 격자 편집(그리기→팝업 설정) +
-// LAN/PWR 포트 수동 배정(탭 토글·롱프레스 드래그 페인트·되짚기 취소) + 자동 할당.
+// LED디스플레이 노드의 세부 페이지: 구역(zone) 격자 편집 + LAN/PWR 포트 수동 배정.
+// 조작감·시각 효과는 led-calculator의 혼합 시뮬레이터 β 편집 캔버스
+// (script.js:2793-3919, betaDrawEdit/betaAttachEditEv 등)를 그대로 이식했다:
+// rAF 기반 드래그 사각형 스무딩, mouseup 시점 탭/드래그 판정, 최소 55px 셀 크기
+// (+가로스크롤 폴백), 터치 이벤트, 라운드 렌더링, 캔버스 내 구역 정보 텍스트,
+// 선택 하이라이트, 잔여 셀 라벨, 신규 구역 생성 애니메이션.
 // 알고리즘은 specs.js/betaPanels.js/portAssignment.js(포팅됨)를 그대로 쓰고,
 // 여기서는 DOM/캔버스 렌더링과 상호작용만 새로 구성한다.
 
-const CELL_PX = 26; // 500mm 셀 하나의 화면 픽셀 크기
 const LONG_PRESS_MS = 380;
 const PWR_PORT_CAP = 300000; // 원본 betaAutoAssignPwr의 경험적 상수(script.js) — 수동 배정 시 초과 표시 기준으로도 재사용
+const MIN_CELL_PX = 55; // 500mm 셀의 최소 화면 픽셀 — 이보다 작아지면 가로/세로 스크롤로 대응
+const ZONE_ANIM_MS = 380;
 
 const _led = {
   nodeId: null,
   canvas: null,
   ctx: null,
   mode: 'zone', // 'zone' | 'lan' | 'pwr'
+  cellPx: 55,
   dragStart: null, // {row, col}
   dragCur: null,
+  dragLerp: null, // {r0,c0,r1,c1} — 목표 사각형을 향해 매 프레임 보간되는 미리보기 좌표
+  wasDrag: false,
   selectedZoneId: null,
-  cfgTarget: null, // { mode:'new', rect } | { mode:'edit', zone }
+  cfgZone: null, // 편집 팝업 대상 구역(신규 생성은 팝업 없이 즉시 생성)
   cfgPitch: '3mm',
   cfgW: 500,
   cfgH: 500,
-  lastPitch: '3mm',
-  lastPanelW: 500,
-  lastPanelH: 500,
+  newPitch: '3mm', // 신규 구역 생성 시 미리 선택해두는 피치/패널 크기(툴바 칩)
+  newPanelW: 500,
+  newPanelH: 500,
+  animProg: null, // {ids:Set, t} — 신규 구역 생성 애니메이션 진행도
   activePort: 0,
   pointerDownPanel: null,
   pointerDownScreen: { x: 0, y: 0 },
@@ -81,6 +90,7 @@ function openLedDesignView(nodeId) {
   _led.selectedZoneId = null;
   _led.dragStart = null;
   _led.dragCur = null;
+  _led.dragLerp = null;
   _led.activePort = 0;
 
   const cfg = getLedConfig();
@@ -91,8 +101,8 @@ function openLedDesignView(nodeId) {
 
   if (!_led.canvas) { initLedDesignView(); }
 
-  document.getElementById('ledAreaW').value = cfg.areaW || '';
-  document.getElementById('ledAreaH').value = cfg.areaH || '';
+  document.getElementById('ledAreaW').value = cfg.areaW ? cfg.areaW / 1000 : '';
+  document.getElementById('ledAreaH').value = cfg.areaH ? cfg.areaH / 1000 : '';
 
   setLedMode('zone');
 }
@@ -111,26 +121,43 @@ function initLedDesignView() {
   document.getElementById('ledBackBtn').addEventListener('click', closeLedDesignView);
 
   document.getElementById('ledAreaW').addEventListener('change', e => {
-    getLedConfig().areaW = Number(e.target.value) || 0;
+    getLedConfig().areaW = Math.round((Number(e.target.value) || 0) * 1000);
     renderLedDesignView();
   });
   document.getElementById('ledAreaH').addEventListener('change', e => {
-    getLedConfig().areaH = Number(e.target.value) || 0;
+    getLedConfig().areaH = Math.round((Number(e.target.value) || 0) * 1000);
     renderLedDesignView();
   });
 
   _led.canvas.addEventListener('mousedown', onGridMouseDown);
   window.addEventListener('mousemove', onGridMouseMove);
   window.addEventListener('mouseup', onGridMouseUp);
+  _led.canvas.addEventListener('touchstart', e => { e.preventDefault(); onGridMouseDown(e); }, { passive: false });
+  _led.canvas.addEventListener('touchmove', e => { e.preventDefault(); onGridMouseMove(e); }, { passive: false });
+  _led.canvas.addEventListener('touchend', e => { e.preventDefault(); onGridMouseUp(e); }, { passive: false });
 
   document.querySelectorAll('.led-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => setLedMode(btn.dataset.mode));
   });
 
+  document.querySelectorAll('#ledNewPitchChips .led-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _led.newPitch = btn.dataset.pitch;
+      document.querySelectorAll('#ledNewPitchChips .led-chip').forEach(b => b.classList.toggle('on', b === btn));
+    });
+  });
+  document.querySelectorAll('#ledNewSizeChips .led-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _led.newPanelW = Number(btn.dataset.w);
+      _led.newPanelH = Number(btn.dataset.h);
+      document.querySelectorAll('#ledNewSizeChips .led-chip').forEach(b => b.classList.toggle('on', b === btn));
+    });
+  });
+
   document.getElementById('ledCfgCancelBtn').addEventListener('click', closeZoneCfgPopup);
   document.getElementById('ledCfgApplyBtn').addEventListener('click', onZoneCfgApply);
   document.getElementById('ledCfgDeleteBtn').addEventListener('click', () => {
-    if (_led.cfgTarget && _led.cfgTarget.mode === 'edit') { deleteZone(_led.cfgTarget.zone.id); }
+    if (_led.cfgZone) { deleteZone(_led.cfgZone.id); }
   });
   document.querySelectorAll('#ledCfgPitchChips .led-chip').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -173,6 +200,7 @@ function setLedMode(mode) {
   document.getElementById('ledModeHint').textContent = mode === 'zone'
     ? '그리드를 드래그해 새 구역을 만드세요 (500mm 칸 단위)'
     : '패널을 탭하면 켜짐/꺼짐, 길게 눌러 드래그하면 여러 패널에 칠해집니다. 칠하다 한 칸 되짚으면 취소돼요.';
+  document.getElementById('ledNewZoneToolbar').hidden = mode !== 'zone';
   document.getElementById('ledZoneSection').hidden = mode !== 'zone';
   document.getElementById('ledPortSection').hidden = mode === 'zone';
   _led.canvas.style.cursor = mode === 'zone' ? 'crosshair' : 'pointer';
@@ -186,10 +214,36 @@ function gridDims() {
   return { cols, rows };
 }
 
-function cellFromEvent(e) {
+// 부모 폭에 맞춰 셀을 채우되, 500mm당 최소 55px은 보장한다(가독성) — 그 이상 커지면
+// .led-grid-scroll의 overflow:auto가 가로/세로 스크롤로 받아준다.
+function computeCellPx() {
+  const cfg = getLedConfig();
+  const wrapEl = document.querySelector('.led-grid-scroll');
+  const availW = Math.max(100, (wrapEl ? wrapEl.clientWidth : 800) - 2);
+  const scPerMm = Math.max(availW / (cfg.areaW || 500), MIN_CELL_PX / 500);
+  return scPerMm * 500;
+}
+
+// 마우스/터치 이벤트를 동일하게 다루기 위한 좌표 추출
+function clientXY(e) {
+  if (e.touches && e.touches.length) { return { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
+  if (e.changedTouches && e.changedTouches.length) { return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }; }
+  return { x: e.clientX, y: e.clientY };
+}
+
+// 캔버스가 CSS로 늘어나 있어도(반응형 등) 실제 캔버스 픽셀 좌표로 정확히 보정
+function canvasPoint(e) {
+  const { x, y } = clientXY(e);
   const rect = _led.canvas.getBoundingClientRect();
-  const col = Math.floor((e.clientX - rect.left) / CELL_PX);
-  const row = Math.floor((e.clientY - rect.top) / CELL_PX);
+  const scX = _led.canvas.width / (rect.width || _led.canvas.width);
+  const scY = _led.canvas.height / (rect.height || _led.canvas.height);
+  return { x: (x - rect.left) * scX, y: (y - rect.top) * scY };
+}
+
+function cellFromEvent(e) {
+  const { x, y } = canvasPoint(e);
+  const col = Math.floor(x / _led.cellPx);
+  const row = Math.floor(y / _led.cellPx);
   const { cols, rows } = gridDims();
   return { row: Math.min(Math.max(row, 0), rows - 1), col: Math.min(Math.max(col, 0), cols - 1) };
 }
@@ -210,12 +264,10 @@ function rectOverlapsZone(startRow, startCol, rows, cols, zones) {
 }
 
 function panelAtScreenPoint(e) {
-  const rect = _led.canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
+  const { x, y } = canvasPoint(e);
   return allPanels().find(p => {
-    const px = p.x / 500 * CELL_PX; const py = p.y / 500 * CELL_PX;
-    const pw = p.w / 500 * CELL_PX; const ph = p.h / 500 * CELL_PX;
+    const px = p.x / 500 * _led.cellPx; const py = p.y / 500 * _led.cellPx;
+    const pw = p.w / 500 * _led.cellPx; const ph = p.h / 500 * _led.cellPx;
     return x >= px && x < px + pw && y >= py && y < py + ph;
   }) || null;
 }
@@ -225,74 +277,106 @@ function onGridMouseDown(e) { if (_led.mode === 'zone') { onZoneMouseDown(e); } 
 function onGridMouseMove(e) { if (_led.mode === 'zone') { onZoneMouseMove(e); } else { onPortMouseMove(e); } }
 function onGridMouseUp(e) { if (_led.mode === 'zone') { onZoneMouseUp(e); } else { onPortMouseUp(e); } }
 
-// ── 구역 편집: 그리기 → 팝업에서 피치/패널 크기 설정 ─────
+// ── 구역 편집: 드래그하면 툴바에서 미리 고른 피치·패널크기로 즉시 생성,
+//    탭(이동 없는 클릭)하면 기존 구역을 선택하고 편집 팝업을 연다 ──────
 function onZoneMouseDown(e) {
-  const cell = cellFromEvent(e);
-  const zone = zoneAtCell(cell.row, cell.col);
-  if (zone) {
-    _led.selectedZoneId = zone.id;
-    drawGrid();
-    renderZoneList();
-    openZoneCfgPopup({ mode: 'edit', zone });
-    return;
-  }
   closeZoneCfgPopup();
-  _led.selectedZoneId = null;
+  const cell = cellFromEvent(e);
   _led.dragStart = cell;
   _led.dragCur = cell;
-  drawGrid();
+  _led.wasDrag = false;
+  _led.dragLerp = { r0: cell.row, c0: cell.col, r1: cell.row + 1, c1: cell.col + 1 };
+  requestAnimationFrame(zoneDragRafLoop);
 }
 
 function onZoneMouseMove(e) {
   if (!_led.dragStart) { return; }
-  _led.dragCur = cellFromEvent(e);
+  const cell = cellFromEvent(e);
+  if (cell.row !== _led.dragCur.row || cell.col !== _led.dragCur.col) {
+    _led.dragCur = cell;
+    _led.wasDrag = true;
+  }
+}
+
+// 드래그 미리보기 사각형을 목표 좌표로 매 프레임 25%씩 보간해 부드럽게 따라오게 한다.
+function zoneDragRafLoop() {
+  if (!_led.dragLerp || !_led.dragStart) { return; }
+  const st = _led.dragStart; const cur = _led.dragCur;
+  const tr0 = Math.min(st.row, cur.row); const tc0 = Math.min(st.col, cur.col);
+  const tr1 = Math.max(st.row, cur.row) + 1; const tc1 = Math.max(st.col, cur.col) + 1;
+  const L = 0.25; const l = _led.dragLerp;
+  l.r0 += (tr0 - l.r0) * L; l.c0 += (tc0 - l.c0) * L;
+  l.r1 += (tr1 - l.r1) * L; l.c1 += (tc1 - l.c1) * L;
   drawGrid();
+  requestAnimationFrame(zoneDragRafLoop);
 }
 
 function onZoneMouseUp() {
-  if (!_led.dragStart || !_led.dragCur) { _led.dragStart = null; return; }
-  const startRow = Math.min(_led.dragStart.row, _led.dragCur.row);
-  const startCol = Math.min(_led.dragStart.col, _led.dragCur.col);
-  const rows = Math.abs(_led.dragCur.row - _led.dragStart.row) + 1;
-  const cols = Math.abs(_led.dragCur.col - _led.dragStart.col) + 1;
+  if (!_led.dragStart) { return; }
+  const st = _led.dragStart; const cur = _led.dragCur;
+  const startRow = Math.min(st.row, cur.row); const startCol = Math.min(st.col, cur.col);
+  const rows = Math.abs(cur.row - st.row) + 1; const cols = Math.abs(cur.col - st.col) + 1;
+  const wasDrag = _led.wasDrag;
+  _led.dragStart = null; _led.dragCur = null; _led.dragLerp = null; _led.wasDrag = false;
+
+  if (!wasDrag) {
+    const zone = zoneAtCell(startRow, startCol);
+    _led.selectedZoneId = zone ? zone.id : null;
+    renderZoneList();
+    drawGrid();
+    if (zone) { openZoneCfgPopup(zone); }
+    return;
+  }
 
   const cfg = getLedConfig();
   if (rectOverlapsZone(startRow, startCol, rows, cols, cfg.zones)) {
-    _led.dragStart = null;
-    _led.dragCur = null;
+    showToast('다른 구역과 겹칩니다.');
     drawGrid();
     return;
   }
-  openZoneCfgPopup({ mode: 'new', rect: { startRow, startCol, rows, cols } });
+  const newZone = {
+    id: makeId('lz'),
+    led: _led.newPitch,
+    startRow, startCol, rows, cols,
+    panelW: _led.newPanelW, panelH: _led.newPanelH,
+  };
+  cfg.zones.push(newZone);
+  resetPortAssignments();
+  renderLedDesignView();
+  animateNewZone(newZone.id);
 }
 
-// ── 구역 설정 팝업 ────────────────────────────────────
+function animateNewZone(zoneId) {
+  const t0 = performance.now();
+  const ids = new Set([zoneId]);
+  function frame(now) {
+    const p = Math.min((now - t0) / ZONE_ANIM_MS, 1);
+    _led.animProg = { ids, t: 1 - Math.pow(1 - p, 3) }; // ease-out cubic
+    drawGrid();
+    if (p < 1) { requestAnimationFrame(frame); } else { _led.animProg = null; drawGrid(); }
+  }
+  requestAnimationFrame(frame);
+}
+
+// ── 구역 편집 팝업 (기존 구역 전용 — 신규 생성은 툴바 사전 선택으로 즉시 반영) ──
 let _zoneCfgOutsideHandler = null;
 
-function openZoneCfgPopup(target) {
-  _led.cfgTarget = target;
-  const pitch = target.mode === 'edit' ? target.zone.led : _led.lastPitch;
-  const w = target.mode === 'edit' ? target.zone.panelW : _led.lastPanelW;
-  const h = target.mode === 'edit' ? target.zone.panelH : _led.lastPanelH;
-  _led.cfgPitch = pitch;
-  _led.cfgW = w;
-  _led.cfgH = h;
+function openZoneCfgPopup(zone) {
+  _led.cfgZone = zone;
+  _led.cfgPitch = zone.led;
+  _led.cfgW = zone.panelW;
+  _led.cfgH = zone.panelH;
 
-  document.querySelectorAll('#ledCfgPitchChips .led-chip').forEach(b => b.classList.toggle('on', b.dataset.pitch === pitch));
+  document.querySelectorAll('#ledCfgPitchChips .led-chip').forEach(b => b.classList.toggle('on', b.dataset.pitch === zone.led));
   document.querySelectorAll('#ledCfgSizeChips .led-chip').forEach(b =>
-    b.classList.toggle('on', Number(b.dataset.w) === w && Number(b.dataset.h) === h));
-  document.getElementById('ledCfgDeleteBtn').hidden = target.mode !== 'edit';
-
-  const rect = target.mode === 'edit'
-    ? { startRow: target.zone.startRow, startCol: target.zone.startCol, rows: target.zone.rows, cols: target.zone.cols }
-    : target.rect;
+    b.classList.toggle('on', Number(b.dataset.w) === zone.panelW && Number(b.dataset.h) === zone.panelH));
 
   const popup = document.getElementById('ledZoneCfgPopup');
   const wrapEl = document.querySelector('.led-grid-wrap');
   const wrapRect = wrapEl.getBoundingClientRect();
   const canvasRect = _led.canvas.getBoundingClientRect();
-  const left = canvasRect.left - wrapRect.left + (rect.startCol + rect.cols) * CELL_PX + 10;
-  const top = canvasRect.top - wrapRect.top + rect.startRow * CELL_PX;
+  const left = canvasRect.left - wrapRect.left + (zone.startCol + zone.cols) * _led.cellPx + 10;
+  const top = canvasRect.top - wrapRect.top + zone.startRow * _led.cellPx;
   popup.style.left = `${Math.max(8, Math.min(left, wrapRect.width - 250))}px`;
   popup.style.top = `${Math.max(8, Math.min(top, wrapRect.height - 190))}px`;
   popup.hidden = false;
@@ -305,9 +389,7 @@ function openZoneCfgPopup(target) {
 
 function closeZoneCfgPopup() {
   document.getElementById('ledZoneCfgPopup').hidden = true;
-  _led.cfgTarget = null;
-  _led.dragStart = null;
-  _led.dragCur = null;
+  _led.cfgZone = null;
   if (_zoneCfgOutsideHandler) {
     window.removeEventListener('mousedown', _zoneCfgOutsideHandler);
     _zoneCfgOutsideHandler = null;
@@ -316,25 +398,11 @@ function closeZoneCfgPopup() {
 }
 
 function onZoneCfgApply() {
-  const target = _led.cfgTarget;
-  if (!target) { return; }
-  const cfg = getLedConfig();
-  if (target.mode === 'new') {
-    cfg.zones.push({
-      id: makeId('lz'),
-      led: _led.cfgPitch,
-      startRow: target.rect.startRow, startCol: target.rect.startCol,
-      rows: target.rect.rows, cols: target.rect.cols,
-      panelW: _led.cfgW, panelH: _led.cfgH,
-    });
-  } else {
-    target.zone.led = _led.cfgPitch;
-    target.zone.panelW = _led.cfgW;
-    target.zone.panelH = _led.cfgH;
-  }
-  _led.lastPitch = _led.cfgPitch;
-  _led.lastPanelW = _led.cfgW;
-  _led.lastPanelH = _led.cfgH;
+  const zone = _led.cfgZone;
+  if (!zone) { return; }
+  zone.led = _led.cfgPitch;
+  zone.panelW = _led.cfgW;
+  zone.panelH = _led.cfgH;
   resetPortAssignments();
   closeZoneCfgPopup();
   renderLedDesignView();
@@ -409,7 +477,7 @@ function paintPanel(panel) {
 function onPortMouseDown(e) {
   const panel = panelAtScreenPoint(e);
   _led.pointerDownPanel = panel;
-  _led.pointerDownScreen = { x: e.clientX, y: e.clientY };
+  _led.pointerDownScreen = clientXY(e);
   _led.pointerMoved = false;
   _led.isPainting = false;
   _led.paintStack = [];
@@ -427,7 +495,8 @@ function onPortMouseDown(e) {
 
 function onPortMouseMove(e) {
   if (!_led.pointerDownPanel) { return; }
-  if (Math.abs(e.clientX - _led.pointerDownScreen.x) > 4 || Math.abs(e.clientY - _led.pointerDownScreen.y) > 4) {
+  const { x, y } = clientXY(e);
+  if (Math.abs(x - _led.pointerDownScreen.x) > 4 || Math.abs(y - _led.pointerDownScreen.y) > 4) {
     _led.pointerMoved = true;
   }
   if (!_led.isPainting) { return; }
@@ -460,48 +529,117 @@ function renderLedDesignView() {
 
 function sizeGridCanvas() {
   const { cols, rows } = gridDims();
-  _led.canvas.width = cols * CELL_PX;
-  _led.canvas.height = rows * CELL_PX;
+  _led.cellPx = computeCellPx();
+  _led.canvas.width = cols * _led.cellPx;
+  _led.canvas.height = rows * _led.cellPx;
 }
 
 function drawGrid() {
   const ctx = _led.ctx;
   const { cols, rows } = gridDims();
-  ctx.clearRect(0, 0, cols * CELL_PX, rows * CELL_PX);
+  ctx.clearRect(0, 0, cols * _led.cellPx, rows * _led.cellPx);
 
   ctx.fillStyle = '#17181c';
-  ctx.fillRect(0, 0, cols * CELL_PX, rows * CELL_PX);
+  ctx.fillRect(0, 0, cols * _led.cellPx, rows * _led.cellPx);
 
   ctx.strokeStyle = '#2b2d33';
   ctx.lineWidth = 1;
   for (let c = 0; c <= cols; c += 1) {
-    ctx.beginPath(); ctx.moveTo(c * CELL_PX + 0.5, 0); ctx.lineTo(c * CELL_PX + 0.5, rows * CELL_PX); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(c * _led.cellPx + 0.5, 0); ctx.lineTo(c * _led.cellPx + 0.5, rows * _led.cellPx); ctx.stroke();
   }
   for (let r = 0; r <= rows; r += 1) {
-    ctx.beginPath(); ctx.moveTo(0, r * CELL_PX + 0.5); ctx.lineTo(cols * CELL_PX, r * CELL_PX + 0.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, r * _led.cellPx + 0.5); ctx.lineTo(cols * _led.cellPx, r * _led.cellPx + 0.5); ctx.stroke();
   }
 
-  if (_led.mode === 'zone') { drawZonesForEdit(ctx); } else { drawPanelsForPortMode(ctx); }
-  if (_led.dragStart && _led.dragCur && _led.mode === 'zone') { drawDragRect(ctx); }
+  if (_led.mode === 'zone') {
+    drawZonesForEdit(ctx);
+    if (_led.dragLerp) { drawDragRect(ctx); }
+  } else {
+    drawPanelsForPortMode(ctx);
+  }
 }
 
 function drawZonesForEdit(ctx) {
   const cfg = getLedConfig();
   cfg.zones.forEach((zone, i) => {
     const color = portColor(i);
-    ctx.fillStyle = `${color}33`;
-    ctx.fillRect(zone.startCol * CELL_PX, zone.startRow * CELL_PX, zone.cols * CELL_PX, zone.rows * CELL_PX);
+    const zx = zone.startCol * _led.cellPx; const zy = zone.startRow * _led.cellPx;
+    const zw = zone.cols * _led.cellPx; const zh = zone.rows * _led.cellPx;
+    const cr = Math.min(8, zw * 0.14, zh * 0.14);
+    const anim = _led.animProg;
+    const isNew = anim && anim.ids.has(zone.id);
 
-    ctx.strokeStyle = `${color}88`;
-    ctx.lineWidth = 1;
+    if (isNew) {
+      ctx.save();
+      ctx.globalAlpha = anim.t;
+      const s = 0.88 + 0.12 * anim.t;
+      ctx.translate(zx + zw / 2, zy + zh / 2);
+      ctx.scale(s, s);
+      ctx.translate(-(zx + zw / 2), -(zy + zh / 2));
+    }
+
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(zx, zy, zw, zh, cr); ctx.clip();
+    ctx.fillStyle = `${color}2e`; ctx.fillRect(zx, zy, zw, zh);
+    ctx.strokeStyle = `${color}88`; ctx.lineWidth = 1;
     betaPanels(zone).forEach(p => {
-      ctx.strokeRect(p.x / 500 * CELL_PX + 0.5, p.y / 500 * CELL_PX + 0.5, p.w / 500 * CELL_PX - 1, p.h / 500 * CELL_PX - 1);
+      ctx.strokeRect(p.x / 500 * _led.cellPx + 0.5, p.y / 500 * _led.cellPx + 0.5, p.w / 500 * _led.cellPx - 1, p.h / 500 * _led.cellPx - 1);
     });
+    ctx.restore();
 
-    ctx.strokeStyle = color;
-    ctx.lineWidth = zone.id === _led.selectedZoneId ? 3 : 1.5;
-    ctx.strokeRect(zone.startCol * CELL_PX + 1, zone.startRow * CELL_PX + 1, zone.cols * CELL_PX - 2, zone.rows * CELL_PX - 2);
+    ctx.beginPath(); ctx.roundRect(zx + 1, zy + 1, zw - 2, zh - 2, cr);
+    ctx.strokeStyle = color; ctx.lineWidth = zone.id === _led.selectedZoneId ? 3 : 1.5; ctx.stroke();
+
+    const fs = Math.max(11, Math.min(16, _led.cellPx * 0.22));
+    const pad = Math.max(3, Math.round(fs * 0.5)) + Math.round(cr * 0.5);
+    ctx.font = `700 ${fs}px sans-serif`;
+    ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, fs * 0.3); ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+    ctx.strokeText(`z${i + 1}`, zx + zw - pad, zy + pad);
+    ctx.fillStyle = '#fff'; ctx.fillText(`z${i + 1}`, zx + zw - pad, zy + pad);
+
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const midY = zy + zh / 2;
+    ctx.strokeText(zone.led, zx + zw / 2, midY - fs * 0.7);
+    ctx.fillText(zone.led, zx + zw / 2, midY - fs * 0.7);
+    ctx.strokeText(`${zone.panelW}×${zone.panelH}mm`, zx + zw / 2, midY + fs * 0.7);
+    ctx.fillText(`${zone.panelW}×${zone.panelH}mm`, zx + zw / 2, midY + fs * 0.7);
+
+    // 잔여 행/열(반쪽 셀)은 항상 500×500mm 패널로 채워지므로 캔버스에 직접 안내
+    const spanR = zone.panelH / 500; const spanC = zone.panelW / 500;
+    const remR = zone.rows % spanR; const remC = zone.cols % spanC;
+    const fsS = Math.max(9, Math.min(13, _led.cellPx * 0.18));
+    ctx.font = `700 ${fsS}px sans-serif`;
+    ctx.lineWidth = Math.max(2, fsS * 0.28); ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    if (remR) {
+      const sy = zy + (remR * _led.cellPx) / 2;
+      ctx.strokeText('500×500mm', zx + zw / 2, sy);
+      ctx.fillStyle = '#fff'; ctx.fillText('500×500mm', zx + zw / 2, sy);
+    }
+    if (remC) {
+      const sx = zx + (remC * _led.cellPx) / 2;
+      const off = remR * _led.cellPx;
+      const sy2 = zy + off + (zh - off) / 2;
+      ctx.strokeText('500×500mm', sx, sy2);
+      ctx.fillStyle = '#fff'; ctx.fillText('500×500mm', sx, sy2);
+    }
+    ctx.textBaseline = 'alphabetic';
+
+    if (isNew) { ctx.restore(); }
   });
+
+  if (_led.selectedZoneId) {
+    const sel = cfg.zones.find(z => z.id === _led.selectedZoneId);
+    if (sel) {
+      const sx = sel.startCol * _led.cellPx; const sy = sel.startRow * _led.cellPx;
+      const sw = sel.cols * _led.cellPx; const sh = sel.rows * _led.cellPx;
+      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(sx, sy, sw, sh);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+      ctx.setLineDash([7, 3]);
+      ctx.strokeRect(sx + 1.5, sy + 1.5, sw - 3, sh - 3);
+      ctx.setLineDash([]);
+    }
+  }
 }
 
 function drawPanelsForPortMode(ctx) {
@@ -510,12 +648,12 @@ function drawPanelsForPortMode(ctx) {
   cfg.zones.forEach(zone => {
     ctx.strokeStyle = '#3a3c44';
     ctx.lineWidth = 1;
-    ctx.strokeRect(zone.startCol * CELL_PX + 0.5, zone.startRow * CELL_PX + 0.5, zone.cols * CELL_PX - 1, zone.rows * CELL_PX - 1);
+    ctx.strokeRect(zone.startCol * _led.cellPx + 0.5, zone.startRow * _led.cellPx + 0.5, zone.cols * _led.cellPx - 1, zone.rows * _led.cellPx - 1);
 
     betaPanels(zone).forEach(p => {
       const portIdx = ports.findIndex(arr => arr.includes(p.key));
-      const px = p.x / 500 * CELL_PX; const py = p.y / 500 * CELL_PX;
-      const pw = p.w / 500 * CELL_PX; const ph = p.h / 500 * CELL_PX;
+      const px = p.x / 500 * _led.cellPx; const py = p.y / 500 * _led.cellPx;
+      const pw = p.w / 500 * _led.cellPx; const ph = p.h / 500 * _led.cellPx;
       if (portIdx !== -1) {
         const color = portColor(portIdx);
         ctx.fillStyle = portIdx === _led.activePort ? `${color}aa` : `${color}55`;
@@ -529,22 +667,26 @@ function drawPanelsForPortMode(ctx) {
 }
 
 function drawDragRect(ctx) {
-  const startRow = Math.min(_led.dragStart.row, _led.dragCur.row);
-  const startCol = Math.min(_led.dragStart.col, _led.dragCur.col);
-  const rowsN = Math.abs(_led.dragCur.row - _led.dragStart.row) + 1;
-  const colsN = Math.abs(_led.dragCur.col - _led.dragStart.col) + 1;
+  const l = _led.dragLerp;
+  const sx = l.c0 * _led.cellPx; const sy = l.r0 * _led.cellPx;
+  const sw = (l.c1 - l.c0) * _led.cellPx; const sh = (l.r1 - l.r0) * _led.cellPx;
+  const cr = Math.min(8, sw * 0.14, sh * 0.14);
 
-  ctx.fillStyle = 'rgba(110,107,244,0.25)';
-  ctx.fillRect(startCol * CELL_PX, startRow * CELL_PX, colsN * CELL_PX, rowsN * CELL_PX);
-  ctx.strokeStyle = '#6e6bf4';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(startCol * CELL_PX, startRow * CELL_PX, colsN * CELL_PX, rowsN * CELL_PX);
+  ctx.beginPath(); ctx.roundRect(sx, sy, sw, sh, cr);
+  ctx.fillStyle = 'rgba(110,107,244,0.22)'; ctx.fill();
+  ctx.beginPath(); ctx.roundRect(sx + 1, sy + 1, sw - 2, sh - 2, cr);
+  ctx.strokeStyle = '#6e6bf4'; ctx.lineWidth = 2; ctx.stroke();
 
-  if (!_led.cfgTarget) {
-    ctx.fillStyle = '#e8e8ef';
-    ctx.font = '12px sans-serif';
-    ctx.fillText(`${colsN * 500}×${rowsN * 500}mm`, startCol * CELL_PX + 4, startRow * CELL_PX + 14);
-  }
+  const st = _led.dragStart; const cur = _led.dragCur;
+  const c0 = Math.min(st.col, cur.col); const c1 = Math.max(st.col, cur.col);
+  const r0 = Math.min(st.row, cur.row); const r1 = Math.max(st.row, cur.row);
+  const wm = ((c1 - c0 + 1) * 0.5).toFixed(1).replace(/\.0$/, '');
+  const hm = ((r1 - r0 + 1) * 0.5).toFixed(1).replace(/\.0$/, '');
+  const fs = Math.max(11, Math.min(16, sw * 0.18));
+  ctx.font = `700 ${fs}px sans-serif`;
+  ctx.fillStyle = '#e8e8ef'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(`${wm}m × ${hm}m`, sx + sw / 2, sy + sh / 2);
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
 }
 
 function renderZoneList() {
@@ -571,7 +713,7 @@ function renderZoneList() {
       _led.selectedZoneId = zone.id;
       drawGrid();
       renderZoneList();
-      openZoneCfgPopup({ mode: 'edit', zone });
+      openZoneCfgPopup(zone);
     });
   });
   listEl.querySelectorAll('.zone-del-btn').forEach(btn => {

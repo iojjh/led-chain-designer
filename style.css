@@ -490,6 +490,17 @@ button {
 .led-mode-btn:hover { background: var(--border); }
 .led-grid-hint { color: var(--text-2); margin-left: 6px; }
 
+/* 신규 구역 피치·패널크기 사전 선택 툴바 — :not([hidden])로 스코프해 display 규칙이
+   hidden 속성을 이기지 않게 한다 */
+.led-new-zone-toolbar:not([hidden]) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
 .led-grid-scroll {
   flex: 1;
   overflow: auto;

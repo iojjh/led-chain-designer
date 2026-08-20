@@ -77,8 +77,8 @@
   <div id="ledDesignView" class="view" hidden>
     <div class="led-header">
       <button id="ledBackBtn" class="led-back-btn">← 그래프로 돌아가기</button>
-      <label class="led-area-field">가로(mm)<input id="ledAreaW" type="number" min="0" step="500"></label>
-      <label class="led-area-field">세로(mm)<input id="ledAreaH" type="number" min="0" step="500"></label>
+      <label class="led-area-field">가로(m)<input id="ledAreaW" type="number" min="0" step="0.5"></label>
+      <label class="led-area-field">세로(m)<input id="ledAreaH" type="number" min="0" step="0.5"></label>
       <span id="ledAreaInch" class="led-area-inch"></span>
     </div>
     <div class="led-body">
@@ -89,11 +89,25 @@
           <button class="led-mode-btn" data-mode="pwr">⚡ PWR 배선</button>
           <span class="led-grid-hint" id="ledModeHint">그리드를 드래그해 새 구역을 만드세요 (500mm 칸 단위)</span>
         </div>
+        <div id="ledNewZoneToolbar" class="led-new-zone-toolbar">
+          <span class="led-cfg-label">신규 구역 LED 피치</span>
+          <div class="led-chip-group" id="ledNewPitchChips">
+            <button class="led-chip" data-pitch="2mm">2mm</button>
+            <button class="led-chip on" data-pitch="3mm">3mm</button>
+            <button class="led-chip" data-pitch="4mm">4mm</button>
+          </div>
+          <span class="led-cfg-label">패널 크기</span>
+          <div class="led-chip-group" id="ledNewSizeChips">
+            <button class="led-chip on" data-w="500" data-h="500">500×500</button>
+            <button class="led-chip" data-w="500" data-h="1000">500×1000(세로)</button>
+            <button class="led-chip" data-w="1000" data-h="500">1000×500(가로)</button>
+          </div>
+        </div>
         <div class="led-grid-scroll">
           <canvas id="ledGridCanvas"></canvas>
         </div>
 
-        <!-- 구역 생성/편집 팝업: 드래그로 그린 뒤(또는 기존 구역 클릭 시) LED 피치·패널 크기를 고른다 -->
+        <!-- 구역 편집 팝업: 기존 구역을 탭하면 LED 피치·패널 크기를 바꾸거나 삭제할 수 있다 -->
         <div id="ledZoneCfgPopup" class="led-zone-cfg-popup" hidden>
           <div class="led-cfg-row">
             <span class="led-cfg-label">LED 피치</span>
@@ -112,7 +126,7 @@
             </div>
           </div>
           <div class="led-cfg-actions">
-            <button id="ledCfgDeleteBtn" class="props-btn props-btn-danger" hidden>삭제</button>
+            <button id="ledCfgDeleteBtn" class="props-btn props-btn-danger">삭제</button>
             <button id="ledCfgCancelBtn" class="props-btn">취소</button>
             <button id="ledCfgApplyBtn" class="props-btn props-btn-primary">적용</button>
           </div>
