@@ -1,0 +1,13 @@
+{
+  "name": "led-chain-designer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "LED 설치 현장 신호/전원 체인 노드-그래프 설계·검증 도구",
+  "scripts": {
+    "test": "jest --passWithNoTests"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
