@@ -19,8 +19,8 @@
 
     <!-- 노드 추가 팔레트: js/core/nodeTypes.js의 NODE_TYPES와 아이콘/라벨을 맞춰 유지할 것 -->
     <div id="palette" class="palette">
-      <button class="palette-btn" data-type="input">💻 입력</button>
-      <button class="palette-btn" data-type="console">🖥️ 콘솔/프로세서</button>
+      <button class="palette-btn" data-type="input">💻 인풋소스</button>
+      <button class="palette-btn" data-type="console">🖥️ 콘솔</button>
       <button class="palette-btn" data-type="sending">📡 샌딩카드</button>
       <button class="palette-btn" data-type="led">🟩 LED디스플레이</button>
       <button class="palette-btn" data-type="power">🔌 메인전원</button>
@@ -34,7 +34,15 @@
         <button id="propsClose" class="props-close">✕</button>
       </div>
       <div id="propsBody" class="props-body"></div>
+      <div class="props-footer">
+        <button id="propsDeleteBtn" class="props-btn props-btn-danger">🗑 삭제</button>
+        <button id="propsResetBtn" class="props-btn">↺ 초기화</button>
+        <button id="propsApplyBtn" class="props-btn props-btn-primary">✓ 확인</button>
+      </div>
     </div>
+
+    <!-- 인풋소스 → 콘솔 연결 시 물리 포트를 고르는 팝업 -->
+    <div id="portPicker" class="port-picker" hidden></div>
 
     <!-- 검증 이슈 패널 -->
     <div id="issuesPanel" class="issues-panel">
@@ -75,39 +83,54 @@
     </div>
     <div class="led-body">
       <div class="led-grid-wrap">
-        <div class="led-new-zone-toolbar">
-          <label>신규 구역 LED 피치
-            <select id="ledNewPitch">
-              <option value="2mm">2mm</option>
-              <option value="3mm" selected>3mm</option>
-              <option value="4mm">4mm</option>
-            </select>
-          </label>
-          <label>패널 크기
-            <select id="ledNewPanelSize">
-              <option value="500x500">500×500mm</option>
-              <option value="500x1000">500×1000mm</option>
-            </select>
-          </label>
-          <span class="led-grid-hint">그리드를 드래그해 새 구역을 만드세요 (500mm 칸 단위)</span>
+        <div class="led-mode-toolbar">
+          <button class="led-mode-btn on" data-mode="zone">🔧 구역 편집</button>
+          <button class="led-mode-btn" data-mode="lan">🔌 LAN 배선</button>
+          <button class="led-mode-btn" data-mode="pwr">⚡ PWR 배선</button>
+          <span class="led-grid-hint" id="ledModeHint">그리드를 드래그해 새 구역을 만드세요 (500mm 칸 단위)</span>
         </div>
         <div class="led-grid-scroll">
           <canvas id="ledGridCanvas"></canvas>
         </div>
+
+        <!-- 구역 생성/편집 팝업: 드래그로 그린 뒤(또는 기존 구역 클릭 시) LED 피치·패널 크기를 고른다 -->
+        <div id="ledZoneCfgPopup" class="led-zone-cfg-popup" hidden>
+          <div class="led-cfg-row">
+            <span class="led-cfg-label">LED 피치</span>
+            <div class="led-chip-group" id="ledCfgPitchChips">
+              <button class="led-chip" data-pitch="2mm">2mm</button>
+              <button class="led-chip" data-pitch="3mm">3mm</button>
+              <button class="led-chip" data-pitch="4mm">4mm</button>
+            </div>
+          </div>
+          <div class="led-cfg-row">
+            <span class="led-cfg-label">패널 크기</span>
+            <div class="led-chip-group" id="ledCfgSizeChips">
+              <button class="led-chip" data-w="500" data-h="500">500×500</button>
+              <button class="led-chip" data-w="500" data-h="1000">500×1000(세로)</button>
+              <button class="led-chip" data-w="1000" data-h="500">1000×500(가로)</button>
+            </div>
+          </div>
+          <div class="led-cfg-actions">
+            <button id="ledCfgDeleteBtn" class="props-btn props-btn-danger" hidden>삭제</button>
+            <button id="ledCfgCancelBtn" class="props-btn">취소</button>
+            <button id="ledCfgApplyBtn" class="props-btn props-btn-primary">적용</button>
+          </div>
+        </div>
       </div>
       <div class="led-side">
-        <div class="led-side-section">
+        <div id="ledZoneSection" class="led-side-section">
           <div class="led-side-title">구역 <span id="ledZoneCount">0</span></div>
           <div id="ledZoneList" class="led-zone-list"></div>
         </div>
-        <div class="led-side-section">
-          <div class="led-port-tabs">
-            <button class="led-port-tab on" data-tab="lan">LAN</button>
-            <button class="led-port-tab" data-tab="pwr">PWR</button>
-          </div>
+        <div id="ledPortSection" class="led-side-section" hidden>
           <div class="led-port-source" id="ledPortSource"></div>
-          <button id="ledAutoAssignBtn" class="led-auto-btn">자동 할당</button>
-          <div id="ledPortList" class="led-port-list"></div>
+          <div id="ledPortStrip" class="led-port-strip"></div>
+          <div id="ledPortDetail" class="led-port-detail"></div>
+          <div class="led-port-actions">
+            <button id="ledAutoAssignBtn" class="led-auto-btn">자동 할당</button>
+            <button id="ledResetAllBtn" class="props-btn props-btn-danger">전체 초기화</button>
+          </div>
         </div>
         <div class="led-side-section led-total">
           총 필요 픽셀: <b id="ledTotalPx">0</b>px

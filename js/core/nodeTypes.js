@@ -1,12 +1,16 @@
 // ── nodeTypes ───────────────────────────────────────
 // 6개 노드 타입의 표시 정보(아이콘/라벨)와 기본 config, 포트 정의.
-// M1/M2 단계에서는 콘솔/샌딩카드도 단일 논리 포트만 갖는다.
-// M3(장비 프리셋)에서 devices.js를 참조해 콘솔/샌딩카드의 실제 다중 포트로 확장한다.
+// 콘솔의 입력은 캔버스에서 도트 하나로 통합해 보여준다 — 실제 몇 번 커넥터로
+// 연결됐는지는 엣지의 portId(예: 'dp')에 저장되고 devices.js의
+// getConsoleInputPorts로 조회한다(연결 인터랙션은 interactions.js, 포트 목록
+// 표시는 propertiesPanel.js). nodeCardRenderer의 getPortWorldPos는 이 단일
+// 도트 목록에서 실제 portId를 찾지 못하면 index 0으로 clamp되므로, 여러 인풋
+// 소스가 서로 다른 물리 포트로 연결돼도 시각적으로는 모두 이 한 점에 모인다.
 
 const NODE_TYPES = {
-  input:   { label: '입력',          icon: '💻', category: 'video' },
-  console: { label: '콘솔/프로세서', icon: '🖥️', category: 'video' },
-  sending: { label: '샌딩카드',      icon: '📡', category: 'video' },
+  input:   { label: '인풋소스', icon: '💻', category: 'video' },
+  console: { label: '콘솔',     icon: '🖥️', category: 'video' },
+  sending: { label: '샌딩카드', icon: '📡', category: 'video' },
   led:     { label: 'LED디스플레이', icon: '🟩', category: 'video' },
   power:   { label: '메인전원',      icon: '🔌', category: 'power' },
   distro:  { label: '분전함',        icon: '⚡', category: 'power' },
@@ -14,12 +18,26 @@ const NODE_TYPES = {
 
 const NODE_ORDER = ['input', 'console', 'sending', 'led', 'power', 'distro'];
 
+// 인풋소스 종류 — 카드/속성패널 드롭다운에서 공유하는 표시 라벨 테이블.
+const INPUT_KINDS = [
+  { id: 'vmix', label: 'vMix' },
+  { id: 'resolume', label: 'Resolume' },
+  { id: 'ppt', label: 'PPT' },
+  { id: 'relay', label: '중계' },
+  { id: 'etc', label: '기타' },
+];
+
+function inputKindLabel(kindId) {
+  const found = INPUT_KINDS.find(k => k.id === kindId);
+  return found ? found.label : '인풋소스';
+}
+
 function defaultConfig(type) {
   switch (type) {
     case 'input':
-      return { resolutionW: 1920, resolutionH: 1080, sourceLabel: '노트북' };
+      return { sourceKind: 'vmix', sourceLabel: '' };
     case 'console':
-      return { deviceId: null, outputKind: 'lan-ports', mode: null, cascade: 1 };
+      return { deviceId: null, outputKind: 'lan-ports', mode: null, cascade: 1, manualInputPorts: 2 };
     case 'sending':
       return { deviceId: null, portCount: 8, perPortMaxPx: 655360, inputMaxPx: null };
     case 'led':
@@ -50,7 +68,7 @@ function getPorts(node) {
     case 'console': {
       const outputKind = (node.config && node.config.outputKind) || 'lan-ports';
       return {
-        in: [{ id: 'in', kind: 'video' }],
+        in: [{ id: 'in', kind: 'video' }], // 시각적으로 하나로 통합된 입력 도트
         out: [{ id: 'out', kind: outputKind === 'video-signal' ? 'video' : 'lan' }],
       };
     }
@@ -68,5 +86,5 @@ function getPorts(node) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { NODE_TYPES, NODE_ORDER, defaultConfig, getPorts };
+  module.exports = { NODE_TYPES, NODE_ORDER, INPUT_KINDS, inputKindLabel, defaultConfig, getPorts };
 }

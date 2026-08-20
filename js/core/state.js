@@ -14,13 +14,12 @@ function getNode(nodeId) {
 }
 
 function addNode(type, x, y) {
-  const node = {
-    id: makeId('n'),
-    type,
-    x, y,
-    label: NODE_TYPES[type].label,
-    config: defaultConfig(type),
-  };
+  const config = defaultConfig(type);
+  // 인풋소스는 기본 종류(vmix)에 맞는 라벨로 바로 시작한다 — 그렇지 않으면
+  // 드롭다운이 이미 'vmix'를 가리키고 있어 사용자가 처음 그 값을 선택해도
+  // change 이벤트가 안 일어나 이름이 영영 '인풋소스'로 남는 버그가 생긴다.
+  const label = type === 'input' ? inputKindLabel(config.sourceKind) : NODE_TYPES[type].label;
+  const node = { id: makeId('n'), type, x, y, label, config };
   State.graph.nodes.push(node);
   return node;
 }

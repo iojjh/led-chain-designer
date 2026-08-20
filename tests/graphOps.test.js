@@ -5,8 +5,22 @@ function node(id, type, config) {
 }
 
 describe('isPairAllowed', () => {
-  test('input.out -> console.in is allowed', () => {
-    expect(isPairAllowed(node('a', 'input'), 'out', node('b', 'console'), 'in')).toBe(true);
+  test('input.out -> console.in1 is allowed (manual-mode console, default 2 generic ports)', () => {
+    expect(isPairAllowed(node('a', 'input'), 'out', node('b', 'console'), 'in1')).toBe(true);
+  });
+
+  test('input.out -> console with an unknown portId is not allowed', () => {
+    expect(isPairAllowed(node('a', 'input'), 'out', node('b', 'console'), 'nope')).toBe(false);
+  });
+
+  test('input.out -> a device-preset console\'s real connector slot ids are allowed, others are not', () => {
+    // EC90의 HDMI는 4개짜리 커넥터 타입이라 hdmi1-1..hdmi1-4로 펼쳐진다.
+    const ec90 = node('b', 'console', { deviceId: 'magnimage-ec90' });
+    expect(isPairAllowed(node('a', 'input'), 'out', ec90, 'hdmi1-1')).toBe(true);
+    expect(isPairAllowed(node('a', 'input'), 'out', ec90, 'hdmi1-4')).toBe(true);
+    expect(isPairAllowed(node('a', 'input'), 'out', ec90, 'hdmi1-5')).toBe(false); // HDMI는 4개뿐
+    expect(isPairAllowed(node('a', 'input'), 'out', ec90, 'dp1-1')).toBe(true);
+    expect(isPairAllowed(node('a', 'input'), 'out', ec90, 'dvi1-1')).toBe(false); // EC90 has no DVI input
   });
 
   test('input.out -> sending.in is not allowed', () => {
@@ -45,28 +59,36 @@ describe('isPairAllowed', () => {
 describe('canConnect', () => {
   test('rejects self-loop', () => {
     const graph = { nodes: [node('a', 'console')], edges: [] };
-    expect(canConnect(graph, 'a', 'out', 'a', 'in').ok).toBe(false);
+    expect(canConnect(graph, 'a', 'out', 'a', 'in1').ok).toBe(false);
   });
 
   test('rejects duplicate edge', () => {
     const graph = {
       nodes: [node('a', 'input'), node('b', 'console')],
-      edges: [{ id: 'e1', kind: 'video', from: { nodeId: 'a', portId: 'out' }, to: { nodeId: 'b', portId: 'in' } }],
+      edges: [{ id: 'e1', kind: 'video', from: { nodeId: 'a', portId: 'out' }, to: { nodeId: 'b', portId: 'in1' } }],
     };
-    expect(canConnect(graph, 'a', 'out', 'b', 'in').ok).toBe(false);
+    expect(canConnect(graph, 'a', 'out', 'b', 'in1').ok).toBe(false);
   });
 
   test('rejects a second edge into an already-occupied input port', () => {
     const graph = {
       nodes: [node('a', 'input'), node('b', 'console'), node('c', 'input')],
-      edges: [{ id: 'e1', kind: 'video', from: { nodeId: 'a', portId: 'out' }, to: { nodeId: 'b', portId: 'in' } }],
+      edges: [{ id: 'e1', kind: 'video', from: { nodeId: 'a', portId: 'out' }, to: { nodeId: 'b', portId: 'in1' } }],
     };
-    expect(canConnect(graph, 'c', 'out', 'b', 'in').ok).toBe(false);
+    expect(canConnect(graph, 'c', 'out', 'b', 'in1').ok).toBe(false);
+  });
+
+  test('a second, DIFFERENT input source can connect to a different free port on the same console', () => {
+    const graph = {
+      nodes: [node('a', 'input'), node('b', 'console'), node('c', 'input')],
+      edges: [{ id: 'e1', kind: 'video', from: { nodeId: 'a', portId: 'out' }, to: { nodeId: 'b', portId: 'in1' } }],
+    };
+    expect(canConnect(graph, 'c', 'out', 'b', 'in2').ok).toBe(true);
   });
 
   test('accepts a valid new connection', () => {
     const graph = { nodes: [node('a', 'input'), node('b', 'console')], edges: [] };
-    expect(canConnect(graph, 'a', 'out', 'b', 'in').ok).toBe(true);
+    expect(canConnect(graph, 'a', 'out', 'b', 'in1').ok).toBe(true);
   });
 });
 

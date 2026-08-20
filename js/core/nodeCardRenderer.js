@@ -80,6 +80,19 @@ function updateCardEl(el, node) {
   const ports = getPorts(node);
   renderPortDots(el.querySelector('.node-ports-in'), node, ports.in, 'in');
   renderPortDots(el.querySelector('.node-ports-out'), node, ports.out, 'out');
+
+  if (node.type === 'console') { markConsoleInputFullness(el, node); }
+}
+
+// 콘솔 입력 도트는 하나로 통합돼 있으므로, 실제 물리 포트가 전부 찼는지를
+// 그 도트에 표시해 "포트 수 초과 시 불가"를 드래그해보기 전에 알 수 있게 한다.
+function markConsoleInputFullness(el, node) {
+  const dot = el.querySelector('.node-ports-in .port-dot');
+  if (!dot) { return; }
+  const total = getConsoleInputPorts(node).length;
+  const occupied = State.graph.edges.filter(e => e.to.nodeId === node.id).length;
+  dot.classList.toggle('port-full', occupied >= total);
+  dot.title = `입력 (${occupied}/${total} 연결됨)`;
 }
 
 const VALIDATED_TYPES = new Set(['input', 'console', 'sending', 'led']);
@@ -105,11 +118,17 @@ function renderValidationBadge(el, node) {
 
 function cardSummary(node) {
   switch (node.type) {
-    case 'input':
-      return `${node.config.resolutionW}×${node.config.resolutionH}`;
+    case 'input': {
+      const kindLabel = inputKindLabel(node.config.sourceKind);
+      const etc = node.config.sourceKind === 'etc' && node.config.sourceLabel ? ` (${node.config.sourceLabel})` : '';
+      return `${kindLabel}${etc}`;
+    }
     case 'console': {
       const d = node.config.deviceId ? getDevice('console', node.config.deviceId) : null;
-      return d ? `${d.vendor} ${d.name}` : '수동 설정';
+      const total = getConsoleInputPorts(node).length;
+      const occupied = State.graph.edges.filter(e => e.to.nodeId === node.id).length;
+      const base = d ? `${d.vendor} ${d.name}` : '수동 설정';
+      return `${base} · 입력 ${occupied}/${total}`;
     }
     case 'sending': {
       const d = node.config.deviceId ? getDevice('sending', node.config.deviceId) : null;
@@ -133,7 +152,7 @@ function renderPortDots(container, node, portDefs, dir) {
     dot.dataset.nodeId = node.id;
     dot.dataset.portId = p.id;
     dot.dataset.portDir = dir;
-    dot.title = p.id;
+    dot.title = p.label || p.id;
     container.appendChild(dot);
   });
 }

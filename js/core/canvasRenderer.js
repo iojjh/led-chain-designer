@@ -97,6 +97,39 @@ function strokeEdgePath(ctx, p0, p1, color, width, dashed) {
   return points;
 }
 
+// 인풋소스→콘솔 엣지는 어떤 커넥터(DP/HDMI/DVI 등)로 연결됐는지 알기 쉽도록
+// 라인 중간에 라벨을 붙인다. 다른 경로(콘솔 이후)는 논리 포트가 하나뿐이라
+// 굳이 라벨을 붙이지 않는다.
+function edgeLabelFor(edge, fromNode, toNode) {
+  if (fromNode.type !== 'input' || toNode.type !== 'console') { return null; }
+  const port = getConsoleInputPorts(toNode).find(p => p.id === edge.to.portId);
+  return port ? port.label : null;
+}
+
+function drawEdgeLabel(ctx, midPoint, text, color) {
+  ctx.save();
+  ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif';
+  const paddingX = 6;
+  const textWidth = ctx.measureText(text).width;
+  const w = textWidth + paddingX * 2;
+  const h = 16;
+  const x = midPoint.x - w / 2;
+  const y = midPoint.y - h / 2;
+  ctx.fillStyle = '#101114';
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  const r = 8;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, midPoint.x, midPoint.y + 0.5);
+  ctx.restore();
+}
+
 function renderEdges(ctx) {
   if (!ctx) { return; }
   _edgePaths = [];
@@ -111,6 +144,9 @@ function renderEdges(ctx) {
     const color = selected ? EDGE_SELECTED_COLOR : hasIssue ? '#f0576b' : (EDGE_COLORS[edge.kind] || EDGE_COLORS.video);
     const points = strokeEdgePath(ctx, p0, p1, color, selected ? 3 : 2, false);
     _edgePaths.push({ edgeId: edge.id, points });
+
+    const label = edgeLabelFor(edge, fromNode, toNode);
+    if (label) { drawEdgeLabel(ctx, points[10], label, hasIssue ? '#f0576b' : color); }
   });
 
   if (_connectPreview) {

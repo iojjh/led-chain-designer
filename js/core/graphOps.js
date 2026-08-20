@@ -2,8 +2,15 @@
 // 순수 함수: 포트 연결 가능 여부 판정 + 그래프 순회 헬퍼. DOM에 의존하지
 // 않고 노드/엣지 배열만 받아 동작하므로 전부 테스트 대상이다.
 
+// 콘솔의 입력 포트 목록은 장비 프리셋에 따라 달라지므로(devices.js) 여기서만
+// 예외적으로 그 조회 함수를 가져온다. devices.js는 순수 데이터/함수뿐이라
+// 의존해도 순환 참조나 DOM 결합이 생기지 않는다.
+if (typeof module !== 'undefined' && typeof getConsoleInputPorts === 'undefined') {
+  global.getConsoleInputPorts = require('../devices/devices.js').getConsoleInputPorts;
+}
+
 // 타입쌍 허용 규칙 (fromNode.out[fromPortId] → toNode.in[toPortId]):
-// - input.out            → console.in
+// - input.out            → console.in* (콘솔의 실제 입력 포트 중 하나 — 장비 스펙에서 파생)
 // - console.out          → sending.in  (항상 허용)
 //                        → led.in      (콘솔 outputKind가 'lan-ports'일 때만 — 샌딩카드 내장형 콘솔)
 // - sending.out          → led.in
@@ -14,7 +21,8 @@ function isPairAllowed(fromNode, fromPortId, toNode, toPortId) {
   const toType = toNode.type;
 
   if (fromType === 'input' && fromPortId === 'out') {
-    return toType === 'console' && toPortId === 'in';
+    if (toType !== 'console') { return false; }
+    return getConsoleInputPorts(toNode).some(p => p.id === toPortId);
   }
   if (fromType === 'console' && fromPortId === 'out') {
     if (toType === 'sending' && toPortId === 'in') { return true; }

@@ -1,37 +1,9 @@
-const { checkInputToConsole, checkConsoleOutput, checkSendingOutput, FALLBACK_PER_PORT_MAX_PX } = require('../js/validation/capacityRules.js');
+const { checkConsoleOutput, checkSendingOutput, FALLBACK_PER_PORT_MAX_PX } = require('../js/validation/capacityRules.js');
 const { getDevice } = require('../js/devices/devices.js');
 
-const mctrl4k = getDevice('console', 'novastar-mctrl4k');
-const mctrl660pro = getDevice('console', 'novastar-mctrl660pro');
 const j6 = getDevice('console', 'novastar-j6');
 const ec90 = getDevice('console', 'magnimage-ec90');
 const sendingMctrl4k = getDevice('sending', 'novastar-mctrl4k');
-
-describe('checkInputToConsole', () => {
-  test('defers when no device is selected', () => {
-    const res = checkInputToConsole({ resolutionW: 1920, resolutionH: 1080 }, null);
-    expect(res.ok).toBe(true);
-    expect(res.limit).toBeNull();
-  });
-
-  test('defers when device has no per-connector cap data (MCTRL660PRO)', () => {
-    const res = checkInputToConsole({ resolutionW: 1920, resolutionH: 1080 }, mctrl660pro);
-    expect(res.ok).toBe(true);
-    expect(res.limit).toBeNull();
-  });
-
-  test('passes when resolution fits the best available connector (MCTRL4K DP/HDMI 8,800,000px)', () => {
-    const res = checkInputToConsole({ resolutionW: 3840, resolutionH: 2160 }, mctrl4k); // 8,294,400px
-    expect(res.ok).toBe(true);
-    expect(res.limit).toBe(8800000);
-  });
-
-  test('fails when resolution exceeds every input connector cap', () => {
-    const res = checkInputToConsole({ resolutionW: 8000, resolutionH: 4000 }, mctrl4k); // 32,000,000px
-    expect(res.ok).toBe(false);
-    expect(res.limit).toBe(8800000);
-  });
-});
 
 describe('checkConsoleOutput', () => {
   test('defers when no device is selected', () => {
@@ -41,15 +13,20 @@ describe('checkConsoleOutput', () => {
   });
 
   test('lan-ports console: ok exactly at portCount * perPortMaxPx8bit boundary', () => {
-    const limit = mctrl4k.outputs.portCount * mctrl4k.outputs.perPortMaxPx8bit; // 10,400,000
-    const res = checkConsoleOutput({}, mctrl4k, limit);
+    // 콘솔 프리셋 목록에는 더 이상 lan-ports 장비가 없지만(EC90/J6은 둘 다
+    // video-signal), 수동 모드에서는 여전히 lan-ports를 선택할 수 있으므로
+    // 이 코드 경로는 합성 fixture로 계속 검증한다.
+    const synthetic = { name: '테스트콘솔', outputKind: 'lan-ports', outputs: { portCount: 10, perPortMaxPx8bit: 500000 } };
+    const limit = synthetic.outputs.portCount * synthetic.outputs.perPortMaxPx8bit; // 5,000,000
+    const res = checkConsoleOutput({}, synthetic, limit);
     expect(res.ok).toBe(true);
     expect(res.limit).toBe(limit);
   });
 
   test('lan-ports console: fails one pixel over the boundary', () => {
-    const limit = mctrl4k.outputs.portCount * mctrl4k.outputs.perPortMaxPx8bit;
-    const res = checkConsoleOutput({}, mctrl4k, limit + 1);
+    const synthetic = { name: '테스트콘솔', outputKind: 'lan-ports', outputs: { portCount: 10, perPortMaxPx8bit: 500000 } };
+    const limit = synthetic.outputs.portCount * synthetic.outputs.perPortMaxPx8bit;
+    const res = checkConsoleOutput({}, synthetic, limit + 1);
     expect(res.ok).toBe(false);
   });
 

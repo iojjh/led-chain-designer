@@ -18,9 +18,10 @@ function requiredPxOfDownstreamNode(graph, node) {
   return 0;
 }
 
-// 그래프만 받아 이슈 맵을 돌려주는 오케스트레이션 함수. checkInputToConsole 등
+// 그래프만 받아 이슈 맵을 돌려주는 오케스트레이션 함수. checkConsoleOutput 등
 // capacityRules.js의 순수 함수를 호출하지만, 장비 조회(getDevice)와 그래프 순회
-// (upstreamOf/downstreamOf)는 이 파일에서 수행한다.
+// (downstreamOf)는 이 파일에서 수행한다. 인풋소스→콘솔 구간은 해상도를 입력받지
+// 않으므로 픽셀 용량 검사가 없다 — 포트 점유(graphOps)만으로 연결 가능 여부가 정해진다.
 function runValidation(graph) {
   const nodeIssues = new Map();
   const edgeIssues = new Map();
@@ -30,24 +31,9 @@ function runValidation(graph) {
     nodeIssues.get(nodeId).push(issue);
   }
 
-  function addEdgeIssue(edgeId, issue) {
-    if (!edgeId) { return; }
-    if (!edgeIssues.has(edgeId)) { edgeIssues.set(edgeId, []); }
-    edgeIssues.get(edgeId).push(issue);
-  }
-
   graph.nodes.forEach(node => {
     if (node.type === 'console') {
       const device = node.config.deviceId ? getDevice('console', node.config.deviceId) : null;
-
-      upstreamOf(graph, node.id).filter(n => n.type === 'input').forEach(inputNode => {
-        const res = checkInputToConsole(inputNode.config, device);
-        if (!res.ok) {
-          addNodeIssue(node.id, res);
-          const edge = incomingEdge(graph, node.id, 'in');
-          if (edge && edge.from.nodeId === inputNode.id) { addEdgeIssue(edge.id, res); }
-        }
-      });
 
       const downstream = downstreamOf(graph, node.id);
       if (downstream.length > 0) {

@@ -50,15 +50,21 @@ GraphState = {
 ```
 
 포트 호환 규칙(`graphOps.js`):
-- `input.out` → `console.in[*]`만.
+- `input.out` → `console.in`(캔버스에는 도트 하나로 통합돼 있음). `isPairAllowed`는 여전히 엣지에 실제로 저장된 물리 포트 id(예: `hdmi1-2`)가 `devices.js`의 `getConsoleInputPorts(node)` 목록에 있는지로 판정한다. 장비 프리셋의 `inputs[]` 항목은 커넥터 종류당 실제 개수를 `count`로 갖고(`{id:'hdmi1', count:4}` = HDMI 4개), `getConsoleInputPorts`가 이를 `hdmi1-1..hdmi1-4`처럼 개별 슬롯으로 펼친다 — "HDMI 포트가 4개면 인풋소스 4개가 동시에 HDMI로 연결될 수 있다"는 실제 배선을 그대로 반영하기 위함(`count` 생략 시 1개). 장비 미지정(수동 모드)이면 `config.manualInputPorts`개의 범용 포트(in1, in2, …)를 반환한다. **어느 물리 슬롯을 쓸지는 캔버스 드래그가 아니라 연결 시점에 `interactions.js`의 `resolveConsoleInputConnection`이 정한다** — 빈 슬롯이 없으면 거부(토스트), 하나만 남았으면 자동 연결, 여럿이면 `#portPicker` 팝업으로 사용자가 고른다. 슬롯 하나에는 엣지가 하나만 연결될 수 있으므로(`targetPortOccupied`) "콘솔이 몇 개의 인풋소스를 받을 수 있는지"가 장비 스펙에서 자연히 정해진다.
 - `console.out[*]`: `outputKind==='lan-ports'`면 `sending.in` 또는 `led.in`에 직접 연결 가능. `outputKind==='video-signal'`이면 `sending.in`에만 연결 가능.
 - `sending.out` → `led.in`만.
 - `power.out` → `distro.in`만, `distro.out` → `led.pwrIn`만 (v1은 연결만, 용량 계산 없음).
 
+인풋소스→콘솔 엣지는 캔버스에서 연결된 포트의 라벨(예: "HDMI2.0")을 라인 중간에 표시한다(`canvasRenderer.js`의 `edgeLabelFor`/`drawEdgeLabel`). **인풋소스는 해상도를 입력받지 않으므로**(사용자 요청) 이 구간의 픽셀 용량 검증은 없다 — "몇 개까지 연결 가능한지"는 포트 개수만으로 구조적으로 강제된다.
+
+인풋소스 노드의 `config.sourceKind`는 `nodeTypes.js`의 `INPUT_KINDS`(vmix/resolume/ppt/relay/etc) 중 하나다. 새 인풋소스는 생성 시점에 바로 그 종류의 라벨(예: "vMix")로 시작한다(`state.js`의 `addNode`) — 드롭다운 기본값이 이미 vmix라 사용자가 다시 vmix를 선택해도 change 이벤트가 안 일어나는 문제를 회피하기 위함.
+
+속성 패널(`propertiesPanel.js`)은 모든 노드에 **삭제** 버튼을, `input`/`console`/`sending`(실제 설정 필드가 있는 타입)에는 추가로 **확인**(현재 폼 값을 강제 재적용하고 패널을 닫음)과 **초기화**(그 타입의 `defaultConfig`로 되돌림) 버튼을 제공한다. 빈 캔버스·다른 노드·엣지를 클릭하면 `selectNode`/`selectEdge`가 선택을 바꾸고 그때마다 `renderPropertiesPanel()`이 호출돼 패널이 자동으로 닫히거나 대상이 바뀐다.
+
 ## v1 범위
 
-- 6개 노드 타입 모두 배치·연결 가능. **용량 검증은 영상/랜 경로(입력→콘솔→샌딩카드→LED)만.** 전원 경로(메인전원/분전함)는 구조만 존재, 검증 로직은 이후 버전.
-- 장비 프리셋(`js/devices/devices.js`)은 `console`과 `sending` 카테고리 모두에서 조회 가능해야 한다 — NovaStar MCTRL4K/MCTRL660PRO는 콘솔과 샌딩카드 양쪽 역할을 겸하는 실제 장비이므로 두 카테고리에 동일 스펙으로 등록한다.
+- 6개 노드 타입 모두 배치·연결 가능. **용량 검증은 영상/랜 경로(콘솔→샌딩카드→LED)만.** 전원 경로(메인전원/분전함)는 구조만 존재, 검증 로직은 이후 버전.
+- 콘솔 장비 프리셋(`js/devices/devices.js`의 `DEVICES.console`)은 **NovaStar J6, Magnimage MIG-EC90 두 개만** 유지한다(사용자 요청으로 축소). NovaStar MCTRL4K/MCTRL660PRO는 `DEVICES.sending`에만 남아 있다 — 콘솔로 쓰고 싶으면 수동 모드로 직접 구성.
 - LED디스플레이 노드 클릭 → LED 설계 세부 페이지(`ledDesignView.js`)로 전환. 포트당 픽셀 상한은 그래프 상류에 연결된 장비의 스펙에서 가져오고, 미연결 시에만 `MAX_PX`(655,360) 기본값 사용.
 
 ## 버전 업 규칙

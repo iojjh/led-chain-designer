@@ -191,6 +191,7 @@ button {
 .node-ports-out { right: -6px; align-items: flex-end; }
 
 .port-dot {
+  position: relative;
   width: 11px;
   height: 11px;
   border-radius: 50%;
@@ -202,9 +203,48 @@ button {
 
 .port-dot:hover { transform: scale(1.35); }
 
+/* 출력 포트 "자석 효과" — 실제 눈에 보이는 점보다 훨씬 넓은 투명 히트 영역을
+   붙여서 드래그 시작을 더 쉽게 잡을 수 있게 한다. 의사 요소를 눌러도
+   event.target은 실제 .port-dot이 되므로 인터랙션 로직은 그대로 동작한다.
+   입력 포트에는 적용하지 않는다 — LED 노드처럼 in/pwrIn이 촘촘히 붙어있는
+   경우 히트 영역이 겹쳐 어느 포트인지 모호해지기 때문. */
+.port-dot.port-out::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
+
 .port-dot.port-kind-video { background: #4d8ff0; }
 .port-dot.port-kind-lan { background: #3ecf8e; }
 .port-dot.port-kind-power { background: #e7b549; }
+
+.port-dot.port-full { background: var(--err); cursor: not-allowed; }
+.port-dot.port-full:hover { transform: none; }
+
+/* ── 포트 피커 (인풋소스→콘솔 연결 시 물리 포트 선택) ──── */
+.port-picker {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  min-width: 160px;
+}
+.port-picker[hidden] { display: none; }
+
+.port-picker-btn {
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-0);
+}
+.port-picker-btn:hover { background: var(--bg-2); }
 
 /* ── 속성 패널 ──────────────────────────────────────── */
 .props-panel {
@@ -213,28 +253,58 @@ button {
   top: 16px;
   width: 260px;
   max-height: calc(100% - 32px);
-  overflow-y: auto;
   z-index: 10;
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
 }
+.props-panel[hidden] { display: none; }
 
 .props-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-soft);
   font-size: 13px;
   font-weight: 600;
+  flex-shrink: 0;
 }
+
+/* 이름을 길게 바꿔도 닫기(✕) 버튼이 항상 눌리는 위치에 남아있도록 —
+   제목은 줄여쓰고 버튼은 줄어들지 않게 고정한다. */
+#propsTitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.props-close { flex-shrink: 0; }
 
 .props-close { font-size: 13px; color: var(--text-1); padding: 2px 4px; }
 .props-close:hover { color: var(--text-0); }
 
-.props-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.props-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+
+.props-footer {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.props-btn {
+  flex: 1;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  color: var(--text-0);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.props-btn:hover { background: var(--border); }
+.props-btn-primary { background: var(--accent); color: #fff; }
+.props-btn-primary:hover { opacity: 0.9; background: var(--accent); }
+.props-btn-danger { color: var(--err); }
 
 .props-field {
   display: flex;
@@ -256,6 +326,22 @@ button {
 
 .props-hint { font-size: 11px; color: var(--text-1); line-height: 1.5; }
 .props-warn { color: var(--warn); margin-top: 4px; }
+
+.props-field-label { font-size: 11px; color: var(--text-1); margin-top: 2px; }
+
+.props-port-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+.props-port-name { color: var(--text-0); font-weight: 600; white-space: nowrap; }
+.props-port-status { color: var(--text-2); text-align: right; overflow: hidden; text-overflow: ellipsis; }
+.props-port-status.linked { color: var(--ok); }
 
 /* ── 이슈 패널 ──────────────────────────────────────── */
 .issues-panel {
@@ -377,30 +463,32 @@ button {
 
 .led-grid-wrap {
   flex: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   border-right: 1px solid var(--border);
 }
 
-.led-new-zone-toolbar {
+.led-mode-toolbar {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border-soft);
   font-size: 12px;
   color: var(--text-1);
 }
-.led-new-zone-toolbar select {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
+.led-mode-btn {
+  padding: 6px 10px;
   border-radius: var(--radius-sm);
-  color: var(--text-0);
-  padding: 4px 6px;
-  margin-left: 4px;
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: 12px;
 }
-.led-grid-hint { color: var(--text-2); }
+.led-mode-btn.on { background: var(--accent-soft); color: var(--text-0); }
+.led-mode-btn:hover { background: var(--border); }
+.led-grid-hint { color: var(--text-2); margin-left: 6px; }
 
 .led-grid-scroll {
   flex: 1;
@@ -409,6 +497,39 @@ button {
 }
 
 #ledGridCanvas { image-rendering: pixelated; cursor: crosshair; }
+
+/* 구역 생성/편집 팝업 — .led-grid-wrap 기준 절대 위치.
+   :not([hidden])로 스코프해 display 규칙이 hidden 속성을 절대 이기지 않게 한다. */
+.led-zone-cfg-popup:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: absolute;
+  z-index: 5;
+  width: 240px;
+  padding: 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+.led-cfg-row { display: flex; flex-direction: column; gap: 6px; }
+.led-cfg-label { font-size: 11px; color: var(--text-2); }
+
+.led-chip-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.led-chip {
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: 12px;
+}
+.led-chip:hover { background: var(--border); }
+.led-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.led-cfg-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px; }
 
 .led-side {
   width: 320px;
@@ -453,48 +574,49 @@ button {
 }
 .zone-del-btn:hover { text-decoration: underline; }
 
-.led-port-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
-.led-port-tab {
-  flex: 1;
-  padding: 6px;
+.led-port-source { font-size: 11px; color: var(--text-1); margin-bottom: 10px; line-height: 1.5; }
+
+.led-port-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.led-port-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
   border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
   background: var(--bg-2);
-  font-size: 12px;
   color: var(--text-1);
+  font-size: 11px;
 }
-.led-port-tab.on { background: var(--accent-soft); color: var(--text-0); }
+.led-port-chip:hover { background: var(--border); }
+.led-port-chip.on { border-color: var(--chip-color, var(--accent)); background: var(--accent-soft); color: var(--text-0); }
+.chip-count { color: var(--text-2); }
 
-.led-port-source { font-size: 11px; color: var(--text-1); margin-bottom: 8px; line-height: 1.5; }
+.led-port-detail {
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  margin-bottom: 10px;
+}
+.led-port-detail-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }
+.port-name { font-weight: 600; }
+.port-meta { color: var(--text-1); flex: 1; }
+.port-reset-btn { font-size: 11px; color: var(--text-1); padding: 3px 8px; border-radius: var(--radius-sm); background: var(--bg-2); }
+.port-reset-btn:hover { background: var(--border); }
+.port-bar { width: 100%; height: 4px; background: var(--bg-2); border-radius: 2px; overflow: hidden; }
+.port-bar-fill { height: 100%; }
 
+.led-port-actions { display: flex; gap: 6px; }
 .led-auto-btn {
-  width: 100%;
+  flex: 1;
   padding: 8px;
   border-radius: var(--radius-sm);
   background: var(--accent);
   color: #fff;
   font-size: 12px;
   font-weight: 600;
-  margin-bottom: 10px;
 }
 .led-auto-btn:hover { opacity: 0.9; }
-
-.led-port-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
-
-.led-port-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-soft);
-  font-size: 11px;
-}
-.led-port-row.over { border-color: var(--err); }
-.port-name { font-weight: 600; }
-.port-meta { color: var(--text-1); flex: 1; }
-.port-bar { width: 100%; height: 4px; background: var(--bg-2); border-radius: 2px; overflow: hidden; }
-.port-bar-fill { height: 100%; }
 
 .led-total { font-size: 13px; color: var(--text-1); margin-top: auto; }
 .led-total b { color: var(--text-0); }

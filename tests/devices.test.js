@@ -1,16 +1,14 @@
-const { DEVICES, getDevice, listDevices } = require('../js/devices/devices.js');
+const { DEVICES, getDevice, listDevices, getConsoleInputPorts } = require('../js/devices/devices.js');
 
 test('getDevice returns null for unknown category/id', () => {
   expect(getDevice('console', 'nope')).toBeNull();
   expect(getDevice('nope', 'nope')).toBeNull();
 });
 
-test('getDevice returns the seeded MCTRL4K console preset', () => {
-  const d = getDevice('console', 'novastar-mctrl4k');
-  expect(d.outputKind).toBe('lan-ports');
-  expect(d.outputs.portCount).toBe(16);
-  expect(d.outputs.perPortMaxPx8bit).toBe(650000);
-  expect(d.outputs.perPortMaxPx10bit).toBe(320000);
+test('console presets are limited to J6 and MIG-EC90 only', () => {
+  expect(Object.keys(DEVICES.console).sort()).toEqual(['magnimage-ec90', 'novastar-j6']);
+  expect(getDevice('console', 'novastar-mctrl4k')).toBeNull();
+  expect(getDevice('console', 'novastar-mctrl660pro')).toBeNull();
 });
 
 test('J6 and MIG-EC90 are video-signal consoles (cannot feed led directly)', () => {
@@ -24,19 +22,67 @@ test('J6 splicer mode capacity matches the vendor spec', () => {
   expect(j6.modes.splicer.maxMosaicWidthPx).toBe(15360);
 });
 
-test('MCTRL4K and MCTRL660PRO are also registered as sending-card presets', () => {
+test('MIG-EC90 exposes its 3 categorized input connector types, each with a physical count', () => {
+  const ec90 = getDevice('console', 'magnimage-ec90');
+  expect(ec90.inputs.map(i => i.id)).toEqual(['hdmi1', 'dp1', 'sdi1']);
+  expect(ec90.inputs.map(i => i.count)).toEqual([4, 2, 2]);
+});
+
+test('MCTRL4K and MCTRL660PRO remain available as sending-card presets', () => {
   const sendingIds = listDevices('sending').map(d => d.id);
   expect(sendingIds).toEqual(expect.arrayContaining(['novastar-mctrl4k', 'novastar-mctrl660pro']));
 });
 
-test('sending preset port caps match the console preset output caps', () => {
-  const consolePreset = getDevice('console', 'novastar-mctrl660pro');
-  const sendingPreset = getDevice('sending', 'novastar-mctrl660pro');
-  expect(sendingPreset.portCount).toBe(consolePreset.outputs.portCount);
-  expect(sendingPreset.perPortMaxPx8bit).toBe(consolePreset.outputs.perPortMaxPx8bit);
+test('sending preset port caps match the vendor spec', () => {
+  const mctrl4k = getDevice('sending', 'novastar-mctrl4k');
+  expect(mctrl4k.portCount).toBe(16);
+  expect(mctrl4k.perPortMaxPx8bit).toBe(650000);
+
+  const mctrl660pro = getDevice('sending', 'novastar-mctrl660pro');
+  expect(mctrl660pro.portCount).toBe(6);
+  expect(mctrl660pro.perPortMaxPx8bit).toBe(650000);
 });
 
 test('listDevices returns an array for every known category', () => {
   expect(listDevices('console').length).toBe(Object.keys(DEVICES.console).length);
   expect(listDevices('sending').length).toBe(Object.keys(DEVICES.sending).length);
+});
+
+describe('getConsoleInputPorts', () => {
+  test('device preset (MIG-EC90) expands each connector type into individually addressable slots', () => {
+    // HDMI×4 + DP×2 + SDI×2 = 8개의 실제로 연결 가능한 개별 포트.
+    const ports = getConsoleInputPorts({ config: { deviceId: 'magnimage-ec90' } });
+    expect(ports.map(p => p.id)).toEqual([
+      'hdmi1-1', 'hdmi1-2', 'hdmi1-3', 'hdmi1-4',
+      'dp1-1', 'dp1-2',
+      'sdi1-1', 'sdi1-2',
+    ]);
+    expect(ports).toHaveLength(8);
+    expect(ports.find(p => p.id === 'hdmi1-1').maxPx).toBe(3840 * 2160);
+    expect(ports.find(p => p.id === 'hdmi1-1').label).toBe('HDMI2.0 #1');
+  });
+
+  test('J6\'s single mixed-input type (count:8) expands into 8 slots', () => {
+    const ports = getConsoleInputPorts({ config: { deviceId: 'novastar-j6' } });
+    expect(ports).toHaveLength(8);
+    expect(ports[0].id).toBe('in1-1');
+    expect(ports[7].id).toBe('in1-8');
+  });
+
+  test('an unknown/removed deviceId falls back to manual mode ports', () => {
+    const ports = getConsoleInputPorts({ config: { deviceId: 'novastar-mctrl4k' } });
+    expect(ports.map(p => p.id)).toEqual(['in1', 'in2']);
+  });
+
+  test('manual mode defaults to 2 generic ports', () => {
+    const ports = getConsoleInputPorts({ config: {} });
+    expect(ports.map(p => p.id)).toEqual(['in1', 'in2']);
+    expect(ports.every(p => p.maxPx === null)).toBe(true);
+  });
+
+  test('manual mode respects manualInputPorts, clamped to [1, 8]', () => {
+    expect(getConsoleInputPorts({ config: { manualInputPorts: 4 } })).toHaveLength(4);
+    expect(getConsoleInputPorts({ config: { manualInputPorts: 0 } })).toHaveLength(1);
+    expect(getConsoleInputPorts({ config: { manualInputPorts: 99 } })).toHaveLength(8);
+  });
 });

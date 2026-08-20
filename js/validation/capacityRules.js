@@ -7,34 +7,10 @@
 
 const FALLBACK_PER_PORT_MAX_PX = 655360; // 아무 장비도 지정되지 않았을 때만 쓰는 기본값(구 MAX_PX)
 
-function inputRequiredPx(inputConfig) {
-  return (inputConfig.resolutionW || 0) * (inputConfig.resolutionH || 0);
-}
-
-// 입력 해상도가 콘솔의 입력 커넥터 중 하나로라도 수용 가능한지 검사.
-// device가 null이면(장비 미지정) 판정을 보류한다. 커넥터별 상한 정보가 없는
-// 장비(MCTRL660PRO 등, maxPx: null)도 마찬가지로 보류한다.
-function checkInputToConsole(inputConfig, device) {
-  const requiredPx = inputRequiredPx(inputConfig);
-  if (!device) {
-    return { ok: true, message: '장비 미지정 — 입력 용량 검증 보류', actual: requiredPx, limit: null };
-  }
-
-  const knownCaps = device.inputs.map(i => i.maxPx).filter(px => px !== null && px !== undefined);
-  if (knownCaps.length === 0) {
-    return { ok: true, message: '입력 커넥터별 상한 정보 없음', actual: requiredPx, limit: null };
-  }
-
-  const bestCap = Math.max(...knownCaps);
-  if (requiredPx > bestCap) {
-    return {
-      ok: false,
-      message: `입력 해상도(${requiredPx.toLocaleString()}px)가 ${device.name}의 어떤 입력 포트로도 수용되지 않습니다`,
-      actual: requiredPx, limit: bestCap,
-    };
-  }
-  return { ok: true, message: '입력 용량 이내', actual: requiredPx, limit: bestCap };
-}
+// 인풋소스는 해상도를 입력받지 않으므로(사용자 요청) 입력 쪽 픽셀 용량 검사는
+// 하지 않는다 — 콘솔의 "몇 개까지 받을 수 있는지"는 물리 포트 개수만으로
+// 구조적으로 강제된다(graphOps.js의 포트 점유 규칙 + interactions.js의 포트
+// 피커에서 빈 포트가 없으면 연결 자체를 막음).
 
 // 콘솔 하류(샌딩카드 또는 LED 직결) 총 요구 픽셀이 콘솔 출력 용량 이내인지 검사.
 // lan-ports 콘솔: 포트수 × 포트당 상한(8bit 기준)을 전체 용량으로 간주한다
@@ -81,7 +57,7 @@ function checkSendingOutput(sendingConfig, device, downstreamRequiredPx) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    inputRequiredPx, checkInputToConsole, checkConsoleOutput, checkSendingOutput,
+    checkConsoleOutput, checkSendingOutput,
     FALLBACK_PER_PORT_MAX_PX,
   };
 }
