@@ -5,12 +5,20 @@
 // rAF 기반 드래그 사각형 스무딩, mouseup 시점 탭/드래그 판정, 터치 이벤트, 라운드
 // 렌더링, 캔버스 내 구역 정보 텍스트, 선택 하이라이트, 잔여 셀 라벨, 신규 구역
 // 생성 애니메이션. 격자 크기는 창/화면에 맞춰 항상 한눈에 들어오도록 자동 조정.
+// LAN/PWR 포트 배정 캔버스는 (제거된) §11 랜선 시뮬레이터(script.backup.js
+// 1557-2400줄, buildSim/drawPortPaths/_calcLan/attachEv 등)의 편의기능도
+// 이식했다: 배선 경로 베지어 곡선+화살표, 셀 내 연결순서·포트 라벨, 케이블
+// 소요량 계산(여유분 직접 편집), 키보드 방향키 정밀 배정, 터치/마우스 롱프레스
+// 딜레이 분리, 진동 피드백, 전체초기화 확인 다이얼로그.
 // 알고리즘은 specs.js/betaPanels.js/portAssignment.js(포팅됨)를 그대로 쓰고,
 // 여기서는 DOM/캔버스 렌더링과 상호작용만 새로 구성한다.
 
-const LONG_PRESS_MS = 380;
+const LONG_PRESS_MOUSE_MS = 380;
+const LONG_PRESS_TOUCH_MS = 600; // 터치는 오탭 방지를 위해 마우스보다 길게(원본 LP_TOUCH)
 const PWR_PORT_CAP = 300000; // 원본 betaAutoAssignPwr의 경험적 상수(script.js) — 수동 배정 시 초과 표시 기준으로도 재사용
 const ZONE_ANIM_MS = 380;
+const LAN_SHORT_BUNDLE = 20; // 숏랜 묶음 단위(원본 §11 그대로)
+const PWR_SHORT_BUNDLE = 10; // 숏 파워 묶음 단위(원본 §11 그대로)
 
 const _led = {
   nodeId: null,
@@ -32,6 +40,7 @@ const _led = {
   newPanelH: 500,
   animProg: null, // {ids:Set, t} — 신규 구역 생성 애니메이션 진행도
   activePort: 0,
+  focusPanelKey: null, // 키보드 방향키 포커스 패널(원본 fCell)
   pointerDownPanel: null,
   pointerDownScreen: { x: 0, y: 0 },
   pointerMoved: false,
@@ -91,6 +100,7 @@ function openLedDesignView(nodeId) {
   _led.dragCur = null;
   _led.dragLerp = null;
   _led.activePort = 0;
+  _led.focusPanelKey = null;
 
   const cfg = getLedConfig();
   if (!cfg.lanPorts || cfg.lanPorts.length === 0) { resetPortAssignments(); }
@@ -134,6 +144,7 @@ function initLedDesignView() {
   _led.canvas.addEventListener('touchstart', e => { e.preventDefault(); onGridMouseDown(e); }, { passive: false });
   _led.canvas.addEventListener('touchmove', e => { e.preventDefault(); onGridMouseMove(e); }, { passive: false });
   _led.canvas.addEventListener('touchend', e => { e.preventDefault(); onGridMouseUp(e); }, { passive: false });
+  _led.canvas.addEventListener('keydown', onPortKeyDown);
 
   document.querySelectorAll('.led-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => setLedMode(btn.dataset.mode));
@@ -184,10 +195,14 @@ function initLedDesignView() {
   });
 
   document.getElementById('ledResetAllBtn').addEventListener('click', () => {
+    const label = _led.mode === 'lan' ? 'LAN' : 'PWR';
+    if (!window.confirm(`현재 ${label} 포트 배정을 전부 초기화할까요? 되돌릴 수 없습니다.`)) { return; }
     const cfg = getLedConfig();
     const key = _led.mode === 'lan' ? 'lanPorts' : 'pwrPorts';
     cfg[key] = Array.from({ length: portCountForMode() }, () => []);
+    _led.focusPanelKey = null;
     renderPortPanel();
+    drawGrid();
   });
 
   // 창 크기 변경(브라우저 리사이즈, 모바일 회전 등)에도 격자가 항상 화면에 맞게
@@ -202,6 +217,7 @@ function initLedDesignView() {
 // ── 모드 전환 (구역 편집 / LAN 배선 / PWR 배선) ──────────
 function setLedMode(mode) {
   _led.mode = mode;
+  _led.focusPanelKey = null;
   closeZoneCfgPopup();
   document.querySelectorAll('.led-mode-btn').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
   document.getElementById('ledModeHint').textContent = mode === 'zone'
@@ -467,9 +483,17 @@ function setPanelPort(key, portIdx) {
   if (portIdx !== -1 && portIdx != null) { ports[portIdx].push(key); }
 }
 
+// 탭 토글: 이미 활성 포트 소속이면 해제, 아니면 활성 포트로 배정. 배정/해제에
+// 따라 키보드 포커스도 함께 옮겨서 탭 직후 방향키로 이어서 배선할 수 있게 한다.
 function togglePanel(panel) {
   const owner = portIndexOfKey(panel.key);
-  setPanelPort(panel.key, owner === _led.activePort ? -1 : _led.activePort);
+  if (owner === _led.activePort) {
+    setPanelPort(panel.key, -1);
+    if (_led.focusPanelKey === panel.key) { _led.focusPanelKey = null; }
+  } else {
+    setPanelPort(panel.key, _led.activePort);
+    _led.focusPanelKey = panel.key;
+  }
 }
 
 // 드래그로 지나간 칸을 활성 포트에 칠한다. 바로 이전 칸으로 되짚으면 그 칠을 취소한다.
@@ -479,11 +503,13 @@ function paintPanel(panel) {
   if (stack.length >= 2 && stack[stack.length - 2].key === panel.key) {
     const last = stack.pop();
     setPanelPort(last.key, last.prevPort);
+    if (navigator.vibrate) { navigator.vibrate(25); }
     return;
   }
   const prevPort = portIndexOfKey(panel.key);
   stack.push({ key: panel.key, prevPort });
   setPanelPort(panel.key, _led.activePort);
+  if (navigator.vibrate) { navigator.vibrate(15); }
 }
 
 function onPortMouseDown(e) {
@@ -495,14 +521,17 @@ function onPortMouseDown(e) {
   _led.paintStack = [];
   if (!panel) { return; }
   clearTimeout(_led.longPressTimer);
+  const isTouch = !!(e.touches && e.touches.length);
   _led.longPressTimer = setTimeout(() => {
     if (!_led.pointerDownPanel) { return; }
     const owner = portIndexOfKey(panel.key);
     if (owner !== -1) { _led.activePort = owner; renderPortStrip(); renderPortDetail(); }
     _led.isPainting = true;
+    _led.focusPanelKey = null;
+    setDragBadge(true);
     paintPanel(panel);
     drawGrid();
-  }, LONG_PRESS_MS);
+  }, isTouch ? LONG_PRESS_TOUCH_MS : LONG_PRESS_MOUSE_MS);
 }
 
 function onPortMouseMove(e) {
@@ -520,6 +549,7 @@ function onPortMouseMove(e) {
 
 function onPortMouseUp() {
   clearTimeout(_led.longPressTimer);
+  setDragBadge(false);
   if (!_led.isPainting && _led.pointerDownPanel && !_led.pointerMoved) {
     togglePanel(_led.pointerDownPanel);
   }
@@ -527,7 +557,88 @@ function onPortMouseUp() {
   _led.pointerDownPanel = null;
   _led.isPainting = false;
   _led.paintStack = [];
-  if (didChange) { renderPortPanel(); drawGrid(); }
+  if (didChange) { renderPortPanel(); drawGrid(); _led.canvas.focus(); }
+}
+
+function setDragBadge(on) {
+  const el = document.getElementById('ledDragBadge');
+  if (el) { el.hidden = !on; }
+}
+
+// ── 키보드 방향키로 정밀 배정/이동 (원본 §11 fCell 방향키 내비게이션 이식) ──
+// 패널들은 500mm 격자에 정렬돼 있으므로, 현재 포커스 패널 기준 해당 방향에
+// 있는 가장 가까운 패널을 찾아 이동한다. 뒤로 되짚으면(직전 셀로 복귀) 자동 취소.
+function onPortKeyDown(e) {
+  if (_led.mode === 'zone') { return; }
+  const dirMap = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+  const dir = dirMap[e.key];
+  if (!dir) { return; }
+  e.preventDefault();
+  const panels = allPanels();
+  if (!panels.length) { return; }
+
+  if (!_led.focusPanelKey) {
+    const first = panels[0];
+    _led.focusPanelKey = first.key;
+    setPanelPort(first.key, _led.activePort);
+    renderPortPanel(); drawGrid();
+    return;
+  }
+
+  const cur = panels.find(p => p.key === _led.focusPanelKey);
+  if (!cur) { _led.focusPanelKey = null; return; }
+
+  const hist = activePortsArray()[_led.activePort];
+  if (hist.length >= 2) {
+    const prevPanel = panels.find(p => p.key === hist[hist.length - 2]);
+    if (prevPanel && isNeighborInDir(cur, prevPanel, dir)) {
+      setPanelPort(cur.key, -1);
+      _led.focusPanelKey = prevPanel.key;
+      renderPortPanel(); drawGrid();
+      return;
+    }
+  }
+
+  const target = nearestPanelInDirection(cur, panels, dir);
+  if (!target) {
+    if (hist.length === 1 && hist[0] === cur.key) {
+      setPanelPort(cur.key, -1);
+      _led.focusPanelKey = null;
+      renderPortPanel(); drawGrid();
+    }
+    return;
+  }
+  const owner = portIndexOfKey(target.key);
+  if (owner !== -1 && owner !== _led.activePort) { return; }
+  _led.focusPanelKey = target.key;
+  setPanelPort(target.key, _led.activePort);
+  renderPortPanel(); drawGrid();
+}
+
+function isNeighborInDir(from, to, dir) {
+  const dx = Math.sign((to.x + to.w / 2) - (from.x + from.w / 2));
+  const dy = Math.sign((to.y + to.h / 2) - (from.y + from.h / 2));
+  return dx === dir[0] && dy === dir[1];
+}
+
+// from 기준 dir(방향 벡터) 쪽에 있는 패널 중 진행축에서 벗어난 정도가 작고
+// 가장 가까운 것을 고른다 — 균일하지 않은 패널 크기(500×1000 등)에도 대응.
+function nearestPanelInDirection(from, panels, dir) {
+  const [dxs, dys] = dir;
+  const fromCx = from.x + from.w / 2; const fromCy = from.y + from.h / 2;
+  let best = null; let bestDist = Infinity;
+  panels.forEach(p => {
+    if (p.key === from.key) { return; }
+    const cx = p.x + p.w / 2; const cy = p.y + p.h / 2;
+    const dx = cx - fromCx; const dy = cy - fromCy;
+    if (dxs !== 0 && Math.sign(dx) !== dxs) { return; }
+    if (dys !== 0 && Math.sign(dy) !== dys) { return; }
+    if (dxs !== 0 && Math.abs(dy) > Math.abs(dx) * 0.5) { return; }
+    if (dys !== 0 && Math.abs(dx) > Math.abs(dy) * 0.5) { return; }
+    const dist = Math.hypot(dx, dy);
+    if (dist < bestDist) { bestDist = dist; best = p; }
+  });
+  return best;
 }
 
 // ── 렌더링 ────────────────────────────────────────────
@@ -657,6 +768,8 @@ function drawZonesForEdit(ctx) {
 function drawPanelsForPortMode(ctx) {
   const cfg = getLedConfig();
   const ports = activePortsArray();
+
+  // 패스 1: 구역 외곽선 + 패널 배경/테두리
   cfg.zones.forEach(zone => {
     ctx.strokeStyle = '#3a3c44';
     ctx.lineWidth = 1;
@@ -674,7 +787,112 @@ function drawPanelsForPortMode(ctx) {
       ctx.strokeStyle = portIdx === _led.activePort ? '#ffffff' : '#4a4d55';
       ctx.lineWidth = portIdx === _led.activePort ? 2 : 1;
       ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
+      if (p.key === _led.focusPanelKey) {
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.strokeRect(px + 3, py + 3, pw - 6, ph - 6);
+        ctx.strokeStyle = '#378ADD'; ctx.lineWidth = 2; ctx.strokeRect(px + 3, py + 3, pw - 6, ph - 6);
+      }
     });
+  });
+
+  // 패스 2: 포트별 배선 경로(배경 위, 라벨 아래)
+  drawPortPaths(ctx);
+
+  // 패스 3: 셀 내 연결 순서 번호 + 포트 라벨(경로 위에 그림)
+  const stepOf = new Map();
+  ports.forEach(keys => keys.forEach((k, idx) => stepOf.set(k, idx + 1)));
+  cfg.zones.forEach(zone => {
+    betaPanels(zone).forEach(p => {
+      const portIdx = ports.findIndex(arr => arr.includes(p.key));
+      if (portIdx === -1 || _led.cellPx < 20) { return; }
+      const px = p.x / 500 * _led.cellPx; const py = p.y / 500 * _led.cellPx;
+      const pw = p.w / 500 * _led.cellPx; const ph = p.h / 500 * _led.cellPx;
+      const lit = portIdx === _led.activePort;
+      const step = stepOf.get(p.key);
+      const cx = px + pw / 2; const cy = py + ph / 2;
+
+      if (step) {
+        const fs = Math.min(12, _led.cellPx - 8);
+        const r = Math.max(8, fs * 0.72);
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fillStyle = lit ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.65)';
+        ctx.fill();
+        ctx.font = `700 ${fs}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = lit ? portColor(portIdx) : 'rgba(80,80,80,0.6)';
+        ctx.fillText(String(step), cx, cy);
+      }
+      if (_led.cellPx >= 32) {
+        const label = 'P' + (portIdx + 1);
+        ctx.font = '700 9px sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.lineJoin = 'round'; ctx.lineWidth = 2.5;
+        ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        ctx.strokeText(label, px + 4, py + 4);
+        ctx.fillStyle = lit ? 'rgba(255,255,255,0.97)' : 'rgba(255,255,255,0.88)';
+        ctx.fillText(label, px + 4, py + 4);
+      }
+      ctx.textBaseline = 'alphabetic';
+    });
+  });
+}
+
+// 포트별 배선 경로를 배정 순서(배열 순서)를 따라 흰 테두리+색상 이중선으로,
+// 마지막 구간엔 화살촉으로 그린다(원본 §11 drawPortPaths 이식). 같은 행에서
+// 열만 건너뛰는 구간은 겹침 방지를 위해 살짝 부풀린 2차 베지어 곡선을 쓴다.
+function drawPortPaths(ctx) {
+  const { rows: totalRows } = gridDims();
+  const panelByKey = new Map(allPanels().map(p => [p.key, p]));
+  const ports = activePortsArray();
+
+  ports.forEach((keys, pi) => {
+    const pts = keys.map(k => {
+      const p = panelByKey.get(k);
+      if (!p) { return null; }
+      return {
+        x: (p.x + p.w / 2) / 500 * _led.cellPx,
+        y: (p.y + p.h / 2) / 500 * _led.cellPx,
+        row: p.y / 500,
+      };
+    }).filter(Boolean);
+    if (pts.length < 2) { return; }
+
+    const color = portColor(pi);
+    const strokePath = (style, lw) => {
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i += 1) {
+        const a = pts[i - 1]; const b = pts[i];
+        if (a.row === b.row && a.x !== b.x) {
+          const isTop = a.row < totalRows / 2;
+          const ctrlY = isTop ? a.y - _led.cellPx * 0.7 : a.y + _led.cellPx * 0.7;
+          ctx.quadraticCurveTo((a.x + b.x) / 2, ctrlY, b.x, b.y);
+        } else {
+          ctx.lineTo(b.x, b.y);
+        }
+      }
+      ctx.strokeStyle = style; ctx.lineWidth = lw; ctx.stroke();
+    };
+
+    ctx.save();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    strokePath('rgba(255,255,255,0.85)', 6);
+    strokePath(color, 3);
+
+    const a = pts[pts.length - 2]; const b = pts[pts.length - 1];
+    const dx = b.x - a.x; const dy = b.y - a.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len >= 1) {
+      const ux = dx / len; const uy = dy / len; const hw = 6; const hl = 12; const nx = -uy; const ny = ux;
+      const bx = b.x - ux * 5; const by = b.y - uy * 5;
+      const drawTip = fillStyle => {
+        ctx.beginPath(); ctx.moveTo(bx, by);
+        ctx.lineTo(bx - ux * hl + nx * hw, by - uy * hl + ny * hw);
+        ctx.lineTo(bx - ux * hl - nx * hw, by - uy * hl - ny * hw);
+        ctx.closePath(); ctx.fillStyle = fillStyle; ctx.fill();
+      };
+      drawTip('rgba(255,255,255,0.85)');
+      drawTip(color);
+    }
+    ctx.restore();
   });
 }
 
@@ -742,6 +960,7 @@ function renderPortPanel() {
   if (_led.activePort >= spec.portCount) { _led.activePort = 0; }
   renderPortStrip();
   renderPortDetail();
+  renderCableSum();
 }
 
 function renderPortStrip() {
@@ -788,4 +1007,96 @@ function renderPortDetail() {
     renderPortPanel();
     drawGrid();
   });
+}
+
+// ── 케이블 소요량 계산 (원본 §11 _calcLan/calcPW/renderSum/setSpare 이식) ──
+// LAN: 메인+백업 이중화(포트당 2개) — 원본 그대로. PWR: 이 앱은 §14 방식대로
+// PWR도 LAN처럼 사용자가 직접 포트에 패널을 배정하는 구조라, "백업" 개념 없이
+// 포트당 1개로 계산한다(원본 §11의 PWR은 배정 없이 열 구조로만 계산했음 — 이
+// 앱의 수동배정 포트 모델에 맞춰 LAN과 같은 "필요+여유" 방식으로 일반화).
+// 숏랜/숏파워는 포트 내 패널 daisy-chain 연결 수(장수-1의 합)로 동일하게 계산.
+function renderCableSum() {
+  const el = document.getElementById('ledCableSum');
+  if (!el) { return; }
+  const cfg = getLedConfig();
+  const isLan = _led.mode === 'lan';
+  const mainKey = isLan ? 'l1' : 'c1';
+  const shortKey = isLan ? 'sl' : 'sp';
+  const mainLbl = isLan ? '1번 랜' : '1번 파워';
+  const shortLbl = isLan ? '숏랜' : '숏 파워';
+  const bundleSize = isLan ? LAN_SHORT_BUNDLE : PWR_SHORT_BUNDLE;
+
+  el.innerHTML = `
+    <div class="led-cable-card">
+      <div class="cable-lbl">${mainLbl}</div>
+      <div class="cable-total" id="cableMainTotal"></div>
+      ${isLan ? '<div class="cable-note" id="cableMainNote"></div>' : ''}
+      <div class="cable-qty-row">필요 <b id="cableMainNet"></b> · 여유
+        <input class="cable-spare-inp" id="cableMainSpare" type="number" min="0" value="${cfg.spareAdj[mainKey] || 0}">
+      </div>
+    </div>
+    <div class="led-cable-card">
+      <div class="cable-lbl">${shortLbl}</div>
+      <div class="cable-total" id="cableShortTotal"></div>
+      <div class="cable-bundle" id="cableShortBundle">×${bundleSize}</div>
+      <div class="cable-qty-row">필요 <b id="cableShortNet"></b> · 여유
+        <input class="cable-spare-inp" id="cableShortSpare" type="number" min="0" value="${cfg.spareAdj[shortKey] || 0}">
+      </div>
+    </div>
+    <div class="cable-warn" id="cableWarn" hidden></div>
+  `;
+
+  document.getElementById('cableMainSpare').addEventListener('input', e => {
+    cfg.spareAdj[mainKey] = clampSpareInput(e.target.value);
+    updateCableSum();
+  });
+  document.getElementById('cableShortSpare').addEventListener('input', e => {
+    cfg.spareAdj[shortKey] = clampSpareInput(e.target.value);
+    updateCableSum();
+  });
+
+  updateCableSum();
+}
+
+function clampSpareInput(v) {
+  const n = parseInt(v, 10);
+  return (v === '' || Number.isNaN(n) || n < 0) ? 0 : n;
+}
+
+// 여유분 입력 시 합계 텍스트만 갱신(입력 포커스·커서 위치 유지, 원본 setSpare와 동일한 목적)
+function updateCableSum() {
+  const cfg = getLedConfig();
+  const isLan = _led.mode === 'lan';
+  const ports = activePortsArray();
+  const mainKey = isLan ? 'l1' : 'c1';
+  const shortKey = isLan ? 'sl' : 'sp';
+
+  const used = ports.filter(arr => arr.length > 0).length;
+  const mainNet = isLan ? used * 2 : used;
+  const mainSpare = cfg.spareAdj[mainKey] || 0;
+  const main = mainNet + mainSpare;
+
+  let shortNet = 0;
+  ports.forEach(arr => { if (arr.length > 0) { shortNet += arr.length - 1; } });
+  const shortSpare = cfg.spareAdj[shortKey] || 0;
+  const short = shortNet + shortSpare;
+  const bundleSize = isLan ? LAN_SHORT_BUNDLE : PWR_SHORT_BUNDLE;
+  const bundle = Math.ceil(short / bundleSize);
+
+  const set = (id, text) => { const e = document.getElementById(id); if (e) { e.textContent = text; } };
+  set('cableMainTotal', `${main} 개`);
+  set('cableMainNet', String(mainNet));
+  if (isLan) { set('cableMainNote', `메인 ${used} · 백업 ${used}`); }
+  set('cableShortTotal', `${short} 개`);
+  set('cableShortBundle', `${bundle}묶음 (×${bundleSize})`);
+  set('cableShortNet', String(shortNet));
+
+  const totalPanels = allPanels().length;
+  const assigned = new Set(); ports.forEach(arr => arr.forEach(k => assigned.add(k)));
+  const unassigned = totalPanels - assigned.size;
+  const warnEl = document.getElementById('cableWarn');
+  if (warnEl) {
+    warnEl.hidden = unassigned <= 0;
+    warnEl.textContent = `미할당 ${unassigned} / ${totalPanels} 패널`;
+  }
 }

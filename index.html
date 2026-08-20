@@ -104,7 +104,7 @@
           </div>
         </div>
         <div class="led-grid-scroll">
-          <canvas id="ledGridCanvas"></canvas>
+          <canvas id="ledGridCanvas" tabindex="0"></canvas>
         </div>
 
         <!-- 구역 편집 팝업: 기존 구역을 탭하면 LED 피치·패널 크기를 바꾸거나 삭제할 수 있다 -->
@@ -138,13 +138,17 @@
           <div id="ledZoneList" class="led-zone-list"></div>
         </div>
         <div id="ledPortSection" class="led-side-section" hidden>
-          <div class="led-port-source" id="ledPortSource"></div>
+          <div class="led-port-source-row">
+            <div class="led-port-source" id="ledPortSource"></div>
+            <span id="ledDragBadge" class="drag-badge" hidden>✋ 드래그 중</span>
+          </div>
           <div id="ledPortStrip" class="led-port-strip"></div>
           <div id="ledPortDetail" class="led-port-detail"></div>
           <div class="led-port-actions">
             <button id="ledAutoAssignBtn" class="led-auto-btn">자동 할당</button>
             <button id="ledResetAllBtn" class="props-btn props-btn-danger">전체 초기화</button>
           </div>
+          <div id="ledCableSum" class="led-cable-sum"></div>
         </div>
         <div class="led-side-section led-total">
           총 필요 픽셀: <b id="ledTotalPx">0</b>px

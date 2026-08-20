@@ -46,7 +46,7 @@ function defaultConfig(type) {
           areaW: 0, areaH: 0, zones: [],
           lanPorts: [], lanOrder: [],
           pwrPorts: [], pwrOrder: [],
-          spareAdj: { l1: 2, sl: 20 },
+          spareAdj: { l1: 2, sl: 20, c1: 2, sp: 20 },
         },
         totalRequiredPx: 0,
       };

@@ -603,7 +603,21 @@ button {
 }
 .zone-del-btn:hover { text-decoration: underline; }
 
-.led-port-source { font-size: 11px; color: var(--text-1); margin-bottom: 10px; line-height: 1.5; }
+.led-port-source-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.led-port-source { font-size: 11px; color: var(--text-1); line-height: 1.5; flex: 1; }
+
+.drag-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  white-space: nowrap;
+}
+.drag-badge[hidden] { display: none; }
+
+#ledGridCanvas:focus { outline: none; } /* 포커스는 캔버스 자체에 직접 그리는 링(흰색+파란색 이중선)으로 표시 */
 
 .led-port-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .led-port-chip {
@@ -646,6 +660,39 @@ button {
   font-weight: 600;
 }
 .led-auto-btn:hover { opacity: 0.9; }
+
+/* ── 케이블 소요량 계산 (원본 §11 랜선 시뮬레이터 cc-grid 이식) ─────── */
+.led-cable-sum { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.led-cable-card {
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-2);
+}
+.cable-lbl { font-size: 11px; color: var(--text-2); margin-bottom: 2px; }
+.cable-total { font-size: 16px; font-weight: 700; color: var(--text-0); }
+.cable-note { font-size: 11px; color: var(--text-2); }
+.cable-bundle { font-size: 11px; color: var(--text-1); }
+.cable-qty-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-1);
+}
+.cable-qty-row b { color: var(--text-0); }
+.cable-spare-inp {
+  width: 48px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-0);
+  padding: 2px 5px;
+  font-size: 11px;
+}
+.cable-warn { font-size: 11px; color: var(--warn); }
+.cable-warn[hidden] { display: none; }
 
 .led-total { font-size: 13px; color: var(--text-1); margin-top: auto; }
 .led-total b { color: var(--text-0); }
