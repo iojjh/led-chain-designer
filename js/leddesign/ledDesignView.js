@@ -2,15 +2,14 @@
 // LED디스플레이 노드의 세부 페이지: 구역(zone) 격자 편집 + LAN/PWR 포트 수동 배정.
 // 조작감·시각 효과는 led-calculator의 혼합 시뮬레이터 β 편집 캔버스
 // (script.js:2793-3919, betaDrawEdit/betaAttachEditEv 등)를 그대로 이식했다:
-// rAF 기반 드래그 사각형 스무딩, mouseup 시점 탭/드래그 판정, 최소 55px 셀 크기
-// (+가로스크롤 폴백), 터치 이벤트, 라운드 렌더링, 캔버스 내 구역 정보 텍스트,
-// 선택 하이라이트, 잔여 셀 라벨, 신규 구역 생성 애니메이션.
+// rAF 기반 드래그 사각형 스무딩, mouseup 시점 탭/드래그 판정, 터치 이벤트, 라운드
+// 렌더링, 캔버스 내 구역 정보 텍스트, 선택 하이라이트, 잔여 셀 라벨, 신규 구역
+// 생성 애니메이션. 격자 크기는 창/화면에 맞춰 항상 한눈에 들어오도록 자동 조정.
 // 알고리즘은 specs.js/betaPanels.js/portAssignment.js(포팅됨)를 그대로 쓰고,
 // 여기서는 DOM/캔버스 렌더링과 상호작용만 새로 구성한다.
 
 const LONG_PRESS_MS = 380;
 const PWR_PORT_CAP = 300000; // 원본 betaAutoAssignPwr의 경험적 상수(script.js) — 수동 배정 시 초과 표시 기준으로도 재사용
-const MIN_CELL_PX = 55; // 500mm 셀의 최소 화면 픽셀 — 이보다 작아지면 가로/세로 스크롤로 대응
 const ZONE_ANIM_MS = 380;
 
 const _led = {
@@ -190,6 +189,14 @@ function initLedDesignView() {
     cfg[key] = Array.from({ length: portCountForMode() }, () => []);
     renderPortPanel();
   });
+
+  // 창 크기 변경(브라우저 리사이즈, 모바일 회전 등)에도 격자가 항상 화면에 맞게
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    if (!_led.nodeId || document.getElementById('ledDesignView').hidden) { return; }
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { sizeGridCanvas(); drawGrid(); }, 100);
+  });
 }
 
 // ── 모드 전환 (구역 편집 / LAN 배선 / PWR 배선) ──────────
@@ -214,14 +221,19 @@ function gridDims() {
   return { cols, rows };
 }
 
-// 부모 폭에 맞춰 셀을 채우되, 500mm당 최소 55px은 보장한다(가독성) — 그 이상 커지면
-// .led-grid-scroll의 overflow:auto가 가로/세로 스크롤로 받아준다.
+// 가로·세로 모두 뷰포트 안에 들어오도록(overflow 없이) 맞추되, 그 안에서 가능한
+// 가장 큰 셀 크기를 쓴다 — 브라우저 창 크기나 모바일 화면에 따라 전체 격자가
+// 항상 한눈에 들어오게.
 function computeCellPx() {
-  const cfg = getLedConfig();
+  const { cols, rows } = gridDims();
   const wrapEl = document.querySelector('.led-grid-scroll');
-  const availW = Math.max(100, (wrapEl ? wrapEl.clientWidth : 800) - 2);
-  const scPerMm = Math.max(availW / (cfg.areaW || 500), MIN_CELL_PX / 500);
-  return scPerMm * 500;
+  if (!wrapEl) { return 40; }
+  const cs = getComputedStyle(wrapEl);
+  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  const availW = Math.max(40, wrapEl.clientWidth - padX);
+  const availH = Math.max(40, wrapEl.clientHeight - padY);
+  return Math.max(4, Math.min(availW / cols, availH / rows));
 }
 
 // 마우스/터치 이벤트를 동일하게 다루기 위한 좌표 추출
