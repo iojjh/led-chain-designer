@@ -345,19 +345,41 @@ function showToast(message) {
 // 같은 타입(장비)은 항상 같은 세로 열(swimlane)에 쌓인다 — 타입별로 열이
 // 고정돼 있어(NODE_ORDER 순서) 신호 경로가 왼쪽→오른쪽으로 읽히고, 같은
 // 장비를 추가로 놓으면 먼저 놓인 것 바로 아래에 붙는다.
+// 좌표는 항상 "이미 놓인 노드들의 실제 위치"를 기준으로 계산한다 — 현재
+// 화면 중앙을 기준으로 매번 다시 계산하면, ensureNodeVisible이나 사용자가
+// 그 사이에 팬/줌을 바꿨을 때 격자가 어긋나 새 카드가 기존 카드와 겹칠 수
+// 있다(실제로 겹치는 버그의 원인이었음).
 function addNodeFromPalette(type) {
   const canvasEl = document.getElementById('graphCanvas');
   const rect = canvasEl.getBoundingClientRect();
-  const world = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
 
   const gapX = CARD_WIDTH + 60;
   const gapY = 140;
   const col = NODE_ORDER.indexOf(type);
-  const row = State.graph.nodes.filter(n => n.type === type).length;
-  const originX = world.x - (NODE_ORDER.length * gapX) / 2;
-  const originY = world.y - CARD_MIN_HEIGHT / 2;
 
-  const node = addNode(type, originX + col * gapX, originY + row * gapY);
+  const sameType = State.graph.nodes.filter(n => n.type === type);
+  let x, y;
+
+  if (sameType.length > 0) {
+    // 같은 타입의 마지막 노드 바로 아래(같은 열)에 이어 붙인다.
+    const last = sameType[sameType.length - 1];
+    x = last.x;
+    y = last.y + gapY;
+  } else if (State.graph.nodes.length > 0) {
+    // 이 타입은 처음 추가하지만 다른 노드가 이미 있으면, 그 노드를 기준으로
+    // 같은 행(row 0) 높이에서 이 타입의 열(NODE_ORDER 순서상 위치)로 맞춘다.
+    const ref = State.graph.nodes[0];
+    const refCol = NODE_ORDER.indexOf(ref.type);
+    x = ref.x + (col - refCol) * gapX;
+    y = ref.y;
+  } else {
+    // 캔버스가 완전히 비어 있을 때만 현재 화면 중앙을 기준으로 새로 시작한다.
+    const world = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    x = world.x - (NODE_ORDER.length * gapX) / 2 + col * gapX;
+    y = world.y - CARD_MIN_HEIGHT / 2;
+  }
+
+  const node = addNode(type, x, y);
   ensureNodeVisible(node, rect);
   selectNode(node.id);
   renderNodeCards();
