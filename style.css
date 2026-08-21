@@ -25,6 +25,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
   background: var(--bg-0);
   color: var(--text-0);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
@@ -37,6 +38,7 @@ button {
   background: none;
   border: none;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 /* ── 앱 셸 ─────────────────────────────────────────── */
@@ -44,6 +46,10 @@ button {
   position: relative;
   width: 100%;
   height: 100%;
+  /* 노치/다이나믹 아일랜드/홈 인디케이터가 있는 기기에서 팔레트·패널이
+     그 아래 가려지지 않도록(viewport-fit=cover) 세이프에어리어만큼 안쪽으로 민다. */
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+           env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }
 
 .view {
@@ -66,6 +72,8 @@ button {
   background-color: var(--bg-0);
   background-image: radial-gradient(var(--grid-dot) 1.4px, transparent 1.4px);
   background-size: 24px 24px;
+  /* 팬/핀치줌을 JS가 직접 처리하므로 브라우저 기본 스크롤/확대 제스처를 끈다 */
+  touch-action: none;
 }
 
 #nodeLayer {
@@ -73,6 +81,7 @@ button {
   left: 0;
   top: 0;
   transform-origin: 0 0;
+  touch-action: none;
 }
 
 /* ── 노드 추가 팔레트 ──────────────────────────────── */
@@ -110,6 +119,8 @@ button {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
   cursor: grab;
   z-index: 5;
   transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
@@ -348,7 +359,7 @@ button {
   position: absolute;
   left: 16px;
   bottom: 16px;
-  width: 300px;
+  width: min(300px, calc(100vw - 32px));
   max-height: 260px;
   z-index: 10;
   background: var(--bg-1);
@@ -409,6 +420,28 @@ button {
 .issue-row span { color: var(--text-1); }
 
 .issue-empty { padding: 10px 12px; font-size: 12px; color: var(--text-2); }
+
+/* 좁은 화면(모바일)에서는 좌상단 팔레트와 우상단 속성 패널이 나란히 놓일
+   가로 폭이 부족해 서로 겹친다 — 속성 패널을 하단 시트로, 이슈 패널을
+   하단 전체 폭 바로 위에 접히도록 옮겨 세로로 쌓이게 한다. */
+@media (max-width: 640px) {
+  .props-panel {
+    top: auto;
+    bottom: 56px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: 50vh;
+    z-index: 20;
+  }
+  .issues-panel {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    max-height: 40vh;
+  }
+}
 
 /* ── LED 설계 세부 페이지 ───────────────────────────── */
 /* :not([hidden])로 한정 — 그냥 #id 선택자를 쓰면 .view[hidden]{display:none}보다
@@ -734,7 +767,7 @@ button {
 .modal-bg[hidden] { display: none; }
 
 .modal-card {
-  width: 380px;
+  width: min(380px, calc(100vw - 32px));
   max-height: 70vh;
   display: flex;
   flex-direction: column;
@@ -799,6 +832,7 @@ button {
   left: 0; right: 0; bottom: 0;
   z-index: 500;
   padding: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   display: none;
   justify-content: center;
 }
@@ -815,10 +849,56 @@ button {
 
 .upd-title { font-weight: 600; margin-bottom: 4px; }
 .upd-body { color: var(--text-1); font-size: 13px; line-height: 1.5; }
+.update-banner-card button {
+  margin-top: 12px;
+  width: 100%;
+  padding: 9px 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.update-banner-card button:hover { opacity: 0.9; }
+
+/* 업데이트 완료 토스트 — 자동/수동 리로드 직후 "무슨 일이 있었는지" 확인시켜주는
+   화면 중앙 카드. 하단의 작은 .app-toast(showToast())와는 별개 용도. */
+.update-toast {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0);
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  visibility: hidden;
+  pointer-events: none;
+  transition: background 0.35s, visibility 0s 0.5s;
+}
+.update-toast.show {
+  background: rgba(0, 0, 0, 0.5);
+  visibility: visible;
+  transition: background 0.35s;
+}
+.update-toast-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  border-radius: var(--radius);
+  padding: 22px 28px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transform: scale(0.88);
+  transition: opacity 0.35s, transform 0.35s;
+}
+.update-toast.show .update-toast-card { opacity: 1; transform: scale(1); }
 
 .app-toast {
   position: fixed;
-  left: 50%; bottom: 24px;
+  left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   background: var(--bg-2);
   border: 1px solid var(--border);

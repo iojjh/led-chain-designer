@@ -1,5 +1,8 @@
 // ── interactions ────────────────────────────────────
 // 캔버스 팬/줌, 노드 드래그·선택·삭제, 팔레트에서 노드 추가.
+// 마우스와 터치(한 손가락 팬/드래그, 두 손가락 핀치줌)를 같은 로직으로 처리한다.
+// clientXY()는 js/leddesign/ledDesignView.js에 이미 정의된 전역 헬퍼를 그대로 쓴다
+// (마우스/터치 좌표 추출 규칙이 같은 도메인이라 여기서 다시 만들지 않음).
 
 let _dragNodeId = null;
 let _dragOffset = { x: 0, y: 0 };
@@ -9,23 +12,30 @@ let _panOrigin = { x: 0, y: 0 };
 let _connectFrom = null; // { nodeId, portId }
 let _dragMoved = false;
 let _dragStartScreen = { x: 0, y: 0 };
+let _pinch = null; // { lastDist }
 
 function initInteractions(canvasEl, nodeLayerEl) {
-  canvasEl.addEventListener('mousedown', onCanvasMouseDown);
+  canvasEl.addEventListener('mousedown', e => handleCanvasDown(e.clientX, e.clientY));
   canvasEl.addEventListener('wheel', onWheel, { passive: false });
   nodeLayerEl.addEventListener('mousedown', onNodeLayerMouseDown);
   nodeLayerEl.addEventListener('click', onNodeLayerClick);
-  window.addEventListener('mousemove', onMouseMove);
-  window.addEventListener('mouseup', onMouseUp);
+  window.addEventListener('mousemove', e => handlePointerMove(e.clientX, e.clientY));
+  window.addEventListener('mouseup', e => handlePointerUp(e.clientX, e.clientY));
   window.addEventListener('keydown', onKeyDown);
+
+  canvasEl.addEventListener('touchstart', e => { e.preventDefault(); onCanvasTouchStart(e); }, { passive: false });
+  nodeLayerEl.addEventListener('touchstart', e => { e.preventDefault(); onNodeLayerTouchStart(e); }, { passive: false });
+  window.addEventListener('touchmove', onTouchMove, { passive: false });
+  window.addEventListener('touchend', onTouchEnd, { passive: false });
+  window.addEventListener('touchcancel', onTouchEnd, { passive: false });
 
   document.querySelectorAll('.palette-btn').forEach(btn => {
     btn.addEventListener('click', () => addNodeFromPalette(btn.dataset.type));
   });
 }
 
-function onCanvasMouseDown(e) {
-  const edgeId = hitTestEdge(e.clientX, e.clientY);
+function handleCanvasDown(x, y) {
+  const edgeId = hitTestEdge(x, y);
   if (edgeId) {
     selectEdge(edgeId);
     renderNodeCards();
@@ -38,7 +48,7 @@ function onCanvasMouseDown(e) {
   renderPropertiesPanel();
   render();
   _isPanning = true;
-  _panStart = { x: e.clientX, y: e.clientY };
+  _panStart = { x, y };
   _panOrigin = { x: State.ui.pan.x, y: State.ui.pan.y };
 }
 
@@ -48,18 +58,16 @@ function onWheel(e) {
   zoomAt(e.clientX, e.clientY, factor);
 }
 
-function onNodeLayerMouseDown(e) {
-  const portDot = e.target.closest('.port-dot');
+function handleNodeLayerDown(targetEl, x, y) {
+  const portDot = targetEl.closest('.port-dot');
   if (portDot) {
-    e.stopPropagation();
     if (portDot.dataset.portDir !== 'out') { return; } // 출력 포트에서만 연결 시작
     _connectFrom = { nodeId: portDot.dataset.nodeId, portId: portDot.dataset.portId };
     return;
   }
 
-  const cardEl = e.target.closest('.node-card');
+  const cardEl = targetEl.closest('.node-card');
   if (!cardEl) { return; }
-  e.stopPropagation();
 
   const nodeId = cardEl.dataset.nodeId;
   selectNode(nodeId);
@@ -67,14 +75,21 @@ function onNodeLayerMouseDown(e) {
   renderPropertiesPanel();
 
   const node = getNode(nodeId);
-  const world = screenToWorld(e.clientX, e.clientY);
+  const world = screenToWorld(x, y);
   _dragNodeId = nodeId;
   _dragOffset = { x: world.x - node.x, y: world.y - node.y };
   _dragMoved = false;
-  _dragStartScreen = { x: e.clientX, y: e.clientY };
+  _dragStartScreen = { x, y };
+}
+
+function onNodeLayerMouseDown(e) {
+  e.stopPropagation();
+  handleNodeLayerDown(e.target, e.clientX, e.clientY);
 }
 
 // led 노드 카드 본문을 "클릭"(드래그 아님)하면 LED 설계 세부 페이지를 연다.
+// (마우스: 이 'click' 리스너. 터치: preventDefault로 합성 click이 안 일어나므로
+// onTouchEnd에서 같은 조건을 직접 검사한다.)
 function onNodeLayerClick(e) {
   if (_dragMoved) { return; }
   const bodyEl = e.target.closest('.node-card-body');
@@ -84,7 +99,16 @@ function onNodeLayerClick(e) {
   if (node && node.type === 'led') { openLedDesignView(node.id); }
 }
 
-function onMouseMove(e) {
+function tryOpenLedDesignFromTap(targetEl) {
+  if (_dragMoved || !targetEl || !targetEl.closest) { return; }
+  const bodyEl = targetEl.closest('.node-card-body');
+  if (!bodyEl) { return; }
+  const cardEl = targetEl.closest('.node-card');
+  const node = cardEl && getNode(cardEl.dataset.nodeId);
+  if (node && node.type === 'led') { openLedDesignView(node.id); }
+}
+
+function handlePointerMove(x, y) {
   if (_connectFrom) {
     const fromNode = getNode(_connectFrom.nodeId);
     if (fromNode) {
@@ -93,39 +117,39 @@ function onMouseMove(e) {
       const rect = canvasEl.getBoundingClientRect();
       setConnectPreview({
         fromWorld: getPortWorldPos(fromNode, 'out', _connectFrom.portId),
-        toScreen: { x: e.clientX - rect.left, y: e.clientY - rect.top },
+        toScreen: { x: x - rect.left, y: y - rect.top },
         kind: outPort ? outPort.kind : 'video',
       });
     }
     return;
   }
   if (_dragNodeId) {
-    if (Math.abs(e.clientX - _dragStartScreen.x) > 4 || Math.abs(e.clientY - _dragStartScreen.y) > 4) {
+    if (Math.abs(x - _dragStartScreen.x) > 4 || Math.abs(y - _dragStartScreen.y) > 4) {
       _dragMoved = true;
     }
-    const world = screenToWorld(e.clientX, e.clientY);
+    const world = screenToWorld(x, y);
     moveNode(_dragNodeId, world.x - _dragOffset.x, world.y - _dragOffset.y);
     renderNodeCards();
     render();
     return;
   }
   if (_isPanning) {
-    State.ui.pan.x = _panOrigin.x + (e.clientX - _panStart.x);
-    State.ui.pan.y = _panOrigin.y + (e.clientY - _panStart.y);
+    State.ui.pan.x = _panOrigin.x + (x - _panStart.x);
+    State.ui.pan.y = _panOrigin.y + (y - _panStart.y);
     render();
   }
 }
 
-function onMouseUp(e) {
+function handlePointerUp(x, y) {
   if (_connectFrom) {
-    const target = resolveDropTarget(e.clientX, e.clientY);
+    const target = resolveDropTarget(x, y);
     if (target) {
       const fromNode = getNode(_connectFrom.nodeId);
       const toNode = getNode(target.nodeId);
       if (fromNode && fromNode.type === 'input' && toNode && toNode.type === 'console') {
         // 콘솔 입력은 도트 하나로 통합돼 있으므로, 실제로 어느 물리 포트에
         // 연결할지는 여기서 빈 포트를 찾아 자동/피커로 정한다.
-        resolveConsoleInputConnection(fromNode, _connectFrom.portId, toNode, e.clientX, e.clientY);
+        resolveConsoleInputConnection(fromNode, _connectFrom.portId, toNode, x, y);
       } else if (toNode && target.portId) {
         const edge = addEdge(_connectFrom.nodeId, _connectFrom.portId, toNode.id, target.portId);
         if (edge) { renderValidation(); renderPropertiesPanel(); }
@@ -204,6 +228,69 @@ function onKeyDown(e) {
   }
 }
 
+// ── 터치: 팬/드래그는 마우스와 같은 핸들러를 재사용, 두 손가락은 핀치줌 ──
+function touchDist(touches) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.hypot(dx, dy);
+}
+
+function touchMid(touches) {
+  return { x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2 };
+}
+
+function startPinch(touches) {
+  _isPanning = false;
+  _dragNodeId = null;
+  if (_connectFrom) { _connectFrom = null; clearConnectPreview(); }
+  _pinch = { lastDist: touchDist(touches) };
+}
+
+function updatePinch(touches) {
+  const dist = touchDist(touches);
+  const mid = touchMid(touches);
+  zoomAt(mid.x, mid.y, dist / _pinch.lastDist);
+  _pinch.lastDist = dist;
+}
+
+function onCanvasTouchStart(e) {
+  if (e.touches.length >= 2) { startPinch(e.touches); return; }
+  const { x, y } = clientXY(e);
+  handleCanvasDown(x, y);
+}
+
+function onNodeLayerTouchStart(e) {
+  if (e.touches.length >= 2) { startPinch(e.touches); return; }
+  e.stopPropagation();
+  const { x, y } = clientXY(e);
+  handleNodeLayerDown(e.target, x, y);
+}
+
+function onTouchMove(e) {
+  if (_pinch && e.touches.length >= 2) {
+    e.preventDefault();
+    updatePinch(e.touches);
+    return;
+  }
+  if (!_connectFrom && !_dragNodeId && !_isPanning) { return; }
+  e.preventDefault();
+  const { x, y } = clientXY(e);
+  handlePointerMove(x, y);
+}
+
+function onTouchEnd(e) {
+  if (_pinch) {
+    if (e.touches.length < 2) { _pinch = null; }
+    return;
+  }
+  if (!_connectFrom && !_dragNodeId && !_isPanning) { return; }
+  const { x, y } = clientXY(e);
+  const targetEl = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].target : e.target;
+  const wasDraggingNode = !!_dragNodeId;
+  handlePointerUp(x, y);
+  if (wasDraggingNode) { tryOpenLedDesignFromTap(targetEl); }
+}
+
 // ── 포트 피커 (빈 물리 포트가 여럿일 때 사용자가 고르는 작은 팝업) ──────
 let _portPickerOutsideHandler = null;
 
@@ -227,7 +314,10 @@ function openPortPicker(clientX, clientY, ports, onPick) {
   _portPickerOutsideHandler = ev => {
     if (!el.contains(ev.target)) { closePortPicker(); }
   };
-  setTimeout(() => window.addEventListener('mousedown', _portPickerOutsideHandler), 0);
+  setTimeout(() => {
+    window.addEventListener('mousedown', _portPickerOutsideHandler);
+    window.addEventListener('touchstart', _portPickerOutsideHandler);
+  }, 0);
 }
 
 function closePortPicker() {
@@ -236,6 +326,7 @@ function closePortPicker() {
   el.innerHTML = '';
   if (_portPickerOutsideHandler) {
     window.removeEventListener('mousedown', _portPickerOutsideHandler);
+    window.removeEventListener('touchstart', _portPickerOutsideHandler);
     _portPickerOutsideHandler = null;
   }
 }
@@ -267,7 +358,30 @@ function addNodeFromPalette(type) {
   const originY = world.y - CARD_MIN_HEIGHT / 2;
 
   const node = addNode(type, originX + col * gapX, originY + row * gapY);
+  ensureNodeVisible(node, rect);
   selectNode(node.id);
   renderNodeCards();
   renderPropertiesPanel();
+}
+
+// 열 배치(swimlane)가 화면 폭을 넘어가면(특히 좁은 모바일 화면) 새로 추가된
+// 노드가 화면 밖에 놓일 수 있다 — 그 카드가 현재 보이는 캔버스 영역 안에
+// 들어오도록 pan을 옮겨 "추가하면 바로 보인다"를 화면 크기와 무관하게 보장한다.
+function ensureNodeVisible(node, rect) {
+  const margin = 16;
+  const topLeft = worldToScreen({ x: node.x, y: node.y });
+  const bottomRight = worldToScreen({ x: node.x + CARD_WIDTH, y: node.y + cardHeightFor(node) });
+
+  let dx = 0;
+  let dy = 0;
+  if (topLeft.x < margin) { dx = margin - topLeft.x; }
+  else if (bottomRight.x > rect.width - margin) { dx = (rect.width - margin) - bottomRight.x; }
+  if (topLeft.y < margin) { dy = margin - topLeft.y; }
+  else if (bottomRight.y > rect.height - margin) { dy = (rect.height - margin) - bottomRight.y; }
+
+  if (dx !== 0 || dy !== 0) {
+    State.ui.pan.x += dx;
+    State.ui.pan.y += dy;
+    render();
+  }
 }

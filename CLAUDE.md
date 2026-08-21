@@ -69,4 +69,6 @@ GraphState = {
 
 ## 버전 업 규칙
 
-기능 변경 후: `CACHE_VERSION`(service-worker.js) 동기화 → 커밋 → **푸시 전 사용자 확인 후 진행**.
+기능 변경 후: `APP_VERSION`(js/app.js, package.json의 version과 맞춤)과 `CACHE_VERSION`(service-worker.js) 동기화 → 커밋 → **푸시 전 사용자 확인 후 진행**.
+
+`APP_VERSION`은 사용자에게 보이는 시맨틱 버전이다 — 업데이트가 적용되면(자동 백그라운드 갱신이든 배너의 수동 새로고침이든) `js/app.js` 하단의 버전 비교 블록이 `localStorage`에 저장된 이전 값과 비교해 바뀌었으면 `#updateToast`로 "vX.X.X로 업데이트되었습니다"를 짧게 띄운다. `CACHE_VERSION`만 올리고 `APP_VERSION`을 그대로 두면 이 알림이 뜨지 않으니 항상 같이 올릴 것.

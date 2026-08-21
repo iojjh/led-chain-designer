@@ -7,6 +7,10 @@
 <title>LED 체인 설계기</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="체인 설계기">
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
@@ -164,7 +168,12 @@
   <div class="update-banner-card">
     <div class="upd-title">업데이트 준비 완료</div>
     <div class="upd-body">새 버전이 준비됐습니다.<br>지금 업데이트하시겠습니까?</div>
+    <button onclick="_swReload()">지금 업데이트</button>
   </div>
+</div>
+<!-- 업데이트 완료 토스트 (자동/수동 업데이트 후 다음 로드에서 표시) -->
+<div id="updateToast" class="update-toast">
+  <div id="updateToastCard" class="update-toast-card"></div>
 </div>
 <!-- 앱 공통 토스트 -->
 <div id="appToast" class="app-toast"></div>
