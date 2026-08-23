@@ -1,5 +1,5 @@
 {
-  "id": "./",
+  "id": "/led-chain-designer/",
   "name": "LED 체인 설계기",
   "short_name": "체인 설계기",
   "description": "LED 설치 현장 신호/전원 체인 노드-그래프 설계 및 용량 검증 도구",
