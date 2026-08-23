@@ -21,14 +21,20 @@
     <canvas id="graphCanvas"></canvas>
     <div id="nodeLayer"></div>
 
-    <!-- 노드 추가 팔레트: js/core/nodeTypes.js의 NODE_TYPES와 아이콘/라벨을 맞춰 유지할 것 -->
-    <div id="palette" class="palette">
-      <button class="palette-btn" data-type="input">💻 인풋소스</button>
-      <button class="palette-btn" data-type="console">🖥️ 콘솔</button>
-      <button class="palette-btn" data-type="sending">📡 샌딩카드</button>
-      <button class="palette-btn" data-type="led">🟩 LED디스플레이</button>
-      <button class="palette-btn" data-type="power">🔌 메인전원</button>
-      <button class="palette-btn" data-type="distro">⚡ 분전함</button>
+    <!-- 노드 추가: "+ 장비 추가" 버튼을 누르면 드롭다운이 애니메이션과 함께 펼쳐진다.
+         js/core/nodeTypes.js의 NODE_TYPES와 아이콘/라벨을 맞춰 유지할 것 -->
+    <div id="paletteWrap" class="palette-wrap">
+      <button id="paletteToggleBtn" class="palette-toggle-btn">
+        <span class="palette-toggle-plus">+</span> 장비 추가
+      </button>
+      <div id="palette" class="palette">
+        <button class="palette-btn" data-type="input">💻 인풋소스</button>
+        <button class="palette-btn" data-type="console">🖥️ 콘솔</button>
+        <button class="palette-btn" data-type="sending">📡 샌딩카드</button>
+        <button class="palette-btn" data-type="led">🟩 LED디스플레이</button>
+        <button class="palette-btn" data-type="power">🔌 메인전원</button>
+        <button class="palette-btn" data-type="distro">⚡ 분전함</button>
+      </div>
     </div>
 
     <!-- 선택 노드 속성 패널 -->
@@ -75,6 +81,48 @@
         </div>
       </div>
     </div>
+
+    <!-- LED디스플레이 노드 추가 팝업: 첫 선택이 "단일 사각형 빠른 설정" vs "자유 설계"
+         (여러 구역·비정형 설치면적)인지를 정하는 탭 — 후자는 바로 구역 편집 캔버스로 이동. -->
+    <div id="ledAddModal" class="modal-bg" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <span>🟩 LED디스플레이 추가</span>
+          <button id="ledAddCloseBtn" class="props-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="led-add-mode-tabs" id="ledAddModeTabs">
+            <button type="button" class="led-add-mode-tab on" data-mode="rect">빠른 설정<small>단일 사각형</small></button>
+            <button type="button" class="led-add-mode-tab" data-mode="free">자유 설계<small>복합구역·비정형</small></button>
+          </div>
+
+          <div id="ledAddRectFields" class="led-add-grid">
+            <label class="props-field">가로(m)<input id="ledAddAreaW" type="number" min="0" step="0.5"></label>
+            <label class="props-field">세로(m)<input id="ledAddAreaH" type="number" min="0" step="0.5"></label>
+            <label class="props-field">LED 피치
+              <select id="ledAddPitch">
+                <option value="2mm">2mm</option>
+                <option value="3mm" selected>3mm</option>
+                <option value="4mm">4mm</option>
+              </select>
+            </label>
+            <label class="props-field">패널 크기
+              <select id="ledAddPanelSize">
+                <option value="500x500">500×500</option>
+                <option value="500x1000" selected>500×1000(세로)</option>
+                <option value="1000x500">1000×500(가로)</option>
+              </select>
+            </label>
+            <div id="ledAddPreview" class="led-add-preview"></div>
+          </div>
+
+          <div id="ledAddFreeNote" class="props-hint" hidden>여러 구역이나 직사각형이 아닌 설치면적은 구역 편집 캔버스에서 직접 그리세요.</div>
+        </div>
+        <div class="props-footer">
+          <button id="ledAddConfirmBtn" class="props-btn props-btn-primary">✓ 추가</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- LED 설계 세부 페이지 -->
@@ -94,56 +142,64 @@
           <span class="led-grid-hint" id="ledModeHint">그리드를 드래그해 새 구역을 만드세요 (500mm 칸 단위)</span>
         </div>
         <div id="ledNewZoneToolbar" class="led-new-zone-toolbar">
-          <span class="led-cfg-label">신규 구역 LED 피치</span>
-          <div class="led-chip-group" id="ledNewPitchChips">
-            <button class="led-chip" data-pitch="2mm">2mm</button>
-            <button class="led-chip on" data-pitch="3mm">3mm</button>
-            <button class="led-chip" data-pitch="4mm">4mm</button>
+          <div class="led-toolbar-row">
+            <span class="led-cfg-label">구역 생성 방식</span>
+            <div class="led-chip-group" id="ledZoneCreateModeToggle">
+              <button class="led-chip on" data-create-mode="drag">사각형 드래그</button>
+              <button class="led-chip" data-create-mode="cell">칸 선택(자유)</button>
+            </div>
           </div>
-          <span class="led-cfg-label">패널 크기</span>
-          <div class="led-chip-group" id="ledNewSizeChips">
-            <button class="led-chip on" data-w="500" data-h="500">500×500</button>
-            <button class="led-chip" data-w="500" data-h="1000">500×1000(세로)</button>
-            <button class="led-chip" data-w="1000" data-h="500">1000×500(가로)</button>
+          <div class="led-toolbar-row">
+            <span class="led-cfg-label">신규 구역 LED 피치</span>
+            <div class="led-chip-group" id="ledNewPitchChips">
+              <button class="led-chip" data-pitch="2mm">2mm</button>
+              <button class="led-chip on" data-pitch="3mm">3mm</button>
+              <button class="led-chip" data-pitch="4mm">4mm</button>
+            </div>
+          </div>
+          <div class="led-toolbar-row" id="ledNewSizeRow">
+            <span class="led-cfg-label">패널 크기</span>
+            <div class="led-chip-group" id="ledNewSizeChips">
+              <button class="led-chip" data-w="500" data-h="500">500×500</button>
+              <button class="led-chip on" data-w="500" data-h="1000">500×1000(세로)</button>
+              <button class="led-chip" data-w="1000" data-h="500">1000×500(가로)</button>
+            </div>
+          </div>
+          <!-- 칸 선택(자유) 모드 전용: 칸을 클릭/터치/화살표키로 골라 draftCells에 모으고 확정한다.
+               자유 구역은 항상 500×500mm 단위로만 채워진다(큰 패널 자동 페어링 없음). -->
+          <div id="ledZoneDraftBar" class="led-toolbar-row led-zone-draft-bar" hidden>
+            <span id="ledZoneDraftCount">0칸 선택됨</span>
+            <div class="led-zone-draft-actions">
+              <button id="ledZoneDraftCancelBtn" class="props-btn">취소</button>
+              <button id="ledZoneDraftConfirmBtn" class="props-btn props-btn-primary">✓ 구역 확정</button>
+            </div>
           </div>
         </div>
         <div class="led-grid-scroll">
           <canvas id="ledGridCanvas" tabindex="0"></canvas>
         </div>
-
-        <!-- 구역 편집 팝업: 기존 구역을 탭하면 LED 피치·패널 크기를 바꾸거나 삭제할 수 있다 -->
-        <div id="ledZoneCfgPopup" class="led-zone-cfg-popup" hidden>
-          <div class="led-cfg-row">
-            <span class="led-cfg-label">LED 피치</span>
-            <div class="led-chip-group" id="ledCfgPitchChips">
-              <button class="led-chip" data-pitch="2mm">2mm</button>
-              <button class="led-chip" data-pitch="3mm">3mm</button>
-              <button class="led-chip" data-pitch="4mm">4mm</button>
-            </div>
-          </div>
-          <div class="led-cfg-row">
-            <span class="led-cfg-label">패널 크기</span>
-            <div class="led-chip-group" id="ledCfgSizeChips">
-              <button class="led-chip" data-w="500" data-h="500">500×500</button>
-              <button class="led-chip" data-w="500" data-h="1000">500×1000(세로)</button>
-              <button class="led-chip" data-w="1000" data-h="500">1000×500(가로)</button>
-            </div>
-          </div>
-          <div class="led-cfg-actions">
-            <button id="ledCfgDeleteBtn" class="props-btn props-btn-danger">삭제</button>
-            <button id="ledCfgCancelBtn" class="props-btn">취소</button>
-            <button id="ledCfgApplyBtn" class="props-btn props-btn-primary">적용</button>
-          </div>
-        </div>
       </div>
       <div class="led-side">
         <div id="ledZoneSection" class="led-side-section">
-          <div class="led-side-title">구역 <span id="ledZoneCount">0</span></div>
+          <div class="led-side-title-row">
+            <span class="led-side-title">구역 <span id="ledZoneCount">0</span></span>
+            <div class="led-side-title-actions">
+              <button id="ledZoneCompactBtn" class="zone-btn">설계 완료</button>
+              <button id="ledZoneResetAllBtn" class="zone-btn zone-del-btn">초기화</button>
+            </div>
+          </div>
+          <!-- "설계 완료" 후에만 보이는 전체(모든 구역 합산) 해상도 -->
+          <div id="ledOverallRes" class="led-overall-res" hidden></div>
           <div id="ledZoneList" class="led-zone-list"></div>
         </div>
         <div id="ledPortSection" class="led-side-section" hidden>
           <div class="led-port-source-row">
             <div class="led-port-source" id="ledPortSource"></div>
+            <!-- PWR 배선에서만 보이는 포트 수 조절(LAN은 상류 장비 스펙으로 고정) -->
+            <div id="ledPwrPortControls" class="led-pwr-port-controls" hidden>
+              <button id="ledPwrPortRemoveBtn" class="pwr-port-count-btn" title="포트 제거">−</button>
+              <button id="ledPwrPortAddBtn" class="pwr-port-count-btn" title="포트 추가">+</button>
+            </div>
             <span id="ledDragBadge" class="drag-badge" hidden>✋ 드래그 중</span>
           </div>
           <div id="ledPortStrip" class="led-port-strip"></div>
@@ -192,6 +248,7 @@
 <script src="./js/leddesign/betaPanels.js"></script>
 <script src="./js/leddesign/betaAreaInchLabel.js"></script>
 <script src="./js/leddesign/portAssignment.js"></script>
+<script src="./js/leddesign/ledAreaSetup.js"></script>
 <script src="./js/leddesign/ledPortGroups.js"></script>
 <script src="./js/leddesign/ledDesignView.js"></script>
 <script src="./js/save/projectState.js"></script>

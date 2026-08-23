@@ -1,0 +1,93 @@
+// ── ledAreaSetup ────────────────────────────────────
+// LED디스플레이 노드를 캔버스에 추가할 때 뜨는 "설치면적/패널크기/피치" 팝업이
+// 쓰는 순수 계산. 입력값으로 그리드 전체를 덮는 구역 하나를 만들고, 그 결과
+// 해상도·패널 장수·총 픽셀을 함께 돌려준다 — 팝업 미리보기와 실제 노드 추가
+// 양쪽에서 이 결과를 그대로 재사용해 계산이 갈라지지 않게 한다.
+// 그리드는 500mm 단위이므로 입력 면적은 가장 가까운 500mm로 스냅한다
+// (ledDesignView.js의 gridDims 스냅 규칙과 동일).
+
+if (typeof module !== 'undefined') {
+  if (typeof SPECS === 'undefined') { global.SPECS = require('./specs.js').SPECS; }
+  if (typeof betaPanels === 'undefined') { global.betaPanels = require('./betaPanels.js').betaPanels; }
+  if (typeof panelPx === 'undefined') { global.panelPx = require('./portAssignment.js').panelPx; }
+  if (typeof makeId === 'undefined') { global.makeId = require('../core/idgen.js').makeId; }
+}
+
+function snapAreaToGrid(areaW, areaH) {
+  const cols = Math.max(1, Math.round((areaW || 0) / 500));
+  const rows = Math.max(1, Math.round((areaH || 0) / 500));
+  return { areaW: cols * 500, areaH: rows * 500, cols, rows };
+}
+
+// 500mm당 픽셀 밀도는 피치로 고정되므로, 실제 패널 타일링(remainder 처리 등)과
+// 무관하게 전체 면적에서 직접 계산해도 betaPanels 합산 결과와 항상 일치한다.
+function resolutionForArea(areaW, areaH, pitch) {
+  const sp = SPECS[pitch];
+  if (!sp || !areaW || !areaH) { return { w: 0, h: 0 }; }
+  return {
+    w: Math.round(sp.px500.w / 500 * areaW),
+    h: Math.round(sp.px500.h / 500 * areaH),
+  };
+}
+
+function planFullAreaLed({ areaW, areaH, panelW, panelH, pitch }) {
+  const snapped = snapAreaToGrid(areaW, areaH);
+  const zone = {
+    id: makeId('lz'),
+    led: pitch,
+    startRow: 0, startCol: 0, rows: snapped.rows, cols: snapped.cols,
+    panelW, panelH,
+  };
+  const panels = betaPanels(zone);
+  const totalPx = panels.reduce((sum, p) => sum + panelPx(p), 0);
+  return {
+    zone,
+    areaW: snapped.areaW,
+    areaH: snapped.areaH,
+    panelCount: panels.length,
+    totalPx,
+    resolution: resolutionForArea(snapped.areaW, snapped.areaH, pitch),
+  };
+}
+
+// 구역 하나(사각형 또는 zone.cells 자유 구역)의 바운딩 박스(격자 칸 좌표계).
+function zoneBounds(zone) {
+  if (zone.cells) {
+    const rows = zone.cells.map(c => c.row);
+    const cols = zone.cells.map(c => c.col);
+    return { minRow: Math.min(...rows), minCol: Math.min(...cols), maxRow: Math.max(...rows) + 1, maxCol: Math.max(...cols) + 1 };
+  }
+  return { minRow: zone.startRow, minCol: zone.startCol, maxRow: zone.startRow + zone.rows, maxCol: zone.startCol + zone.cols };
+}
+
+// 여러 구역(사각형이든 자유 구역이든)을 함께 감싸는 최소 바운딩 박스(격자 칸
+// 좌표계). 자유 배치 캔버스가 격자를 얼마나 자동으로 넓혀야 하는지, 카드
+// 요약이 비정형 설치 전체를 "최소 직사각형" 하나로 어떻게 잡을지 계산하는 데
+// 공통으로 쓴다. 구역이 없으면 null.
+function boundingBoxOfZones(zones) {
+  if (!zones.length) { return null; }
+  const bounds = zones.map(zoneBounds);
+  return {
+    minRow: Math.min(...bounds.map(b => b.minRow)),
+    minCol: Math.min(...bounds.map(b => b.minCol)),
+    maxRow: Math.max(...bounds.map(b => b.maxRow)),
+    maxCol: Math.max(...bounds.map(b => b.maxCol)),
+  };
+}
+
+// 구역들을 감싸는 최소 직사각형의 해상도 — 전부 같은 피치를 쓸 때만 하나의 px
+// 밀도로 환산할 수 있으므로, 피치가 섞여 있거나 구역이 없으면 null(호출자가
+// "해상도 표시 불가" 상태로 폴백).
+function boundingResolutionForZones(zones) {
+  const bbox = boundingBoxOfZones(zones);
+  if (!bbox) { return null; }
+  const pitches = new Set(zones.map(z => z.led));
+  if (pitches.size !== 1) { return null; }
+  const w = (bbox.maxCol - bbox.minCol) * 500;
+  const h = (bbox.maxRow - bbox.minRow) * 500;
+  return resolutionForArea(w, h, zones[0].led);
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = { snapAreaToGrid, resolutionForArea, planFullAreaLed, zoneBounds, boundingBoxOfZones, boundingResolutionForZones };
+}

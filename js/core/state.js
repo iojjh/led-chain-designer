@@ -5,7 +5,7 @@ const State = {
   graph: { version: 1, nodes: [], edges: [] },
   ui: {
     selectedId: null, selectedEdgeId: null, pan: { x: 0, y: 0 }, zoom: 1,
-    validation: { nodeIssues: new Map(), edgeIssues: new Map() },
+    validation: { nodeIssues: new Map(), edgeIssues: new Map(), nodeProvisional: new Set() },
   },
 };
 

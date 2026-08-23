@@ -7,7 +7,7 @@
 const DEVICES = {
   console: {
     'novastar-j6': {
-      id: 'novastar-j6', vendor: 'NovaStar', name: 'J6 Seamless Switcher',
+      id: 'novastar-j6', vendor: 'NovaStar', name: 'J6 Seamless Switcher', shortName: 'J6',
       outputKind: 'video-signal',
       // 벤더 스펙상 입력 커넥터 종류가 섞여 있어(DVI/HDMI/3G-SDI/DP1.1/HDMI1.4) 딱
       // 떨어지는 개별 타입별 개수를 문서에서 명시하지 않는다 — 다만 "최대 8입력"은
@@ -24,7 +24,7 @@ const DEVICES = {
       sourcePdf: 'J6-Seamless-Switcher-Specifications-V2.2.0.pdf',
     },
     'magnimage-ec90': {
-      id: 'magnimage-ec90', vendor: 'Magnimage', name: 'MIG-EC90 Event Console',
+      id: 'magnimage-ec90', vendor: 'Magnimage', name: 'MIG-EC90 Event Console', shortName: 'EC90',
       outputKind: 'video-signal',
       // count: 같은 종류 커넥터가 실제로 몇 개 있는지(예: HDMI2.0 × 4개) —
       // getConsoleInputPorts가 이 수만큼 개별 연결 가능한 포트로 펼쳐준다.
@@ -40,12 +40,12 @@ const DEVICES = {
   },
   sending: {
     'novastar-mctrl4k': {
-      id: 'novastar-mctrl4k', vendor: 'NovaStar', name: 'MCTRL4K (내장 샌딩 포트)',
+      id: 'novastar-mctrl4k', vendor: 'NovaStar', name: 'MCTRL4K (내장 샌딩 포트)', shortName: 'MCTRL4K',
       portCount: 16, perPortMaxPx8bit: 655360, perPortMaxPx10bit: 320000,
       sourcePdf: 'MCTRL4K.pdf',
     },
     'novastar-mctrl660pro': {
-      id: 'novastar-mctrl660pro', vendor: 'NovaStar', name: 'MCTRL660PRO (내장 샌딩 포트)',
+      id: 'novastar-mctrl660pro', vendor: 'NovaStar', name: 'MCTRL660PRO (내장 샌딩 포트)', shortName: 'MCTRL660PRO',
       portCount: 6, perPortMaxPx8bit: 655360, perPortMaxPx10bit: 325000,
       sourcePdf: 'MCTRL660PRO.pdf',
     },

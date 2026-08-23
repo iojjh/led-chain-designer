@@ -85,3 +85,27 @@ describe('betaPanels — 엣지 케이스', () => {
     colPanels.filter(p => p.key.includes(':rc')).forEach(p => expect(p.w).toBe(500));
   });
 });
+
+describe('betaPanels — 자유 구역(zone.cells, 이 앱만의 확장)', () => {
+  test('칸 하나당 500×500 패널 하나, panelW/H는 무시된다', () => {
+    const freeZone = { id: 'f1', led: '4mm', panelW: 1000, panelH: 1000, cells: [{ row: 0, col: 0 }, { row: 0, col: 2 }, { row: 3, col: 5 }] };
+    const panels = betaPanels(freeZone);
+    expect(panels).toHaveLength(3);
+    panels.forEach(p => expect(p).toMatchObject({ w: 500, h: 500, led: '4mm', zoneId: 'f1' }));
+  });
+
+  test('좌표는 칸 인덱스 × 500', () => {
+    const panels = betaPanels({ id: 'f1', led: '3mm', cells: [{ row: 2, col: 3 }] });
+    expect(panels[0]).toMatchObject({ x: 1500, y: 1000 });
+  });
+
+  test('키는 zoneId:row:col 형식이고 유일하다', () => {
+    const panels = betaPanels({ id: 'f1', led: '3mm', cells: [{ row: 0, col: 0 }, { row: 0, col: 1 }, { row: 1, col: 0 }] });
+    expect(panels.map(p => p.key)).toEqual(['f1:0:0', 'f1:0:1', 'f1:1:0']);
+    expect(new Set(panels.map(p => p.key)).size).toBe(3);
+  });
+
+  test('빈 cells 배열이면 패널 없음', () => {
+    expect(betaPanels({ id: 'f1', led: '3mm', cells: [] })).toEqual([]);
+  });
+});

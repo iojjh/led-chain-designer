@@ -7,6 +7,10 @@
 // 도트 목록에서 실제 portId를 찾지 못하면 index 0으로 clamp되므로, 여러 인풋
 // 소스가 서로 다른 물리 포트로 연결돼도 시각적으로는 모두 이 한 점에 모인다.
 
+if (typeof module !== 'undefined' && typeof PWR_PORT_COUNT === 'undefined') {
+  global.PWR_PORT_COUNT = require('../leddesign/specs.js').PWR_PORT_COUNT;
+}
+
 const NODE_TYPES = {
   input:   { label: '인풋소스', icon: '💻', category: 'video' },
   console: { label: '콘솔',     icon: '🖥️', category: 'video' },
@@ -45,8 +49,9 @@ function defaultConfig(type) {
         ledDesign: {
           areaW: 0, areaH: 0, zones: [],
           lanPorts: [], lanOrder: [],
-          pwrPorts: [], pwrOrder: [],
+          pwrPorts: [], pwrOrder: [], pwrPortCount: PWR_PORT_COUNT, // 포트 추가/제거 버튼으로 조절 — 저장/불러오기에도 유지됨
           spareAdj: { l1: 2, sl: 20, c1: 2, sp: 20 },
+          zoneViewCompact: false, // "설계 완료"로 캔버스를 구역 크기만큼 줄인 상태 — 저장/불러오기에도 유지됨
         },
         totalRequiredPx: 0,
       };

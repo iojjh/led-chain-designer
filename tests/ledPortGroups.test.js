@@ -1,4 +1,4 @@
-const { resolveLedPortGroups, resolveLedPortLayout } = require('../js/leddesign/ledPortGroups.js');
+const { resolveLedPortGroups, resolveLedPortLayout, resolveSharedPortUsage } = require('../js/leddesign/ledPortGroups.js');
 const { MAX_PX } = require('../js/leddesign/specs.js');
 
 function node(id, type, config, y) {
@@ -43,6 +43,42 @@ test('two sending cards feeding the same LED: one group per card, ordered top-to
   expect(layout.ports[15].nodeId).toBe('sTop');
   expect(layout.ports[16].nodeId).toBe('sBottom');
   expect(layout.ports[21].nodeId).toBe('sBottom');
+});
+
+describe('resolveSharedPortUsage', () => {
+  function sharedGraph(led1Lan, led2Lan) {
+    return {
+      nodes: [
+        node('s1', 'sending', { deviceId: 'novastar-mctrl4k' }),
+        node('led1', 'led', { ledDesign: { zones: [], lanPorts: led1Lan } }),
+        node('led2', 'led', { ledDesign: { zones: [], lanPorts: led2Lan } }),
+      ],
+      edges: [
+        { id: 'e1', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led2', portId: 'in' } },
+      ],
+    };
+  }
+
+  test('one card feeding two LEDs: a port the other LED already assigned shows up as shared', () => {
+    const led1Lan = Array.from({ length: 16 }, () => []);
+    led1Lan[0] = ['z1:0:0', 'z1:1:0'];
+    const led2Lan = Array.from({ length: 16 }, () => []);
+    const graph = sharedGraph(led1Lan, led2Lan);
+
+    const usageForLed2 = resolveSharedPortUsage(graph, 'led2');
+    expect(usageForLed2[0]).toEqual({ ledNodeId: 'led1', label: 'led', panelKeys: ['z1:0:0', 'z1:1:0'] });
+    expect(usageForLed2[1]).toBeNull();
+
+    const usageForLed1 = resolveSharedPortUsage(graph, 'led1');
+    expect(usageForLed1[0]).toBeNull(); // led1 owns port 0 itself, so it's not "someone else's"
+  });
+
+  test('unconnected LED (no sending card) has no shared usage at all', () => {
+    const graph = { nodes: [node('led1', 'led', { ledDesign: { zones: [], lanPorts: [] } })], edges: [] };
+    const usage = resolveSharedPortUsage(graph, 'led1');
+    expect(usage.every(u => u === null)).toBe(true);
+  });
 });
 
 test('no sending card but a lan-ports console directly connected: console becomes the single group', () => {

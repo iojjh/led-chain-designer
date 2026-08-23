@@ -60,3 +60,72 @@ describe('multiple sending cards feeding one LED (targetAllowsMultiple)', () => 
     expect(result.nodeIssues.has('s2')).toBe(false);
   });
 });
+
+describe('provisional badge: LED with no zones yet makes upstream "ok" results tentative', () => {
+  test('LED node itself with no zones is always provisional', () => {
+    const graph = { nodes: [ledNode('led1', 0)], edges: [] };
+    const result = runValidation(graph);
+    expect(result.nodeProvisional.has('led1')).toBe(true);
+  });
+
+  test('LED node with zones is not provisional', () => {
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 1, cols: 1, panelW: 500, panelH: 500 };
+    const graph = {
+      nodes: [ledNode('led1', 128 * 128, { areaW: 500, areaH: 500, zones: [zone], lanPorts: [], pwrPorts: [] })],
+      edges: [],
+    };
+    const result = runValidation(graph);
+    expect(result.nodeProvisional.has('led1')).toBe(false);
+  });
+
+  test('sending card feeding a zone-less LED is flagged provisional even though the check trivially passes', () => {
+    const graph = {
+      nodes: [
+        node('s1', 'sending', { deviceId: 'novastar-mctrl4k' }, 0),
+        ledNode('led1', 0),
+      ],
+      edges: [
+        { id: 'e1', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    const result = runValidation(graph);
+    expect(result.nodeIssues.has('s1')).toBe(false); // 0px는 항상 통과
+    expect(result.nodeProvisional.has('s1')).toBe(true); // 하지만 잠정 결과
+  });
+
+  test('console feeding a sending card that feeds a zone-less LED propagates the provisional flag two hops up', () => {
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'splicer' }, 0),
+        node('s1', 'sending', { deviceId: 'novastar-mctrl4k' }, 100),
+        ledNode('led1', 0),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'out' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    const result = runValidation(graph);
+    expect(result.nodeProvisional.has('c1')).toBe(true);
+    expect(result.nodeProvisional.has('s1')).toBe(true);
+  });
+
+  test('a genuine capacity failure is not masked by the provisional flag', () => {
+    // LED에 구역이 있어 진짜 초과 판정이 나는 경우, provisional에는 없어야 한다.
+    const zone = { id: 'z1', led: '2mm', startRow: 0, startCol: 0, rows: 20, cols: 20, panelW: 500, panelH: 500 };
+    const hugeLed = ledNode('ledBig', 999999999, { areaW: 10000, areaH: 10000, zones: [zone], lanPorts: [], pwrPorts: [] });
+    const graph = {
+      nodes: [
+        node('s1', 'sending', { deviceId: 'novastar-mctrl4k' }, 0),
+        hugeLed,
+      ],
+      edges: [
+        { id: 'e1', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'ledBig', portId: 'in' } },
+      ],
+    };
+    const result = runValidation(graph);
+    expect(result.nodeIssues.has('s1')).toBe(true);
+    expect(result.nodeProvisional.has('s1')).toBe(false);
+    expect(result.nodeProvisional.has('ledBig')).toBe(false);
+  });
+});

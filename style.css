@@ -84,20 +84,57 @@ button {
   touch-action: none;
 }
 
-/* ── 노드 추가 팔레트 ──────────────────────────────── */
-.palette {
+/* ── 노드 추가: "+ 장비 추가" 버튼 + 드롭다운 팔레트 ──────── */
+.palette-wrap {
   position: absolute;
   left: 16px;
   top: 16px;
+  z-index: 10;
+}
+
+.palette-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: var(--radius);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+.palette-toggle-btn:hover { background: var(--bg-2); }
+.palette-toggle-btn.open { border-color: var(--accent); }
+.palette-toggle-plus { font-size: 15px; line-height: 1; color: var(--accent); }
+
+/* 드롭다운 자체는 항상 DOM에 있고 opacity/transform으로만 열고 닫는다 —
+   display:none↔flex 전환은 트랜지션이 안 먹으므로 이 편이 애니메이션이 매끈하다.
+   닫힌 상태엔 pointer-events:none으로 뒤에 깔린 캔버스 클릭을 가로채지 않는다. */
+.palette {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
   display: flex;
   flex-direction: column;
   gap: 6px;
-  z-index: 10;
+  min-width: 168px;
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 8px;
   box-shadow: var(--shadow);
+  opacity: 0;
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top left;
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.palette.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
 }
 
 .palette-btn {
@@ -110,6 +147,22 @@ button {
 }
 
 .palette-btn:hover { background: var(--bg-2); }
+
+/* 캔버스가 비어있을 때 "여기부터 시작" 넛지 — 드롭다운이 닫혀 있어도 보이도록
+   토글 버튼 자체에 펄스를 주고, 드롭다운을 열면 LED디스플레이 항목에도 표시한다.
+   강제가 아니라 은은한 펄스라 다른 버튼을 눌러도 그대로 진행된다. */
+.palette-btn-suggested,
+.palette-toggle-btn-suggested {
+  position: relative;
+  outline: 1px solid var(--accent);
+  animation: palette-suggest-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes palette-suggest-pulse {
+  0% { box-shadow: 0 0 0 0 #6e6bf466; }
+  70% { box-shadow: 0 0 0 6px #6e6bf400; }
+  100% { box-shadow: 0 0 0 0 #6e6bf400; }
+}
 
 /* ── 노드 카드 ─────────────────────────────────────── */
 .node-card {
@@ -146,6 +199,13 @@ button {
   box-shadow: 0 0 0 2px rgba(240, 87, 107, 0.25), var(--shadow);
 }
 
+/* LED 해상도가 아직 없어 상류 검증이 "0px라 통과"한 잠정 상태 — 진짜 초과(has-issue)와
+   구분되는 옅은 점선 테두리. has-issue가 있으면 그쪽이 우선이라 여기 오지 않는다. */
+.node-card.is-provisional:not(.selected):not(.has-issue) {
+  border-color: var(--warn);
+  border-style: dashed;
+}
+
 .node-card-head {
   display: flex;
   align-items: center;
@@ -179,12 +239,16 @@ button {
 
 .node-card-badge.badge-ok { background: var(--ok); color: #08150f; }
 .node-card-badge.badge-err { background: var(--err); color: #2a0a0e; }
+.node-card-badge.badge-provisional { background: var(--warn); color: #2a2005; }
 
 .node-card-body {
   padding: 6px 10px;
   font-size: 11px;
   color: var(--text-1);
   min-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .node-card.is-led .node-card-body { cursor: pointer; }
@@ -316,6 +380,8 @@ button {
 .props-btn-primary { background: var(--accent); color: #fff; }
 .props-btn-primary:hover { opacity: 0.9; background: var(--accent); }
 .props-btn-danger { color: var(--err); }
+.props-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.props-btn:disabled:hover { background: var(--bg-2); }
 
 .props-field {
   display: flex;
@@ -327,6 +393,8 @@ button {
 
 .props-field input,
 .props-field select {
+  width: 100%;
+  min-width: 0;
   background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -488,6 +556,42 @@ button {
 
 .led-area-inch { font-size: 12px; color: var(--text-1); }
 
+/* ── LED 추가 팝업: 모드 탭 + 규칙적인 2열 그리드 ─────── */
+/* minmax(0, 1fr) — 그냥 1fr만 쓰면 트랙 최소폭이 select의 내용(가장 긴 옵션
+   텍스트) 기준 min-content로 잡혀 모달 폭을 넘기고 가로 스크롤이 생긴다. */
+.led-add-mode-tabs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+
+.led-add-mode-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+.led-add-mode-tab small { font-weight: 400; font-size: 11px; color: var(--text-2); }
+.led-add-mode-tab:hover { background: var(--border); }
+.led-add-mode-tab.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text-0); }
+.led-add-mode-tab.on small { color: var(--text-1); }
+
+.led-add-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 14px;
+}
+.led-add-grid[hidden] { display: none; }
+.led-add-preview {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--text-1);
+  line-height: 1.5;
+}
+
 .led-body {
   flex: 1;
   display: flex;
@@ -524,16 +628,33 @@ button {
 .led-mode-btn:hover { background: var(--border); }
 .led-grid-hint { color: var(--text-2); margin-left: 6px; }
 
-/* 신규 구역 피치·패널크기 사전 선택 툴바 — :not([hidden])로 스코프해 display 규칙이
-   hidden 속성을 이기지 않게 한다 */
+/* 신규 구역 생성 방식/피치/패널크기 툴바 — 항목마다 자기만의 줄(led-toolbar-row)에
+   쌓는다. 화면이 좁아져도 그 줄 안에서만 줄바꿈되고 서로 다른 항목끼리 뒤섞이지
+   않으며, 라벨 폭을 통일해(min-width) 여러 줄이 세로로 나란히 정렬돼 보인다. */
 .led-new-zone-toolbar:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.led-toolbar-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--border-soft);
 }
+.led-toolbar-row[hidden] { display: none; }
+.led-toolbar-row .led-cfg-label { min-width: 104px; flex-shrink: 0; }
+/* 칩 폭을 줄마다 통일해서(가장 긴 라벨 "500×1000(세로)" 기준) 여러 줄이 표처럼
+   같은 칸 너비로 정렬돼 보이게 한다 */
+.led-toolbar-row .led-chip { min-width: 104px; text-align: center; }
+
+.led-zone-draft-bar { justify-content: space-between; }
+#ledZoneDraftCount { font-size: 12px; color: var(--text-1); white-space: nowrap; }
+.led-zone-draft-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.led-zone-draft-actions .props-btn { flex: none; padding: 6px 10px; }
 
 .led-grid-scroll {
   flex: 1;
@@ -547,26 +668,12 @@ button {
 
 #ledGridCanvas { image-rendering: pixelated; cursor: crosshair; }
 
-/* 구역 생성/편집 팝업 — .led-grid-wrap 기준 절대 위치.
-   :not([hidden])로 스코프해 display 규칙이 hidden 속성을 절대 이기지 않게 한다. */
-.led-zone-cfg-popup:not([hidden]) {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  position: absolute;
-  z-index: 5;
-  width: 240px;
-  padding: 12px;
-  background: var(--bg-1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-}
-
 .led-cfg-row { display: flex; flex-direction: column; gap: 6px; }
+.led-cfg-row[hidden] { display: none; }
 .led-cfg-label { font-size: 11px; color: var(--text-2); }
 
 .led-chip-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.led-chip-group[hidden] { display: none; }
 .led-chip {
   padding: 5px 9px;
   border-radius: var(--radius-sm);
@@ -605,39 +712,106 @@ button {
   border-bottom: 1px solid var(--border-soft);
 }
 
-.led-side-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.led-side-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.led-side-title { font-size: 13px; font-weight: 600; }
+.led-side-title-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.led-overall-res {
+  font-size: 12px;
+  color: var(--ok);
+  background: rgba(62, 207, 142, 0.1);
+  border: 1px solid rgba(62, 207, 142, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+.led-overall-res[hidden] { display: none; }
 
 .led-zone-list { display: flex; flex-direction: column; gap: 6px; }
 .led-zone-empty { font-size: 12px; color: var(--text-2); padding: 6px 0; }
 
+/* 구역 하나 = 항상 보이는 요약 줄(zone-row-main) + "편집" 눌렀을 때만 펼쳐지는
+   아코디언(led-zone-row-edit). 팝업 없이 목록 안에서 그대로 편집한다. */
 .led-zone-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft);
   font-size: 12px;
+  overflow: hidden;
+}
+.led-zone-row.sel { border-color: var(--accent); }
+
+.zone-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
   cursor: pointer;
 }
-.led-zone-row.sel { border-color: var(--accent); background: var(--accent-soft); }
-.led-zone-row:hover { background: var(--bg-2); }
+.zone-row-main:hover { background: var(--bg-2); }
+.led-zone-row.sel .zone-row-main { background: var(--accent-soft); }
 
 .zone-swatch, .port-swatch {
   width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
 }
 
-.zone-desc { flex: 1; color: var(--text-1); }
-.zone-px { color: var(--text-2); }
-.zone-del-btn {
-  font-size: 11px;
-  color: var(--err);
-  padding: 2px 6px;
+/* 모든 행이 같은 두 줄 구조(라벨/상세)를 써서 세로로 나란히 정렬돼 보이게 한다 */
+.zone-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
-.zone-del-btn:hover { text-decoration: underline; }
+.zone-label { font-weight: 600; color: var(--text-0); }
+.zone-detail { font-size: 11px; color: var(--text-2); line-height: 1.4; }
+
+/* 편집/삭제 버튼은 크기·간격을 통일해 항상 같은 자리에 같은 크기로 보이게 한다 */
+.zone-row-btns { display: flex; gap: 4px; flex-shrink: 0; }
+.zone-btn {
+  min-width: 40px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: 11px;
+  text-align: center;
+}
+.zone-btn:hover { background: var(--border); }
+.zone-del-btn { color: var(--err); }
+
+.led-zone-row-edit {
+  padding: 10px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
 .led-port-source-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .led-port-source { font-size: 11px; color: var(--text-1); line-height: 1.5; flex: 1; }
+
+.led-pwr-port-controls { display: flex; gap: 4px; flex-shrink: 0; }
+.led-pwr-port-controls[hidden] { display: none; }
+.pwr-port-count-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1;
+}
+.pwr-port-count-btn:hover { background: var(--border); }
 
 .drag-badge {
   font-size: 10px;
@@ -677,6 +851,15 @@ button {
 .led-port-chip:hover { background: var(--border); }
 .led-port-chip.on { border-color: var(--chip-color, var(--accent)); background: var(--accent-soft); color: var(--text-0); }
 .chip-count { color: var(--text-2); min-width: 12px; text-align: right; }
+
+/* 같은 샌딩카드를 다른 LED디스플레이가 이미 쓰고 있는 포트 — 클릭해 상태는
+   볼 수 있지만(비활성화하지 않음) 시각적으로 다른 배정 대상과 구분한다. */
+.led-port-chip.locked { border-style: dashed; opacity: 0.7; }
+.led-port-chip.locked.on { border-color: var(--text-2); background: var(--bg-2); }
+.chip-shared-mark { font-size: 9px; }
+
+.port-meta-shared { color: var(--text-2); }
+.port-shared-note { font-size: 11px; color: var(--text-2); line-height: 1.5; }
 
 .led-port-detail {
   padding: 10px;

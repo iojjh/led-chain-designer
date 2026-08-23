@@ -38,16 +38,45 @@ function resolveLedPortGroups(graph, ledNodeId) {
 }
 
 // 그룹들을 실제 포트 배열 인덱스에 맞춰 펼친 전체 레이아웃 — ports[i]로 i번
-// 포트가 어느 그룹(장비) 소속이고 상한이 얼마인지 바로 조회한다.
+// 포트가 어느 그룹(장비) 소속이고 상한이 얼마인지 바로 조회한다. portIndexInGroup은
+// 그 장비 안에서 몇 번째 물리 포트인지(카드 자체의 슬롯 번호) — nodeId와 묶으면
+// "실제 어느 케이블 구멍인지"가 정해지므로, 같은 샌딩카드를 공유하는 다른
+// LED디스플레이의 포트와 대조할 때(resolveSharedPortUsage) 이 값으로 매칭한다.
 function resolveLedPortLayout(graph, ledNodeId) {
   const groups = resolveLedPortGroups(graph, ledNodeId);
   const ports = [];
   groups.forEach(g => {
-    for (let i = 0; i < g.portCount; i += 1) { ports.push(g); }
+    for (let i = 0; i < g.portCount; i += 1) { ports.push({ ...g, portIndexInGroup: i }); }
   });
   return { groups, ports };
 }
 
+// 하나의 샌딩카드(또는 lan-ports 콘솔)에 LED디스플레이가 2개 이상 연결된 경우,
+// 물리적으로 같은 포트(같은 nodeId + portIndexInGroup)를 다른 LED디스플레이가
+// 이미 배정에 쓰고 있는지 조회한다. 반환값은 이 LED디스플레이 자신의
+// layout.ports와 같은 길이 — 각 자리에 그 포트를 실제로 쓰고 있는 "다른"
+// LED디스플레이 정보(있다면 { ledNodeId, label, panelKeys }) 또는 null.
+// 미연결 기본값 그룹(nodeId===null)은 애초에 공유 대상 장비가 없으므로 제외.
+function resolveSharedPortUsage(graph, ledNodeId) {
+  const layout = resolveLedPortLayout(graph, ledNodeId);
+  const otherLedNodes = graph.nodes.filter(n => n.type === 'led' && n.id !== ledNodeId);
+  const otherLayouts = otherLedNodes.map(n => ({ node: n, layout: resolveLedPortLayout(graph, n.id) }));
+
+  return layout.ports.map(port => {
+    if (!port.nodeId) { return null; }
+    for (const other of otherLayouts) {
+      const idx = other.layout.ports.findIndex(p => p.nodeId === port.nodeId && p.portIndexInGroup === port.portIndexInGroup);
+      if (idx === -1) { continue; }
+      const otherCfg = other.node.config && other.node.config.ledDesign;
+      const panelKeys = (otherCfg && otherCfg.lanPorts && otherCfg.lanPorts[idx]) || [];
+      if (panelKeys.length > 0) {
+        return { ledNodeId: other.node.id, label: other.node.label || 'LED디스플레이', panelKeys };
+      }
+    }
+    return null;
+  });
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { resolveLedPortGroups, resolveLedPortLayout };
+  module.exports = { resolveLedPortGroups, resolveLedPortLayout, resolveSharedPortUsage };
 }

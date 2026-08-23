@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v15';
+const CACHE_VERSION = 'v17';
 const CORE_CACHE    = `led-chain-core-${CACHE_VERSION}`;
 
 // Core assets — always cached; bump CACHE_VERSION to force update
@@ -19,6 +19,7 @@ const CORE_ASSETS = [
   './js/leddesign/betaPanels.js',
   './js/leddesign/betaAreaInchLabel.js',
   './js/leddesign/portAssignment.js',
+  './js/leddesign/ledAreaSetup.js',
   './js/leddesign/ledPortGroups.js',
   './js/leddesign/ledDesignView.js',
   './js/validation/capacityRules.js',

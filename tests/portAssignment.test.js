@@ -1,5 +1,5 @@
 const {
-  panelPx, portPx, isOverCapacity, balancedCols, autoAssignAllZones,
+  panelPx, portPx, isOverCapacity, balancedCols, autoAssignAllZones, autoAssignPwrZones,
 } = require('../js/leddesign/portAssignment.js');
 const { betaPanels } = require('../js/leddesign/betaPanels.js');
 
@@ -75,5 +75,60 @@ describe('autoAssignAllZones', () => {
   test('with zero available ports, nothing is assigned', () => {
     const assignments = autoAssignAllZones([zone], 0, 655360);
     expect(assignments.flat()).toHaveLength(0);
+  });
+
+  test('reserved indices (already used by another LED sharing the same card) are never written to, and assignment continues into the next free port', () => {
+    const assignments = autoAssignAllZones([zone], 8, 655360, [0, 1, 2]);
+    expect(assignments[0]).toEqual([]);
+    expect(assignments[1]).toEqual([]);
+    expect(assignments[2]).toEqual([]);
+    const panels = betaPanels(zone);
+    const assignedKeys = assignments.flat();
+    expect(assignedKeys).toHaveLength(panels.length);
+    expect(new Set(assignedKeys).size).toBe(panels.length);
+  });
+});
+
+describe('autoAssignPwrZones', () => {
+  test('defaults to 2 columns per port when the fixed port count is enough', () => {
+    // 4열(4×4 500×500 패널) / 8포트 — 2열/포트면 2포트만으로 다 담긴다.
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 4, cols: 4, panelW: 500, panelH: 500 };
+    const assignments = autoAssignPwrZones([zone], 8);
+    const usedPorts = assignments.map((keys, i) => (keys.length ? i : -1)).filter(i => i !== -1);
+    expect(usedPorts).toEqual([0, 1]);
+    assignments.slice(0, 2).forEach(keys => expect(keys).toHaveLength(8)); // 열 하나당 4개 패널(rows=4) × 2열
+
+    const panels = betaPanels(zone);
+    const assignedKeys = assignments.flat();
+    expect(assignedKeys).toHaveLength(panels.length);
+    expect(new Set(assignedKeys).size).toBe(panels.length);
+  });
+
+  test('bumps columns per port beyond 2 when the fixed port count cannot fit everything at 2/port', () => {
+    // 6열(1행×6열) / 포트 2개 — 2열/포트로는 4열까지밖에 못 담으므로 3열/포트로 늘어나야 함.
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 1, cols: 6, panelW: 500, panelH: 500 };
+    const assignments = autoAssignPwrZones([zone], 2);
+    expect(assignments).toHaveLength(2);
+    expect(assignments[0]).toHaveLength(3); // 3열 × 1행
+    expect(assignments[1]).toHaveLength(3);
+
+    const panels = betaPanels(zone);
+    const assignedKeys = assignments.flat();
+    expect(assignedKeys).toHaveLength(panels.length); // 전부 배정(누락 없음)
+    expect(new Set(assignedKeys).size).toBe(panels.length);
+  });
+
+  test('never writes into a port index beyond portCount even when columns divide unevenly', () => {
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 1, cols: 7, panelW: 500, panelH: 500 };
+    const assignments = autoAssignPwrZones([zone], 3);
+    expect(assignments).toHaveLength(3);
+    const panels = betaPanels(zone);
+    expect(assignments.flat()).toHaveLength(panels.length);
+  });
+
+  test('zero zones or zero ports: all ports come back empty, no crash', () => {
+    expect(autoAssignPwrZones([], 18).every(p => p.length === 0)).toBe(true);
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 2, cols: 2, panelW: 500, panelH: 500 };
+    expect(autoAssignPwrZones([zone], 0)).toEqual([]);
   });
 });

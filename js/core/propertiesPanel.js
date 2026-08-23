@@ -18,6 +18,10 @@ function initPropertiesPanel(panelEl) {
     renderPropertiesPanel();
   });
   _bodyEl.addEventListener('change', onFieldChange);
+  _bodyEl.addEventListener('click', e => {
+    if (!e.target.closest('#propsOpenLedDesignBtn')) { return; }
+    openLedDesignView(State.ui.selectedId);
+  });
   panelEl.querySelector('#propsDeleteBtn').addEventListener('click', onDeleteClick);
   panelEl.querySelector('#propsResetBtn').addEventListener('click', onResetClick);
   panelEl.querySelector('#propsApplyBtn').addEventListener('click', onApplyClick);
@@ -29,9 +33,17 @@ function escapeHtml(s) {
   }[ch]));
 }
 
-// led/power/distro는 편집 가능한 필드가 없으므로 확인·초기화 버튼은 숨긴다.
+// power/distro는 편집 가능한 필드가 없으므로 확인·초기화 버튼은 숨긴다.
 // 삭제 버튼은 노드가 선택돼 있으면 항상 보인다(추가한 노드는 뭐든 지울 수 있어야 함).
-const CONFIGURABLE_TYPES = new Set(['input', 'console', 'sending']);
+// led는 "단순"(구역 0개 또는 전체 격자를 덮는 구역 1개) 레이아웃일 때만 이
+// 패널에서 면적/피치/패널크기를 직접 고칠 수 있다 — isSimpleLedLayout 참고.
+const CONFIGURABLE_TYPES = new Set(['input', 'console', 'sending', 'led']);
+
+// 선택은 그대로 둔 채(캔버스 카드 하이라이트 유지) 패널만 숨긴다 — 이미 다른
+// 팝업(예: LED 빠른 설정)에서 같은 값을 입력받아 패널을 다시 띄우면 중복인 경우용.
+function closePropertiesPanel() {
+  if (_panelEl) { _panelEl.hidden = true; }
+}
 
 function renderPropertiesPanel() {
   if (!_panelEl) { return; }
@@ -52,7 +64,7 @@ function buildFieldsHtml(node) {
     case 'input': return inputFields(node);
     case 'console': return consoleFields(node);
     case 'sending': return sendingFields(node);
-    case 'led': return `<div class="props-hint">LED 설계 편집은 노드 본문을 클릭해 여세요.</div>`;
+    case 'led': return ledFields(node);
     default: return `<div class="props-hint">추가 설정 없음</div>`;
   }
 }
@@ -188,12 +200,68 @@ function sendingFields(node) {
   `;
 }
 
+// 구역이 하나도 없거나(미설정), 정확히 하나의 구역이 전체 격자를 그대로
+// 덮고 있으면(LED 추가 팝업의 "빠른 설정"이 만드는 모양) "단순" 레이아웃으로
+// 보고 이 패널에서 면적/피치/패널크기를 직접 고쳐 구역을 다시 만들 수 있게
+// 한다. 구역이 여럿이거나 격자 일부만 차지하면(자유 설계) 값 하나로 되돌릴
+// 수 없으므로 구역 편집 캔버스로 안내한다.
+function isSimpleLedLayout(cfg) {
+  if (cfg.zones.length === 0) { return true; }
+  if (cfg.zones.length > 1) { return false; }
+  const z = cfg.zones[0];
+  return z.startRow === 0 && z.startCol === 0 && z.rows * 500 === cfg.areaH && z.cols * 500 === cfg.areaW;
+}
+
+function ledFields(node) {
+  const cfg = node.config.ledDesign;
+  if (!isSimpleLedLayout(cfg)) {
+    return `
+      <div class="props-hint">여러 구역이나 비정형 설치면적으로 설계된 상태입니다. 세부 수정은 구역 편집 캔버스에서 진행하세요.</div>
+      <button type="button" id="propsOpenLedDesignBtn" class="props-btn props-btn-primary">구역 편집 열기</button>
+    `;
+  }
+
+  const zone = cfg.zones[0] || null;
+  const areaWm = cfg.areaW ? cfg.areaW / 1000 : '';
+  const areaHm = cfg.areaH ? cfg.areaH / 1000 : '';
+  const pitch = zone ? zone.led : '3mm';
+  const panelSizeValue = zone ? `${zone.panelW}x${zone.panelH}` : '500x1000';
+  const res = zone ? resolutionForArea(cfg.areaW, cfg.areaH, pitch) : null;
+  const preview = zone
+    ? `${res.w.toLocaleString()}×${res.h.toLocaleString()}px · ${betaPanels(zone).length}장 · ${(node.config.totalRequiredPx || 0).toLocaleString()}px`
+    : '면적을 입력하면 이 자리에 예상 해상도가 표시됩니다.';
+
+  // 속성 패널은 260px 고정 폭이라(input/console/sending과 동일하게) 2열 그리드가
+  // 아니라 세로로 한 줄씩 쌓는다 — LED 추가 팝업은 폭이 넓어 2열 그리드를 쓴다.
+  return `
+    <label class="props-field">가로(m)<input type="number" min="0" step="0.5" data-field="ledAreaWm" value="${areaWm}"></label>
+    <label class="props-field">세로(m)<input type="number" min="0" step="0.5" data-field="ledAreaHm" value="${areaHm}"></label>
+    <label class="props-field">LED 피치
+      <select data-field="ledPitch">
+        <option value="2mm" ${pitch === '2mm' ? 'selected' : ''}>2mm</option>
+        <option value="3mm" ${pitch === '3mm' ? 'selected' : ''}>3mm</option>
+        <option value="4mm" ${pitch === '4mm' ? 'selected' : ''}>4mm</option>
+      </select>
+    </label>
+    <label class="props-field">패널 크기
+      <select data-field="ledPanelSize">
+        <option value="500x500" ${panelSizeValue === '500x500' ? 'selected' : ''}>500×500</option>
+        <option value="500x1000" ${panelSizeValue === '500x1000' ? 'selected' : ''}>500×1000(세로)</option>
+        <option value="1000x500" ${panelSizeValue === '1000x500' ? 'selected' : ''}>1000×500(가로)</option>
+      </select>
+    </label>
+    <div class="props-hint">${preview}</div>
+  `;
+}
+
 // deviceId/mode/outputKind/manualInputPorts/sourceKind는 어떤 하위 필드가
 // 보이는지(파생 필드) 또는 포트 구성 자체를 바꾸므로 패널을 다시 그려야 한다.
 // 나머지 단순 값 필드는 상태만 갱신하고 패널 HTML은 그대로 둔다 — 연속 입력
 // 시 다른 필드가 리셋되는 레이스를 피한다.
-const STRUCTURAL_FIELDS = new Set(['deviceId', 'mode', 'outputKind', 'manualInputPorts', 'sourceKind']);
+const STRUCTURAL_FIELDS = new Set(['deviceId', 'mode', 'outputKind', 'manualInputPorts', 'sourceKind',
+  'ledAreaWm', 'ledAreaHm', 'ledPitch', 'ledPanelSize']);
 const NUMERIC_FIELDS = ['portCount', 'perPortMaxPx', 'inputMaxPx', 'manualInputPorts'];
+const LED_QUICK_FIELDS = new Set(['ledAreaWm', 'ledAreaHm', 'ledPitch', 'ledPanelSize']);
 
 // deviceId가 바뀌면(장비 변경/수동 전환) 콘솔의 물리 포트 구성이 달라지므로
 // 더 이상 존재하지 않는 포트를 가리키던 엣지를 정리한다.
@@ -227,9 +295,33 @@ function applyFieldValue(node, field, el) {
   } else if (NUMERIC_FIELDS.includes(field)) {
     node.config[field] = Number(el.value) || 0;
     if (field === 'manualInputPorts' && node.type === 'console') { pruneOrphanConsoleEdges(node); }
+  } else if (LED_QUICK_FIELDS.has(field)) {
+    applyLedQuickFields(node);
   } else {
     node.config[field] = el.value;
   }
+}
+
+// LED 빠른 설정 4개 필드(면적 2개+피치+패널크기)는 값 하나가 바뀌어도 현재 폼에
+// 보이는 나머지 값을 함께 읽어 구역 하나를 통째로 다시 만든다 — 피치만 바꿨는데
+// 면적 없이 반영되는 등 앞뒤가 안 맞는 상태를 피하기 위함(ledAreaSetup.js의
+// planFullAreaLed를 LED 추가 팝업과 동일하게 재사용).
+function applyLedQuickFields(node) {
+  const cfg = node.config.ledDesign;
+  const areaW = Math.round((Number(_bodyEl.querySelector('[data-field="ledAreaWm"]').value) || 0) * 1000);
+  const areaH = Math.round((Number(_bodyEl.querySelector('[data-field="ledAreaHm"]').value) || 0) * 1000);
+  if (!areaW || !areaH) {
+    cfg.areaW = 0; cfg.areaH = 0; cfg.zones = [];
+    node.config.totalRequiredPx = 0;
+    return;
+  }
+  const pitch = _bodyEl.querySelector('[data-field="ledPitch"]').value;
+  const [panelW, panelH] = _bodyEl.querySelector('[data-field="ledPanelSize"]').value.split('x').map(Number);
+  const plan = planFullAreaLed({ areaW, areaH, panelW, panelH, pitch });
+  cfg.areaW = plan.areaW;
+  cfg.areaH = plan.areaH;
+  cfg.zones = [plan.zone];
+  node.config.totalRequiredPx = plan.totalPx;
 }
 
 function onFieldChange(e) {

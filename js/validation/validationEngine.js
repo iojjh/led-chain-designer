@@ -52,6 +52,22 @@ function requiredPxOfDownstreamNode(graph, node) {
   return 0;
 }
 
+function hasZones(ledNode) {
+  return !!(ledNode.config.ledDesign.zones && ledNode.config.ledDesign.zones.length);
+}
+
+// 구역이 없는 LED는 totalRequiredPx가 0이라 위 checkConsoleOutput/checkSendingOutput이
+// "0 <= limit"로 트리비얼하게 통과한다 — 진짜 용량 확인이 아니라 LED 해상도가 아직
+// 없어서 나온 잠정 결과다. 상류(console/sending) 배지를 회색 "?"로 낮춰 표시하려면
+// 호출자가 이 상태를 알아야 하므로 별도로 계산해 반환한다.
+function hasUnconfirmedLedDownstream(graph, node) {
+  if (node.type === 'led') { return !hasZones(node); }
+  if (node.type === 'sending') {
+    return downstreamOf(graph, node.id).some(n => n.type === 'led' && !hasZones(n));
+  }
+  return false;
+}
+
 // 그래프만 받아 이슈 맵을 돌려주는 오케스트레이션 함수. checkConsoleOutput 등
 // capacityRules.js의 순수 함수를 호출하지만, 장비 조회(getDevice)와 그래프 순회
 // (downstreamOf)는 이 파일에서 수행한다. 인풋소스→콘솔 구간은 해상도를 입력받지
@@ -59,6 +75,7 @@ function requiredPxOfDownstreamNode(graph, node) {
 function runValidation(graph) {
   const nodeIssues = new Map();
   const edgeIssues = new Map();
+  const nodeProvisional = new Set();
 
   function addNodeIssue(nodeId, issue) {
     if (!nodeIssues.has(nodeId)) { nodeIssues.set(nodeId, []); }
@@ -66,6 +83,8 @@ function runValidation(graph) {
   }
 
   graph.nodes.forEach(node => {
+    if (node.type === 'led' && !hasZones(node)) { nodeProvisional.add(node.id); }
+
     if (node.type === 'console') {
       const device = node.config.deviceId ? getDevice('console', node.config.deviceId) : null;
 
@@ -74,6 +93,7 @@ function runValidation(graph) {
         const requiredPx = downstream.reduce((sum, n) => sum + requiredPxOfDownstreamNode(graph, n), 0);
         const res = checkConsoleOutput(node.config, device, requiredPx);
         if (!res.ok) { addNodeIssue(node.id, res); }
+        if (downstream.some(n => hasUnconfirmedLedDownstream(graph, n))) { nodeProvisional.add(node.id); }
       }
     }
 
@@ -84,11 +104,12 @@ function runValidation(graph) {
         const requiredPx = downstream.reduce((sum, ledNode) => sum + pxAssignedToSendingCard(graph, ledNode, node.id), 0);
         const res = checkSendingOutput(node.config, device, requiredPx);
         if (!res.ok) { addNodeIssue(node.id, res); }
+        if (downstream.some(n => !hasZones(n))) { nodeProvisional.add(node.id); }
       }
     }
   });
 
-  return { nodeIssues, edgeIssues };
+  return { nodeIssues, edgeIssues, nodeProvisional };
 }
 
 // ── DOM 표면화 ──────────────────────────────────────

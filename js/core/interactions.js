@@ -30,8 +30,40 @@ function initInteractions(canvasEl, nodeLayerEl) {
   window.addEventListener('touchcancel', onTouchEnd, { passive: false });
 
   document.querySelectorAll('.palette-btn').forEach(btn => {
-    btn.addEventListener('click', () => addNodeFromPalette(btn.dataset.type));
+    btn.addEventListener('click', () => {
+      closePaletteMenu();
+      // LED디스플레이만 추가 전에 설치면적/피치/패널크기를 미리 물어보는 팝업을
+      // 거친다(선택 사항 — 건너뛰면 다른 타입과 동일하게 빈 상태로 추가된다).
+      if (btn.dataset.type === 'led') { openLedAddModal(); return; }
+      addNodeFromPalette(btn.dataset.type);
+    });
   });
+  initLedAddModal();
+  initPaletteMenu();
+}
+
+// ── "+ 장비 추가" 드롭다운 열기/닫기 ──────────────────
+function initPaletteMenu() {
+  const toggleBtn = document.getElementById('paletteToggleBtn');
+  toggleBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    setPaletteMenuOpen(!document.getElementById('palette').classList.contains('open'));
+  });
+  const outsideHandler = e => {
+    const wrap = document.getElementById('paletteWrap');
+    if (!wrap.contains(e.target)) { closePaletteMenu(); }
+  };
+  window.addEventListener('mousedown', outsideHandler);
+  window.addEventListener('touchstart', outsideHandler, { passive: true });
+}
+
+function setPaletteMenuOpen(open) {
+  document.getElementById('palette').classList.toggle('open', open);
+  document.getElementById('paletteToggleBtn').classList.toggle('open', open);
+}
+
+function closePaletteMenu() {
+  setPaletteMenuOpen(false);
 }
 
 function handleCanvasDown(x, y) {
@@ -58,7 +90,11 @@ function onWheel(e) {
   zoomAt(e.clientX, e.clientY, factor);
 }
 
-function handleNodeLayerDown(targetEl, x, y) {
+// selectImmediately=false(터치)면 이 시점엔 드래그 준비만 하고 선택·설정창은
+// 열지 않는다 — 롱프레스로 이동시키려는 손가락이 닿는 순간 설정창부터 뜨는 걸
+// 막기 위함(사용자 요청). 실제로 탭인지 드래그인지는 onTouchEnd에서 _dragMoved로
+// 판정한 뒤에야 선택을 확정한다. 마우스는 즉시 확정(기존 동작 유지).
+function handleNodeLayerDown(targetEl, x, y, selectImmediately) {
   const portDot = targetEl.closest('.port-dot');
   if (portDot) {
     if (portDot.dataset.portDir !== 'out') { return; } // 출력 포트에서만 연결 시작
@@ -70,21 +106,23 @@ function handleNodeLayerDown(targetEl, x, y) {
   if (!cardEl) { return; }
 
   const nodeId = cardEl.dataset.nodeId;
-  selectNode(nodeId);
-  renderNodeCards();
-  renderPropertiesPanel();
-
   const node = getNode(nodeId);
   const world = screenToWorld(x, y);
   _dragNodeId = nodeId;
   _dragOffset = { x: world.x - node.x, y: world.y - node.y };
   _dragMoved = false;
   _dragStartScreen = { x, y };
+
+  if (selectImmediately) {
+    selectNode(nodeId);
+    renderNodeCards();
+    renderPropertiesPanel();
+  }
 }
 
 function onNodeLayerMouseDown(e) {
   e.stopPropagation();
-  handleNodeLayerDown(e.target, e.clientX, e.clientY);
+  handleNodeLayerDown(e.target, e.clientX, e.clientY, true);
 }
 
 // led 노드 카드 본문을 "클릭"(드래그 아님)하면 LED 설계 세부 페이지를 연다.
@@ -152,7 +190,16 @@ function handlePointerUp(x, y) {
         resolveConsoleInputConnection(fromNode, _connectFrom.portId, toNode, x, y);
       } else if (toNode && target.portId) {
         const edge = addEdge(_connectFrom.nodeId, _connectFrom.portId, toNode.id, target.portId);
-        if (edge) { renderValidation(); renderPropertiesPanel(); }
+        if (edge) {
+          // 샌딩카드를 LED디스플레이에 새로 연결하면, 그 자리에서 바로 LAN
+          // 자동 할당을 다시 돌려 방금 늘어난 포트 용량을 즉시 반영한다 —
+          // 안 그러면 사용자가 구역 설계로 들어가 수동으로 다시 눌러야 한다.
+          if (fromNode.type === 'sending' && toNode.type === 'led') {
+            autoAssignLanForLedNode(toNode.id);
+          }
+          renderValidation();
+          renderPropertiesPanel();
+        }
       }
     }
     _connectFrom = null;
@@ -263,7 +310,7 @@ function onNodeLayerTouchStart(e) {
   if (e.touches.length >= 2) { startPinch(e.touches); return; }
   e.stopPropagation();
   const { x, y } = clientXY(e);
-  handleNodeLayerDown(e.target, x, y);
+  handleNodeLayerDown(e.target, x, y, false);
 }
 
 function onTouchMove(e) {
@@ -287,8 +334,19 @@ function onTouchEnd(e) {
   const { x, y } = clientXY(e);
   const targetEl = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].target : e.target;
   const wasDraggingNode = !!_dragNodeId;
+  const tappedNodeId = _dragNodeId;
+  const wasTap = wasDraggingNode && !_dragMoved;
   handlePointerUp(x, y);
-  if (wasDraggingNode) { tryOpenLedDesignFromTap(targetEl); }
+  if (wasDraggingNode) {
+    tryOpenLedDesignFromTap(targetEl);
+    // 손가락을 떼지 않고 움직였다면(드래그=이동) 설정창을 열지 않는다 —
+    // 한 번 터치(탭)했을 때만 선택·설정창을 연다.
+    if (wasTap) {
+      selectNode(tappedNodeId);
+      renderNodeCards();
+      renderPropertiesPanel();
+    }
+  }
 }
 
 // ── 포트 피커 (빈 물리 포트가 여럿일 때 사용자가 고르는 작은 팝업) ──────
@@ -342,48 +400,90 @@ function showToast(message) {
   _toastTimer = setTimeout(() => { el.style.display = 'none'; }, 2200);
 }
 
-// 같은 타입(장비)은 항상 같은 세로 열(swimlane)에 쌓인다 — 타입별로 열이
-// 고정돼 있어(NODE_ORDER 순서) 신호 경로가 왼쪽→오른쪽으로 읽히고, 같은
-// 장비를 추가로 놓으면 먼저 놓인 것 바로 아래에 붙는다.
+// PC(넓은 화면): 같은 타입(장비)은 항상 같은 세로 열(swimlane)에 쌓인다 —
+// 타입별로 열이 고정돼 있어(NODE_ORDER 순서) 신호 경로가 왼쪽→오른쪽으로
+// 읽히고, 같은 장비를 추가로 놓으면 먼저 놓인 것 바로 아래에 붙는다.
 // 좌표는 항상 "이미 놓인 노드들의 실제 위치"를 기준으로 계산한다 — 현재
 // 화면 중앙을 기준으로 매번 다시 계산하면, ensureNodeVisible이나 사용자가
 // 그 사이에 팬/줌을 바꿨을 때 격자가 어긋나 새 카드가 기존 카드와 겹칠 수
 // 있다(실제로 겹치는 버그의 원인이었음).
+//
+// 모바일(좁은 화면): 여러 열을 한 화면에 동시에 볼 수 없어서, 위 격자 규칙을
+// 그대로 쓰면 새 카드가 화면 밖 먼 곳에 놓이고 ensureNodeVisible이 그걸
+// 좇아 화면을 크게 홱 이동시키는 것처럼 느껴진다(사용자 요청 — "현재 보고
+// 있는 화면에 장비가 추가됐으면"). 대신 모바일에서는 격자를 포기하고 항상
+// 현재 화면 중앙에 놓되, 기존 카드와 겹치면 대각선으로 조금씩 밀어낸다.
 function addNodeFromPalette(type) {
+  finalizeAddedNode(createPositionedNode(type));
+}
+
+// 위치 계산(PC 격자/모바일 화면중앙)만 떼어낸 것 — LED 추가 팝업(openLedAddModal)이
+// addNode 직후·finalizeAddedNode 이전에 config(ledDesign)를 채워 넣어야 해서
+// addNodeFromPalette를 통째로 쓸 수 없기 때문에 두 조각으로 나눴다.
+function createPositionedNode(type) {
   const canvasEl = document.getElementById('graphCanvas');
   const rect = canvasEl.getBoundingClientRect();
+  const isMobile = window.matchMedia('(max-width: 640px)').matches;
+  const { x, y } = isMobile ? pickVisibleSpot(rect) : pickSwimlaneSpot(type, rect);
+  return addNode(type, x, y);
+}
 
+function finalizeAddedNode(node) {
+  const canvasEl = document.getElementById('graphCanvas');
+  const rect = canvasEl.getBoundingClientRect();
+  ensureNodeVisible(node, rect);
+  selectNode(node.id);
+  renderNodeCards();
+  renderPropertiesPanel();
+}
+
+function pickSwimlaneSpot(type, rect) {
   const gapX = CARD_WIDTH + 60;
   const gapY = 140;
   const col = NODE_ORDER.indexOf(type);
 
   const sameType = State.graph.nodes.filter(n => n.type === type);
-  let x, y;
-
   if (sameType.length > 0) {
     // 같은 타입의 마지막 노드 바로 아래(같은 열)에 이어 붙인다.
     const last = sameType[sameType.length - 1];
-    x = last.x;
-    y = last.y + gapY;
-  } else if (State.graph.nodes.length > 0) {
+    return { x: last.x, y: last.y + gapY };
+  }
+  if (State.graph.nodes.length > 0) {
     // 이 타입은 처음 추가하지만 다른 노드가 이미 있으면, 그 노드를 기준으로
     // 같은 행(row 0) 높이에서 이 타입의 열(NODE_ORDER 순서상 위치)로 맞춘다.
     const ref = State.graph.nodes[0];
     const refCol = NODE_ORDER.indexOf(ref.type);
-    x = ref.x + (col - refCol) * gapX;
-    y = ref.y;
-  } else {
-    // 캔버스가 완전히 비어 있을 때만 현재 화면 중앙을 기준으로 새로 시작한다.
-    const world = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    x = world.x - (NODE_ORDER.length * gapX) / 2 + col * gapX;
-    y = world.y - CARD_MIN_HEIGHT / 2;
+    return { x: ref.x + (col - refCol) * gapX, y: ref.y };
   }
+  // 캔버스가 완전히 비어 있을 때만 현재 화면 중앙을 기준으로 새로 시작한다.
+  const world = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return { x: world.x - (NODE_ORDER.length * gapX) / 2 + col * gapX, y: world.y - CARD_MIN_HEIGHT / 2 };
+}
 
-  const node = addNode(type, x, y);
-  ensureNodeVisible(node, rect);
-  selectNode(node.id);
-  renderNodeCards();
-  renderPropertiesPanel();
+// 현재 화면 중앙 월드 좌표에서 시작해, 기존 카드와 겹치면 겹치지 않을 때까지
+// 대각선으로 밀어낸다(간이 캐스케이드). 새 카드의 실제 높이는 아직 만들어지지
+// 않아 알 수 없으므로 여유를 준 고정 높이로 근사한다 — 정확한 겹침 판정보다
+// "화면 안에서 겹치지 않게"가 목적이라 충분하다.
+function pickVisibleSpot(rect) {
+  const world = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  let x = world.x - CARD_WIDTH / 2;
+  let y = world.y - CARD_MIN_HEIGHT / 2;
+  const step = 28;
+  const approxHeight = CARD_MIN_HEIGHT + PORT_ROW_HEIGHT * 3;
+  for (let i = 0; i < 24 && overlapsExistingNode(x, y, approxHeight); i += 1) {
+    x += step;
+    y += step;
+  }
+  return { x, y };
+}
+
+function overlapsExistingNode(x, y, height) {
+  const pad = 12;
+  return State.graph.nodes.some(n => {
+    const h = cardHeightFor(n);
+    return x < n.x + CARD_WIDTH + pad && x + CARD_WIDTH + pad > n.x &&
+      y < n.y + h + pad && y + height + pad > n.y;
+  });
 }
 
 // 열 배치(swimlane)가 화면 폭을 넘어가면(특히 좁은 모바일 화면) 새로 추가된
@@ -406,4 +506,131 @@ function ensureNodeVisible(node, rect) {
     State.ui.pan.y += dy;
     render();
   }
+}
+
+// ── LED디스플레이 추가 팝업 ───────────────────────────
+// 첫 선택은 "빠른 설정"(단일 사각형 — 설치면적/피치/패널크기를 입력하면 그
+// 정보를 그대로 덮는 구역 하나를 ledAreaSetup.js의 planFullAreaLed로 만든다)
+// 또는 "자유 설계"(여러 구역·비정형 설치면적 — 빈 노드로 추가하고 곧장 구역
+// 편집 캔버스를 열어 직접 그리게 한다) 중 하나다. 후자를 "나중에" 대신
+// 대등한 첫 선택지로 둔 이유는 자유 배치도 정식 경로이지 미룬 게 아니라서.
+const _ledAdd = { mode: 'rect' };
+let _ledAddInited = false;
+let _ledAddOutsideHandler = null;
+
+function initLedAddModal() {
+  if (_ledAddInited) { return; }
+  _ledAddInited = true;
+
+  document.getElementById('ledAddCloseBtn').addEventListener('click', closeLedAddModal);
+  document.getElementById('ledAddConfirmBtn').addEventListener('click', onLedAddConfirm);
+
+  document.getElementById('ledAddAreaW').addEventListener('input', updateLedAddPreview);
+  document.getElementById('ledAddAreaH').addEventListener('input', updateLedAddPreview);
+  document.getElementById('ledAddPitch').addEventListener('change', updateLedAddPreview);
+  document.getElementById('ledAddPanelSize').addEventListener('change', updateLedAddPreview);
+
+  document.querySelectorAll('#ledAddModeTabs .led-add-mode-tab').forEach(btn => {
+    btn.addEventListener('click', () => setLedAddMode(btn.dataset.mode));
+  });
+}
+
+function setLedAddMode(mode) {
+  _ledAdd.mode = mode;
+  document.querySelectorAll('#ledAddModeTabs .led-add-mode-tab').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  document.getElementById('ledAddRectFields').hidden = mode !== 'rect';
+  document.getElementById('ledAddFreeNote').hidden = mode !== 'free';
+  updateLedAddPreview();
+}
+
+function openLedAddModal() {
+  document.getElementById('ledAddAreaW').value = '';
+  document.getElementById('ledAddAreaH').value = '';
+  document.getElementById('ledAddPitch').value = '3mm';
+  document.getElementById('ledAddPanelSize').value = '500x1000';
+  setLedAddMode('rect');
+
+  const el = document.getElementById('ledAddModal');
+  el.hidden = false;
+  _ledAddOutsideHandler = ev => {
+    if (ev.target === el) { closeLedAddModal(); }
+  };
+  setTimeout(() => el.addEventListener('mousedown', _ledAddOutsideHandler), 0);
+}
+
+function closeLedAddModal() {
+  const el = document.getElementById('ledAddModal');
+  el.hidden = true;
+  if (_ledAddOutsideHandler) {
+    el.removeEventListener('mousedown', _ledAddOutsideHandler);
+    _ledAddOutsideHandler = null;
+  }
+}
+
+function readLedAddAreaMm() {
+  const w = Math.round((Number(document.getElementById('ledAddAreaW').value) || 0) * 1000);
+  const h = Math.round((Number(document.getElementById('ledAddAreaH').value) || 0) * 1000);
+  return { areaW: w, areaH: h };
+}
+
+function readLedAddPanelSize() {
+  const [panelW, panelH] = document.getElementById('ledAddPanelSize').value.split('x').map(Number);
+  return { panelW, panelH };
+}
+
+function updateLedAddPreview() {
+  const confirmBtn = document.getElementById('ledAddConfirmBtn');
+  if (_ledAdd.mode === 'free') { confirmBtn.disabled = false; return; }
+
+  const previewEl = document.getElementById('ledAddPreview');
+  const { areaW, areaH } = readLedAddAreaMm();
+  if (!areaW || !areaH) {
+    previewEl.textContent = '';
+    confirmBtn.disabled = true;
+    return;
+  }
+  const { panelW, panelH } = readLedAddPanelSize();
+  const pitch = document.getElementById('ledAddPitch').value;
+  const plan = planFullAreaLed({ areaW, areaH, panelW, panelH, pitch });
+  confirmBtn.disabled = false;
+  previewEl.textContent = `${plan.resolution.w.toLocaleString()}×${plan.resolution.h.toLocaleString()}px · ${plan.panelCount}장 · ${plan.totalPx.toLocaleString()}px`
+    + (plan.areaW !== areaW || plan.areaH !== areaH ? ` (500mm 격자 반올림: ${plan.areaW / 1000}×${plan.areaH / 1000}m)` : '');
+}
+
+function onLedAddConfirm() {
+  if (_ledAdd.mode === 'free') {
+    const node = createPositionedNode('led');
+    closeLedAddModal();
+    finalizeAddedNode(node);
+    renderValidation();
+    openLedDesignView(node.id);
+    return;
+  }
+
+  const { areaW, areaH } = readLedAddAreaMm();
+  if (!areaW || !areaH) { return; } // 확인 버튼은 면적 미입력 시 disabled라 평소엔 도달하지 않음
+  const { panelW, panelH } = readLedAddPanelSize();
+  const pitch = document.getElementById('ledAddPitch').value;
+  const plan = planFullAreaLed({ areaW, areaH, panelW, panelH, pitch });
+
+  const node = createPositionedNode('led');
+  node.config.ledDesign.areaW = plan.areaW;
+  node.config.ledDesign.areaH = plan.areaH;
+  node.config.ledDesign.zones = [plan.zone];
+  node.config.totalRequiredPx = plan.totalPx;
+
+  // 빠른 설정은 구역이 하나뿐이고 형태가 이미 확정이라 나중에 이어그릴 여백이
+  // 필요 없다 — 구역 설계 캔버스를 열자마자 "설계 완료" 상태(여백 없는 축소
+  // 뷰)로 시작하고, LAN 배선도 그 자리에서 바로 자동 배정해둔다(자유 설계는
+  // 사용자가 직접 구역을 그려야 하므로 이 자동화 대상이 아니다).
+  node.config.ledDesign.zoneViewCompact = true;
+  autoAssignLanForLedNode(node.id);
+
+  closeLedAddModal();
+  finalizeAddedNode(node);
+  // 방금 뜬 빠른 설정 팝업에서 이미 같은 값(면적/피치/패널크기)을 다 입력받았으므로,
+  // 속성 패널을 또 띄우면 방금 입력한 걸 그대로 중복해서 보여주는 셈이다 — 캔버스
+  // 선택 표시(하이라이트)는 유지하되 패널만 닫는다.
+  closePropertiesPanel();
+  renderValidation();
 }

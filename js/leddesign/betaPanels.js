@@ -1,8 +1,20 @@
 // ── betaPanels ──────────────────────────────────────
 // led-calculator/script.js:2849-2898 그대로 이식(순수 함수, 의존성 없음).
 // 구역(zone)을 실제 LED 패널 사각형들로 타일링한다.
-
+//
+// zone.cells가 있으면(led-calculator에는 없는, 이 앱만의 자유 구역 — 격자 칸을
+// 하나씩 골라 만든 비정형 구역) 아래의 사각형 타일링 대신 각 칸을 그대로 500×500
+// 패널 하나로 매핑한다. 비정형 형태에 500×1000 같은 큰 패널을 자동으로 짝짓는
+// 알고리즘은 없음 — 자유 구역은 항상 500×500 단위로만 채운다(단순함·안전성 우선).
 function betaPanels(zone) {
+  if (zone.cells) {
+    return zone.cells.map(({ row, col }) => ({
+      key: `${zone.id}:${row}:${col}`,
+      x: col * 500, y: row * 500, w: 500, h: 500,
+      led: zone.led, zoneId: zone.id,
+    }));
+  }
+
   const spanC = zone.panelW / 500;
   const spanR = zone.panelH / 500;
   const fullC = Math.floor(zone.cols / spanC);
