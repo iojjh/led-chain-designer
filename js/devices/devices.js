@@ -9,16 +9,35 @@ const DEVICES = {
     'novastar-j6': {
       id: 'novastar-j6', vendor: 'NovaStar', name: 'J6 Seamless Switcher', shortName: 'J6',
       outputKind: 'video-signal',
-      // 벤더 스펙상 입력 커넥터 종류가 섞여 있어(DVI/HDMI/3G-SDI/DP1.1/HDMI1.4) 딱
-      // 떨어지는 개별 타입별 개수를 문서에서 명시하지 않는다 — 다만 "최대 8입력"은
-      // 명시돼 있으므로 범용 입력 하나를 count:8로 모델링한다.
+      // 후면 패널 Input 표(INPUT-A~H) 기준 실제 커넥터별 개수 — "최대 8입력"은
+      // 이 8개(1+2+1+4)의 합일 뿐, 아무 타입이나 섞어서 8개가 아니다. 인풋소스를
+      // 실제로 어느 물리 커넥터에 꽂을 수 있는지(그래서 콘솔 연결 시 타입을
+      // 골라야 하는지) 정확히 반영하려면 이렇게 타입별로 나눠야 한다.
+      // - INPUT-A: DP1.1 × 1(최대 4K×2K@30Hz — 표준 해상도 표 최댓값 3840×2160@30Hz)
+      // - INPUT-B, H: 3G-SDI × 2(최대 1920×1080@60Hz)
+      // - INPUT-C: HDMI1.3 × 1(최대 1920×1080@60Hz)
+      // - INPUT-D~G: DVI × 4(최대 1920×1080@60Hz)
+      // (각 커넥터는 옵션 카드로 다른 타입으로 교체 가능하지만, 이 프리셋은
+      // 기본 출하 구성을 기준으로 한다.)
       inputs: [
-        { id: 'in1', label: '혼합 입력(DVI/HDMI/SDI/DP)', maxPx: null, count: 8 },
+        { id: 'dp1', label: 'DP1.1', maxPx: 3840 * 2160, count: 1 },
+        { id: 'sdi1', label: '3G-SDI', maxPx: 1920 * 1080, count: 2 },
+        { id: 'hdmi13', label: 'HDMI1.3', maxPx: 1920 * 1080, count: 1 },
+        { id: 'dvi1', label: 'DVI', maxPx: 1920 * 1080, count: 4 },
       ],
       modes: {
         splicer: { maxOutputs: 4, totalMaxPx: 9200000, maxMosaicWidthPx: 15360 },
         switcher: { maxOutputs: 2, totalMaxPx: 4600000, approx: true }, // 벤더 문서 근사치("4KK")
       },
+      // DVI 출력 커넥터 "한 개"(=샌딩카드 한 대와의 연결 하나)가 실제로 낼 수
+      // 있는 상한 — modes의 totalMaxPx는 최대 4개 커넥터를 동시에 쓸 때의
+      // 합산치라, 샌딩카드를 한두 대만 연결한 경우엔 이 값이 아니라 이 값을
+      // 실제로 넘지 않는지 별도로 봐야 한다. 스펙 문서에 "커넥터 1개" 수치가
+      // 따로 명시되진 않아, J6 출력 커넥터군(DVI/HDMI1.3 클래스)의 공통 지원
+      // 해상도 표에서 가장 큰 값(1920×1200@60Hz)으로 근사했다 — splicer/switcher
+      // 양쪽 다 totalMaxPx÷maxOutputs가 정확히 2,300,000으로 이 값과 거의
+      // 일치해(반올림 차이만) 신뢰할 만하다.
+      perOutputMaxPx: 1920 * 1200,
       defaultMode: 'splicer',
       note: 'DVI 영상 출력 — LED디스플레이 직결 불가, 샌딩카드 노드를 반드시 거쳐야 함',
       sourcePdf: 'J6-Seamless-Switcher-Specifications-V2.2.0.pdf',
@@ -42,11 +61,20 @@ const DEVICES = {
     'novastar-mctrl4k': {
       id: 'novastar-mctrl4k', vendor: 'NovaStar', name: 'MCTRL4K (내장 샌딩 포트)', shortName: 'MCTRL4K',
       portCount: 16, perPortMaxPx8bit: 655360, perPortMaxPx10bit: 320000,
+      // 콘솔로부터 실제로 받을 수 있는 영상 신호 픽셀 상한(DP1.2/HDMI2.0
+      // 8bit 표준 최대 해상도 4096×2160@60Hz) — LAN 출력 용량(portCount ×
+      // perPortMaxPx8bit)과는 별개 제약이다. 이 카드는 해상도를 바꾸지 않고
+      // 그대로 통과시키므로, 입력이 이 상한을 넘으면 LAN 포트 여유와 무관하게
+      // 애초에 신호를 받을 수 없다.
+      inputMaxPx: 4096 * 2160,
       sourcePdf: 'MCTRL4K.pdf',
     },
     'novastar-mctrl660pro': {
       id: 'novastar-mctrl660pro', vendor: 'NovaStar', name: 'MCTRL660PRO (내장 샌딩 포트)', shortName: 'MCTRL660PRO',
       portCount: 6, perPortMaxPx8bit: 655360, perPortMaxPx10bit: 325000,
+      // DVI/HDMI1.4a 8bit 표준 최대 해상도(1920×1200@60Hz) — 위 MCTRL4K와
+      // 같은 이유.
+      inputMaxPx: 1920 * 1200,
       sourcePdf: 'MCTRL660PRO.pdf',
     },
   },

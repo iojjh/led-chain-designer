@@ -90,11 +90,11 @@ function onWheel(e) {
   zoomAt(e.clientX, e.clientY, factor);
 }
 
-// selectImmediately=false(터치)면 이 시점엔 드래그 준비만 하고 선택·설정창은
-// 열지 않는다 — 롱프레스로 이동시키려는 손가락이 닿는 순간 설정창부터 뜨는 걸
-// 막기 위함(사용자 요청). 실제로 탭인지 드래그인지는 onTouchEnd에서 _dragMoved로
-// 판정한 뒤에야 선택을 확정한다. 마우스는 즉시 확정(기존 동작 유지).
-function handleNodeLayerDown(targetEl, x, y, selectImmediately) {
+// 이 시점엔 드래그 준비만 하고 선택·설정창은 열지 않는다 — 노드를 드래그로
+// 옮기려고 누른 순간 설정창부터 뜨는 걸 막기 위함(사용자 요청). 실제로
+// 클릭(탭)인지 드래그인지는 마우스는 handlePointerUp, 터치는 onTouchEnd에서
+// _dragMoved로 판정한 뒤에야 선택을 확정한다.
+function handleNodeLayerDown(targetEl, x, y) {
   const portDot = targetEl.closest('.port-dot');
   if (portDot) {
     if (portDot.dataset.portDir !== 'out') { return; } // 출력 포트에서만 연결 시작
@@ -112,17 +112,11 @@ function handleNodeLayerDown(targetEl, x, y, selectImmediately) {
   _dragOffset = { x: world.x - node.x, y: world.y - node.y };
   _dragMoved = false;
   _dragStartScreen = { x, y };
-
-  if (selectImmediately) {
-    selectNode(nodeId);
-    renderNodeCards();
-    renderPropertiesPanel();
-  }
 }
 
 function onNodeLayerMouseDown(e) {
   e.stopPropagation();
-  handleNodeLayerDown(e.target, e.clientX, e.clientY, true);
+  handleNodeLayerDown(e.target, e.clientX, e.clientY);
 }
 
 // led 노드 카드 본문을 "클릭"(드래그 아님)하면 LED 설계 세부 페이지를 연다.
@@ -204,6 +198,13 @@ function handlePointerUp(x, y) {
     }
     _connectFrom = null;
     clearConnectPreview();
+  }
+  if (_dragNodeId && !_dragMoved) {
+    // 클릭(드래그 아님)일 때만 선택+설정 패널을 연다 — 터치와 동일하게 마우스도
+    // 드래그로 이동만 했을 때는 패널이 뜨지 않게 한다(사용자 요청).
+    selectNode(_dragNodeId);
+    renderNodeCards();
+    renderPropertiesPanel();
   }
   _dragNodeId = null;
   _isPanning = false;
@@ -310,7 +311,7 @@ function onNodeLayerTouchStart(e) {
   if (e.touches.length >= 2) { startPinch(e.touches); return; }
   e.stopPropagation();
   const { x, y } = clientXY(e);
-  handleNodeLayerDown(e.target, x, y, false);
+  handleNodeLayerDown(e.target, x, y);
 }
 
 function onTouchMove(e) {

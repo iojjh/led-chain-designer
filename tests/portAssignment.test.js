@@ -1,5 +1,6 @@
 const {
   panelPx, portPx, isOverCapacity, balancedCols, autoAssignAllZones, autoAssignPwrZones,
+  autoAssignAllZonesBalanced,
 } = require('../js/leddesign/portAssignment.js');
 const { betaPanels } = require('../js/leddesign/betaPanels.js');
 
@@ -86,6 +87,84 @@ describe('autoAssignAllZones', () => {
     const assignedKeys = assignments.flat();
     expect(assignedKeys).toHaveLength(panels.length);
     expect(new Set(assignedKeys).size).toBe(panels.length);
+  });
+});
+
+describe('autoAssignAllZonesBalanced', () => {
+  // 2행×20열(500x500 패널, 3mm) — 20개의 연속된 열, 열마다 2장씩(각 16,384px) =
+  // 열당 32,768px, 전체 655,360px. capPerPort를 넉넉하게 줘서 "용량 때문에
+  // 어쩔 수 없이 여러 포트에 나뉘는" 게 아니라 순수하게 균등 배분 로직만 검증한다.
+  const wideZone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 2, cols: 20, panelW: 500, panelH: 500 };
+  const HUGE_CAP = 999999999;
+
+  function pxInPortRange(assignments, panels, from, to) {
+    return assignments.slice(from, to).reduce((sum, keys) => sum + portPx(panels, keys), 0);
+  }
+
+  test('two identical cards: total pixel load is split ~evenly, each card gets a contiguous half (not interleaved)', () => {
+    const groups = [{ portCount: 8, capPerPort: HUGE_CAP }, { portCount: 8, capPerPort: HUGE_CAP }];
+    const assignments = autoAssignAllZonesBalanced([wideZone], groups, null);
+    expect(assignments).toHaveLength(16);
+
+    const panels = betaPanels(wideZone);
+    const cardAPx = pxInPortRange(assignments, panels, 0, 8);
+    const cardBPx = pxInPortRange(assignments, panels, 8, 16);
+    const totalPx = panels.reduce((s, p) => s + panelPx(p), 0);
+
+    expect(cardAPx + cardBPx).toBe(totalPx); // 전부 배정됨(누락 없음)
+    expect(cardAPx).toBe(totalPx / 2); // 20열이 정확히 반씩 나뉘는 케이스라 딱 절반
+    expect(cardBPx).toBe(totalPx / 2);
+
+    // 카드 A에 배정된 패널은 전부 왼쪽 절반 열(x < 10*500)이어야 한다(연속 구간).
+    const cardAKeys = new Set(assignments.slice(0, 8).flat());
+    panels.filter(p => cardAKeys.has(p.key)).forEach(p => expect(p.x).toBeLessThan(10 * 500));
+  });
+
+  test('three identical cards: still roughly even, later cards do not accumulate rounding drift', () => {
+    const groups = [
+      { portCount: 4, capPerPort: HUGE_CAP },
+      { portCount: 4, capPerPort: HUGE_CAP },
+      { portCount: 4, capPerPort: HUGE_CAP },
+    ];
+    const assignments = autoAssignAllZonesBalanced([wideZone], groups, null);
+    const panels = betaPanels(wideZone);
+    const loads = [
+      pxInPortRange(assignments, panels, 0, 4),
+      pxInPortRange(assignments, panels, 4, 8),
+      pxInPortRange(assignments, panels, 8, 12),
+    ];
+    const totalPx = panels.reduce((s, p) => s + panelPx(p), 0);
+    expect(loads.reduce((a, b) => a + b, 0)).toBe(totalPx);
+    // 20열을 3등분하면 정확히 나눠떨어지지 않으니(6.66...), 어느 한쪽에 과도하게
+    // 쏠리지 않고 열 하나(32,768px) 오차 이내로 고르게 나뉘어야 한다.
+    const maxLoad = Math.max(...loads);
+    const minLoad = Math.min(...loads);
+    expect(maxLoad - minLoad).toBeLessThanOrEqual(32768);
+  });
+
+  test('a single card behaves the same as just giving it everything', () => {
+    const groups = [{ portCount: 8, capPerPort: HUGE_CAP }];
+    const assignments = autoAssignAllZonesBalanced([wideZone], groups, null);
+    const panels = betaPanels(wideZone);
+    const totalPx = panels.reduce((s, p) => s + panelPx(p), 0);
+    expect(assignments.flat()).toHaveLength(panels.length);
+    expect(pxInPortRange(assignments, panels, 0, 8)).toBe(totalPx);
+  });
+
+  test('reserved indices (shared-card ports another LED already uses) are respected within each card\'s own range', () => {
+    const groups = [{ portCount: 8, capPerPort: HUGE_CAP }, { portCount: 8, capPerPort: HUGE_CAP }];
+    // 카드 A(0-7)의 포트 0번, 카드 B(8-15)의 포트 8번이 예약됨.
+    const assignments = autoAssignAllZonesBalanced([wideZone], groups, [0, 8]);
+    expect(assignments[0]).toEqual([]);
+    expect(assignments[8]).toEqual([]);
+    const panels = betaPanels(wideZone);
+    const totalPx = panels.reduce((s, p) => s + panelPx(p), 0);
+    expect(pxInPortRange(assignments, panels, 0, 16)).toBe(totalPx); // 예약된 포트만 피하고 나머지엔 전부 배정
+  });
+
+  test('no zones or no groups: all-empty result, no crash', () => {
+    expect(autoAssignAllZonesBalanced([], [{ portCount: 4, capPerPort: HUGE_CAP }], null).every(p => p.length === 0)).toBe(true);
+    expect(autoAssignAllZonesBalanced([wideZone], [], null)).toEqual([]);
   });
 });
 

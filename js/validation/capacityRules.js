@@ -55,9 +55,61 @@ function checkSendingOutput(sendingConfig, device, downstreamRequiredPx) {
   };
 }
 
+// 샌딩카드 자체가 콘솔로부터 받을 수 있는 영상 신호 픽셀 상한 검사 —
+// checkSendingOutput(LAN 출력 용량)과는 별개 제약이다. 샌딩카드는 들어온
+// 영상을 그대로 통과시킬 뿐 해상도를 바꾸지 않으므로, 하류 LED가 요구하는
+// 픽셀량이 곧 이 카드가 입력으로 받아야 하는 픽셀량과 같다. LAN 포트가
+// 아무리 여유 있어도 입력 상한을 넘으면 애초에 그 신호를 받을 수 없다.
+function checkSendingInput(sendingConfig, device, downstreamRequiredPx) {
+  const limit = device ? device.inputMaxPx : sendingConfig.inputMaxPx;
+  if (limit == null) {
+    return { ok: true, message: '입력 상한 정보 없음 — 입력 용량 검증 보류', actual: downstreamRequiredPx, limit: null };
+  }
+  const ok = downstreamRequiredPx <= limit;
+  const name = device ? device.name : '샌딩카드(수동)';
+  return {
+    ok,
+    message: ok
+      ? '샌딩카드 입력 용량 이내'
+      : `필요 픽셀(${downstreamRequiredPx.toLocaleString()}px)이 ${name} 입력 상한(${limit.toLocaleString()}px)을 초과합니다`,
+    actual: downstreamRequiredPx, limit,
+  };
+}
+
+// 콘솔의 출력 커넥터 "한 개"(=엣지 하나, 하류 장비 한 대와의 연결)가 실제로
+// 감당할 수 있는 상한 검사 — checkConsoleOutput(콘솔 전체 합산 용량)과는
+// 별개 제약이다. 합산 요구량이 콘솔 전체 용량 안에 들어도, 특정 연결 하나가
+// 물리적으로 커넥터 1개가 낼 수 있는 해상도를 넘어설 수 있다(예: 대형 콘솔
+// 한 대에 소형 샌딩카드 한 대만 연결한 경우 — 전체 용량은 남아돌아도 그
+// 커넥터 하나로는 그만한 해상도를 못 낼 수 있음).
+function checkConsoleSingleOutput(device, singleDownstreamRequiredPx) {
+  if (!device) {
+    return { ok: true, message: '장비 미지정 — 출력 커넥터 상한 검증 보류', actual: singleDownstreamRequiredPx, limit: null };
+  }
+  let limit;
+  if (device.outputKind === 'lan-ports') {
+    limit = device.outputs.perPortMaxPx8bit;
+  } else if (device.modes) {
+    limit = device.perOutputMaxPx;
+  } else {
+    limit = device.outputs.perOutputMaxPx;
+  }
+  if (limit == null) {
+    return { ok: true, message: '출력 커넥터 상한 정보 없음 — 검증 보류', actual: singleDownstreamRequiredPx, limit: null };
+  }
+  const ok = singleDownstreamRequiredPx <= limit;
+  return {
+    ok,
+    message: ok
+      ? '단일 출력 커넥터 용량 이내'
+      : `이 연결의 필요 픽셀(${singleDownstreamRequiredPx.toLocaleString()}px)이 ${device.name}의 출력 커넥터 1개당 상한(${limit.toLocaleString()}px)을 초과합니다`,
+    actual: singleDownstreamRequiredPx, limit,
+  };
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
-    checkConsoleOutput, checkSendingOutput,
+    checkConsoleOutput, checkSendingOutput, checkSendingInput, checkConsoleSingleOutput,
     FALLBACK_PER_PORT_MAX_PX,
   };
 }

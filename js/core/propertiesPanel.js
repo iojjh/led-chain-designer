@@ -103,6 +103,7 @@ function consoleFields(node) {
       summary = `출력 ${device.outputs.portCount}포트 · 포트당 8bit ${device.outputs.perPortMaxPx8bit.toLocaleString()}px / 10·12bit ${device.outputs.perPortMaxPx10bit.toLocaleString()}px`;
     } else if (device.modes) {
       summary = Object.entries(device.modes).map(([m, spec]) => `${m}: ${spec.totalMaxPx.toLocaleString()}px`).join(' · ');
+      if (device.perOutputMaxPx) { summary += `<br>커넥터 1개당 상한 ${device.perOutputMaxPx.toLocaleString()}px`; }
     } else {
       summary = `출력당 최대 ${device.outputs.perOutputMaxPx.toLocaleString()}px`;
     }
@@ -182,11 +183,18 @@ function sendingFields(node) {
     </label>
     <label class="props-field">포트당 픽셀 상한
       <input type="number" min="1" data-field="perPortMaxPx" value="${c.perPortMaxPx}">
+    </label>
+    <label class="props-field">입력 픽셀 상한(비워두면 검증 안 함)
+      <input type="number" min="1" data-field="inputMaxPx" value="${c.inputMaxPx || ''}">
     </label>` : '';
 
+  const inputCapLine = device
+    ? `입력(콘솔→카드) 상한 ${device.inputMaxPx.toLocaleString()}px`
+    : (c.inputMaxPx ? `입력(콘솔→카드) 상한 ${Number(c.inputMaxPx).toLocaleString()}px` : '입력 상한 미설정 — 그쪽 용량은 검증하지 않음');
+
   const summary = device
-    ? `출력 ${device.portCount}포트 · 포트당 8bit ${device.perPortMaxPx8bit.toLocaleString()}px / 10·12bit ${device.perPortMaxPx10bit.toLocaleString()}px`
-    : `수동 모드 — 포트당 상한 기본값 ${c.perPortMaxPx.toLocaleString()}px`;
+    ? `출력 ${device.portCount}포트 · 포트당 8bit ${device.perPortMaxPx8bit.toLocaleString()}px / 10·12bit ${device.perPortMaxPx10bit.toLocaleString()}px<br>${inputCapLine}`
+    : `수동 모드 — 포트당 상한 기본값 ${c.perPortMaxPx.toLocaleString()}px<br>${inputCapLine}`;
 
   return `
     <label class="props-field">장비 프리셋
@@ -292,6 +300,10 @@ function applyFieldValue(node, field, el) {
     const wasAuto = node.label === '인풋소스' || INPUT_KINDS.some(k => k.label === node.label);
     node.config.sourceKind = el.value;
     if (wasAuto) { node.label = inputKindLabel(el.value); }
+  } else if (field === 'inputMaxPx') {
+    // 비워두면 null(검증 보류) — 다른 숫자 필드처럼 0으로 떨어지면 "상한 0px"로
+    // 오인돼 어떤 연결이든 바로 초과 판정이 나버린다.
+    node.config[field] = el.value === '' ? null : (Number(el.value) || null);
   } else if (NUMERIC_FIELDS.includes(field)) {
     node.config[field] = Number(el.value) || 0;
     if (field === 'manualInputPorts' && node.type === 'console') { pruneOrphanConsoleEdges(node); }
@@ -333,7 +345,18 @@ function onFieldChange(e) {
   applyFieldValue(node, field, e.target);
 
   renderValidation();
-  if (STRUCTURAL_FIELDS.has(field)) { renderPropertiesPanel(); }
+  if (LED_QUICK_FIELDS.has(field)) {
+    // 가로/세로 둘 다 채워져 구역이 실제로 만들어졌을 때만 패널을 다시 그린다.
+    // 두 필드 다 STRUCTURAL_FIELDS라 하나 바뀔 때마다 무조건 다시 그리면,
+    // 아직 한쪽이 비어 있는 중간 입력 상태에서 applyLedQuickFields가 area를
+    // 0으로 되돌린 뒤 그 값(0 → 빈 문자열)으로 다시 그려버려 방금 입력한
+    // 값까지 함께 지워진다 — 그러면 두 필드를 순서대로 못 채운다(가로 입력
+    // → 즉시 지워짐 → 세로도 마찬가지). 구역이 실제로 생겼을 때만(=두 값
+    // 다 유효했을 때만) 다시 그려서 미리보기를 갱신한다.
+    if (node.config.ledDesign.zones.length > 0) { renderPropertiesPanel(); }
+  } else if (STRUCTURAL_FIELDS.has(field)) {
+    renderPropertiesPanel();
+  }
 }
 
 // "확인" — 현재 폼에 보이는 모든 필드 값을 강제로 다시 반영한 뒤(대부분은 이미

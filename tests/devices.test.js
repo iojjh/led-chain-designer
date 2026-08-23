@@ -62,11 +62,17 @@ describe('getConsoleInputPorts', () => {
     expect(ports.find(p => p.id === 'hdmi1-1').label).toBe('HDMI2.0 #1');
   });
 
-  test('J6\'s single mixed-input type (count:8) expands into 8 slots', () => {
+  test('J6 exposes its actual per-connector-type breakdown (DP1.1x1 + 3G-SDIx2 + HDMI1.3x1 + DVIx4 = 8), not one generic type', () => {
     const ports = getConsoleInputPorts({ config: { deviceId: 'novastar-j6' } });
     expect(ports).toHaveLength(8);
-    expect(ports[0].id).toBe('in1-1');
-    expect(ports[7].id).toBe('in1-8');
+    expect(ports.map(p => p.id)).toEqual([
+      'dp1', // count:1인 타입은 번호 접미사 없이 그대로(getConsoleInputPorts 규칙)
+      'sdi1-1', 'sdi1-2',
+      'hdmi13',
+      'dvi1-1', 'dvi1-2', 'dvi1-3', 'dvi1-4',
+    ]);
+    expect(ports.find(p => p.id === 'dp1').maxPx).toBe(3840 * 2160);
+    expect(ports.find(p => p.id === 'dvi1-1').maxPx).toBe(1920 * 1080);
   });
 
   test('an unknown/removed deviceId falls back to manual mode ports', () => {

@@ -11,6 +11,51 @@ function ledNode(id, totalRequiredPx, ledDesign) {
   });
 }
 
+describe('sending card own input cap + console per-connector cap (real scenario found in conversation: J6 + a single MCTRL660PRO)', () => {
+  // 660PRO 입력 상한(1920×1200=2,304,000px)보다는 크지만, 660PRO의 LAN 총
+  // 용량(6×655,360≈3,932,160px)과 J6 splicer 합산 용량(9,200,000px) 둘 다에는
+  // 여유 있게 들어가는 요구량 — 기존 두 검사(checkConsoleOutput/checkSendingOutput)
+  // 만으로는 절대 안 걸리고, 이번에 추가한 두 검사에서만 걸려야 한다.
+  const overInputOnlyPx = 2500000;
+
+  function graphWithOneCard() {
+    return {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'splicer' }, 0),
+        node('s1', 'sending', { deviceId: 'novastar-mctrl660pro' }, 100),
+        ledNode('led1', overInputOnlyPx),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'out' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+  }
+
+  test('sending card is flagged for exceeding its own input cap, even though it is well within its LAN output cap', () => {
+    const result = runValidation(graphWithOneCard());
+    expect(result.nodeIssues.has('s1')).toBe(true);
+    const messages = result.nodeIssues.get('s1').map(i => i.message);
+    expect(messages.some(m => m.includes('입력 상한'))).toBe(true);
+    expect(messages.some(m => m.includes('용량 이내') || m.includes('총 용량'))).toBe(false); // LAN 출력 쪽 문구는 없어야 함(그쪽은 통과)
+  });
+
+  test('console is flagged for exceeding the single-connector cap, even though the aggregate splicer capacity has plenty of room', () => {
+    const result = runValidation(graphWithOneCard());
+    expect(result.nodeIssues.has('c1')).toBe(true);
+    const messages = result.nodeIssues.get('c1').map(i => i.message);
+    expect(messages.some(m => m.includes('커넥터 1개당 상한'))).toBe(true);
+  });
+
+  test('a smaller requirement that fits within the 660PRO input cap raises no issues at all', () => {
+    const graph = graphWithOneCard();
+    graph.nodes.find(n => n.id === 'led1').config.totalRequiredPx = 1920 * 1200;
+    const result = runValidation(graph);
+    expect(result.nodeIssues.has('s1')).toBe(false);
+    expect(result.nodeIssues.has('c1')).toBe(false);
+  });
+});
+
 describe('multiple sending cards feeding one LED (targetAllowsMultiple)', () => {
   test('before port assignment reflects the split, each card is conservatively checked against the full LED total', () => {
     // MCTRL4K: 16포트 × 655,360 = 10,485,760px 용량. LED 전체 요구량이 그 이하라면

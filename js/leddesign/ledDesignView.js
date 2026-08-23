@@ -107,14 +107,22 @@ function autoAssignLanForLedNode(ledNodeId) {
   if (!node) { return; }
   const cfg = node.config.ledDesign;
   const layout = resolveLedPortLayout(State.graph, ledNodeId);
-  // 샌딩카드마다 포트당 상한이 다를 수 있으므로, 전체 배정 한 번에 걸쳐 가장
-  // 작은 상한을 공통으로 써서 안전하게(어떤 포트에 배정되든 초과하지 않게) 채운다.
-  const safeCap = Math.min(...layout.groups.map(g => g.capPerPort));
   // 같은 샌딩카드를 공유하는 다른 LED디스플레이가 이미 쓰고 있는 포트는
   // 예약된 것으로 취급해 자동 배정에서 건너뛴다.
   const reserved = resolveSharedPortUsage(State.graph, ledNodeId)
     .map((u, i) => (u ? i : -1)).filter(i => i !== -1);
-  cfg.lanPorts = autoAssignAllZones(cfg.zones, layout.ports.length, safeCap, reserved);
+
+  if (layout.groups.length >= 2) {
+    // 샌딩카드가 2대 이상이면 카드별 담당 픽셀량이 균등하도록(연속된 구간으로
+    // 나눠 카드끼리 열이 섞이지 않게) 배정한다 — 순서대로 한 카드부터 꽉
+    // 채우는 방식이 아니다(사용자 요청).
+    cfg.lanPorts = autoAssignAllZonesBalanced(cfg.zones, layout.groups, reserved);
+  } else {
+    // 샌딩카드가 1대(또는 미연결 기본값 그룹)뿐이면 기존 방식 그대로 —
+    // 구역을 순서대로 훑으며 그 카드 포트에 채운다.
+    const safeCap = Math.min(...layout.groups.map(g => g.capPerPort));
+    cfg.lanPorts = autoAssignAllZones(cfg.zones, layout.ports.length, safeCap, reserved);
+  }
 }
 
 function openLedDesignView(nodeId) {

@@ -11,6 +11,8 @@ if (typeof module !== 'undefined' && typeof resolveLedPortLayout === 'undefined'
   global.getDevice = require('../devices/devices.js').getDevice;
   global.checkConsoleOutput = require('./capacityRules.js').checkConsoleOutput;
   global.checkSendingOutput = require('./capacityRules.js').checkSendingOutput;
+  global.checkSendingInput = require('./capacityRules.js').checkSendingInput;
+  global.checkConsoleSingleOutput = require('./capacityRules.js').checkConsoleSingleOutput;
 }
 
 function ledRequiredPx(ledNode) {
@@ -93,6 +95,15 @@ function runValidation(graph) {
         const requiredPx = downstream.reduce((sum, n) => sum + requiredPxOfDownstreamNode(graph, n), 0);
         const res = checkConsoleOutput(node.config, device, requiredPx);
         if (!res.ok) { addNodeIssue(node.id, res); }
+
+        // 합산 용량은 남아돌아도 특정 연결 하나가 커넥터 1개의 상한을 넘을 수
+        // 있으므로, 하류 장비별로 개별 확인한다(checkConsoleOutput과 별개).
+        downstream.forEach(n => {
+          const singlePx = requiredPxOfDownstreamNode(graph, n);
+          const singleRes = checkConsoleSingleOutput(device, singlePx);
+          if (!singleRes.ok) { addNodeIssue(node.id, { ...singleRes, message: `${n.label} 방향: ${singleRes.message}` }); }
+        });
+
         if (downstream.some(n => hasUnconfirmedLedDownstream(graph, n))) { nodeProvisional.add(node.id); }
       }
     }
@@ -104,6 +115,13 @@ function runValidation(graph) {
         const requiredPx = downstream.reduce((sum, ledNode) => sum + pxAssignedToSendingCard(graph, ledNode, node.id), 0);
         const res = checkSendingOutput(node.config, device, requiredPx);
         if (!res.ok) { addNodeIssue(node.id, res); }
+
+        // LAN 출력 용량과는 별개로, 콘솔에서 이 카드로 들어오는 영상 신호
+        // 자체가 카드의 입력 상한을 넘는지도 확인한다(카드는 해상도를 바꾸지
+        // 않으므로 하류 LED 요구량 = 카드가 받아야 하는 입력량).
+        const inputRes = checkSendingInput(node.config, device, requiredPx);
+        if (!inputRes.ok) { addNodeIssue(node.id, inputRes); }
+
         if (downstream.some(n => !hasZones(n))) { nodeProvisional.add(node.id); }
       }
     }

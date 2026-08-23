@@ -1,9 +1,13 @@
-const { checkConsoleOutput, checkSendingOutput, FALLBACK_PER_PORT_MAX_PX } = require('../js/validation/capacityRules.js');
+const {
+  checkConsoleOutput, checkSendingOutput, checkSendingInput, checkConsoleSingleOutput,
+  FALLBACK_PER_PORT_MAX_PX,
+} = require('../js/validation/capacityRules.js');
 const { getDevice } = require('../js/devices/devices.js');
 
 const j6 = getDevice('console', 'novastar-j6');
 const ec90 = getDevice('console', 'magnimage-ec90');
 const sendingMctrl4k = getDevice('sending', 'novastar-mctrl4k');
+const sendingMctrl660pro = getDevice('sending', 'novastar-mctrl660pro');
 
 describe('checkConsoleOutput', () => {
   test('defers when no device is selected', () => {
@@ -63,5 +67,66 @@ describe('checkSendingOutput', () => {
     const limit = sendingMctrl4k.portCount * sendingMctrl4k.perPortMaxPx8bit;
     expect(checkSendingOutput({}, sendingMctrl4k, limit).ok).toBe(true);
     expect(checkSendingOutput({}, sendingMctrl4k, limit + 1).ok).toBe(false);
+  });
+});
+
+describe('checkSendingInput', () => {
+  test('defers when neither the device nor manual config has an inputMaxPx', () => {
+    const res = checkSendingInput({}, null, 999999999);
+    expect(res.ok).toBe(true);
+    expect(res.limit).toBeNull();
+  });
+
+  test('manual mode uses the user-entered inputMaxPx', () => {
+    const res = checkSendingInput({ inputMaxPx: 1000000 }, null, 1000001);
+    expect(res.ok).toBe(false);
+    expect(res.limit).toBe(1000000);
+  });
+
+  test('MCTRL660PRO device preset: input cap is its own DVI/HDMI max (1920x1200), independent of its larger LAN output capacity', () => {
+    const limit = sendingMctrl660pro.inputMaxPx;
+    expect(limit).toBe(1920 * 1200);
+    expect(checkSendingInput({}, sendingMctrl660pro, limit).ok).toBe(true);
+    expect(checkSendingInput({}, sendingMctrl660pro, limit + 1).ok).toBe(false);
+
+    // 이 카드의 LAN 출력 용량(6포트 × 포트당 상한)은 입력 상한보다 훨씬 크므로,
+    // LAN 쪽은 통과해도(checkSendingOutput) 입력 쪽에서 걸릴 수 있다 — 이게
+    // 이 검사를 새로 추가한 이유(대화에서 발견한 실제 병목).
+    const overInputButUnderLan = limit + 1;
+    expect(checkSendingOutput({}, sendingMctrl660pro, overInputButUnderLan).ok).toBe(true);
+    expect(checkSendingInput({}, sendingMctrl660pro, overInputButUnderLan).ok).toBe(false);
+  });
+});
+
+describe('checkConsoleSingleOutput', () => {
+  test('defers when no device is selected', () => {
+    const res = checkConsoleSingleOutput(null, 999999999);
+    expect(res.ok).toBe(true);
+    expect(res.limit).toBeNull();
+  });
+
+  test('J6 (video-signal, has modes): per-connector cap is much smaller than the splicer-mode aggregate cap', () => {
+    const limit = j6.perOutputMaxPx;
+    expect(limit).toBe(1920 * 1200);
+    expect(checkConsoleSingleOutput(j6, limit).ok).toBe(true);
+    expect(checkConsoleSingleOutput(j6, limit + 1).ok).toBe(false);
+
+    // 실제 대화에서 나온 시나리오: J6 하나에 660PRO 한 대만 연결하면, 콘솔
+    // 전체 합산 용량(9.2M) 검사는 통과해도 커넥터 1개 상한(2,304,000)에서 걸린다.
+    const aBigButStillUnderAggregate = 5000000;
+    expect(checkConsoleOutput({ mode: 'splicer' }, j6, aBigButStillUnderAggregate).ok).toBe(true);
+    expect(checkConsoleSingleOutput(j6, aBigButStillUnderAggregate).ok).toBe(false);
+  });
+
+  test('EC90 (video-signal, no modes): reuses outputs.perOutputMaxPx', () => {
+    const limit = ec90.outputs.perOutputMaxPx;
+    expect(checkConsoleSingleOutput(ec90, limit).ok).toBe(true);
+    expect(checkConsoleSingleOutput(ec90, limit + 1).ok).toBe(false);
+  });
+
+  test('lan-ports console: reuses outputs.perPortMaxPx8bit as the single-connector cap', () => {
+    const synthetic = { name: '테스트콘솔', outputKind: 'lan-ports', outputs: { portCount: 10, perPortMaxPx8bit: 500000 } };
+    expect(checkConsoleSingleOutput(synthetic, 500000).ok).toBe(true);
+    expect(checkConsoleSingleOutput(synthetic, 500001).ok).toBe(false);
   });
 });

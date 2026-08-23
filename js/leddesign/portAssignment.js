@@ -69,14 +69,14 @@ function columnsOfZone(zone) {
     .map(ck => colMap.get(ck).slice().sort((a, b) => a.y - b.y));
 }
 
-// 구역 하나를 열(column) 단위 뱀형으로 assignments(길이 portCount인 key 배열들)에
-// availableIndices[portOff]부터 채운다. availableIndices는 실제 쓸 수 있는 포트
-// 번호만 순서대로 나열한 목록(같은 샌딩카드를 공유하는 다른 LED디스플레이가 이미
-// 쓰고 있는 포트는 제외하고 넘어온다) — portCount 전체가 아니라 이 목록 길이
-// 기준으로 채워야 예약된 포트를 건너뛰고 다음 빈 포트로 이어갈 수 있다.
-// 반환값은 이 구역이 실제로 사용한(=availableIndices에서 소비한) 포트 수.
-function autoAssignZoneToPorts(zone, portOff, availableIndices, capPerPort, assignments) {
-  const columns = columnsOfZone(zone);
+// 열 목록 하나(구역 하나 분량일 수도, 여러 구역에 걸친 조각일 수도 있음)를
+// 열 단위 뱀형으로 assignments(길이 portCount인 key 배열들)에 availableIndices
+// [portOff]부터 채운다. availableIndices는 실제 쓸 수 있는 포트 번호만 순서대로
+// 나열한 목록(같은 샌딩카드를 공유하는 다른 LED디스플레이가 이미 쓰고 있는
+// 포트는 제외하고 넘어온다) — portCount 전체가 아니라 이 목록 길이 기준으로
+// 채워야 예약된 포트를 건너뛰고 다음 빈 포트로 이어갈 수 있다. 반환값은 실제로
+// 사용한(=availableIndices에서 소비한) 포트 수.
+function autoAssignColumnsToPorts(columns, portOff, availableIndices, capPerPort, assignments) {
   const totalCols = columns.length;
   if (totalCols === 0) { return 0; }
 
@@ -100,6 +100,12 @@ function autoAssignZoneToPorts(zone, portOff, availableIndices, capPerPort, assi
     colStart += takes[pi];
   }
   return takes.length;
+}
+
+// 구역 하나짜리 얇은 래퍼(기존 시그니처 유지 — autoAssignAllZones가 구역
+// 단위로 순회하며 이 함수를 호출한다).
+function autoAssignZoneToPorts(zone, portOff, availableIndices, capPerPort, assignments) {
+  return autoAssignColumnsToPorts(columnsOfZone(zone), portOff, availableIndices, capPerPort, assignments);
 }
 
 // PWR 자동 배정: LAN처럼 픽셀 상한을 기준으로 포트당 열 수를 계산하지 않고,
@@ -158,9 +164,77 @@ function autoAssignAllZones(zones, portCount, capPerPort, reservedIndices) {
   return assignments;
 }
 
+// 샌딩카드가 2대 이상 연결된 LED의 LAN 자동 배정 — 카드마다 담당 픽셀량이
+// 최대한 균등하도록, 전체 열(구역 경계 무시하고 startRow/startCol 순서로
+// 이어붙임)을 먼저 카드별로 "연속된 덩어리"로 나눈 뒤(왼쪽부터 목표치만큼
+// 채우고 다음 카드로 넘어가는 방식 — 화면을 좌우로 쪼개 카드마다 이어진
+// 구역을 맡기는 실제 배선 관행과 맞춤. 카드끼리 열을 번갈아 섞으면 배선이
+// 뒤죽박죽돼 실무에서 안 씀), 카드마다 자기 몫만 그 카드 자신의 포트 수·
+// 상한(capPerPort)으로 채운다(autoAssignColumnsToPorts 재사용). groups는
+// ledPortGroups.js의 resolveLedPortLayout이 주는 순서(캔버스 세로 위치순)
+// 그대로 각 {portCount, capPerPort}를 받는다 — 이 함수는 전체 ports 배열에서
+// 그룹별 포트 오프셋도 이 순서로 스스로 계산한다.
+function autoAssignAllZonesBalanced(zones, groups, reservedIndices) {
+  const totalPortCount = groups.reduce((sum, g) => sum + g.portCount, 0);
+  const assignments = Array.from({ length: totalPortCount }, () => []);
+  if (groups.length === 0) { return assignments; }
+
+  const reserved = reservedIndices ? new Set(reservedIndices) : null;
+  const sortedZones = [...zones].sort((a, b) =>
+    a.startRow !== b.startRow ? a.startRow - b.startRow : a.startCol - b.startCol
+  );
+  const allColumns = sortedZones.flatMap(zone => columnsOfZone(zone));
+  if (allColumns.length === 0) { return assignments; }
+
+  const colPxOf = col => col.reduce((sum, p) => sum + panelPx(p), 0);
+  const totalPx = allColumns.reduce((sum, col) => sum + colPxOf(col), 0);
+
+  // 카드별로 몇 개의 "연속된" 열을 맡을지 결정 — 남은 픽셀량 ÷ 남은 카드 수를
+  // 매 카드마다 다시 계산해(고정된 1/N이 아니라) 앞 카드에서 생긴 반올림
+  // 오차가 뒤 카드로 누적되지 않게 한다. 마지막 카드는 반올림 오차 없이
+  // 남은 열을 전부 가져간다.
+  const groupColumns = groups.map(() => []);
+  let colIdx = 0;
+  let remainingPx = totalPx;
+  groups.forEach((group, gi) => {
+    const isLast = gi === groups.length - 1;
+    if (isLast) {
+      while (colIdx < allColumns.length) { groupColumns[gi].push(allColumns[colIdx]); colIdx += 1; }
+      return;
+    }
+    const target = remainingPx / (groups.length - gi);
+    let acc = 0;
+    while (colIdx < allColumns.length) {
+      const col = allColumns[colIdx];
+      const px = colPxOf(col);
+      // 이미 이 카드에 하나 이상 담겼고, 다음 열을 더하면 목표치를 넘어서면
+      // 다음 카드로 넘긴다. 첫 열은 목표치를 이미 넘더라도 일단 담아 카드가
+      // 통째로 빈 채 남지 않게 한다.
+      if (groupColumns[gi].length > 0 && acc + px > target) { break; }
+      groupColumns[gi].push(col);
+      acc += px;
+      remainingPx -= px;
+      colIdx += 1;
+    }
+  });
+
+  let portOffset = 0;
+  groups.forEach((group, gi) => {
+    const groupIndices = [];
+    for (let i = 0; i < group.portCount; i += 1) {
+      const idx = portOffset + i;
+      if (!reserved || !reserved.has(idx)) { groupIndices.push(idx); }
+    }
+    portOffset += group.portCount;
+    autoAssignColumnsToPorts(groupColumns[gi], 0, groupIndices, group.capPerPort, assignments);
+  });
+
+  return assignments;
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     panelPx, portPx, isOverCapacity, balancedCols, columnsOfZone,
-    autoAssignZoneToPorts, autoAssignAllZones, autoAssignPwrZones,
+    autoAssignZoneToPorts, autoAssignAllZones, autoAssignPwrZones, autoAssignAllZonesBalanced,
   };
 }
