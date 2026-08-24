@@ -15,6 +15,9 @@ const CLOUD_FORM_RESPONSE_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSdXPL8
 const CLOUD_FORM_ENTRY_NAME = 'entry.335371680';
 const CLOUD_FORM_ENTRY_DATA = 'entry.1249276452';
 const CLOUD_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiGrEoZDXutjfj9BuOSWT3V5oUwuUNfgWWiV8_ajEMOGOGYQc_8hxIv-6z_UBq2lLqAefAJByVafK6/pub?gid=1800045482&single=true&output=csv';
+// 삭제 전용 — 설문지로는 응답을 지울 수 없어, 같은 시트에 바인딩한 Apps
+// Script 웹 앱(사용자가 직접 배포, doPost로 "데이터" 열이 일치하는 행을 삭제)을 쓴다.
+const CLOUD_DELETE_URL = 'https://script.google.com/macros/s/AKfycbywbXtmvgGly-5M0EL5cgiUzfbAGCiSsZbLM7u_PfYaVPABu0uwDg92u_bR51HgGNDwgw/exec';
 
 // ── base64url ────────────────────────────────────────
 function bytesToBase64Url(bytes) {
@@ -142,6 +145,21 @@ async function fetchCloudPresets() {
 
 async function loadCloudPresetGraph(dataStr) {
   return JSON.parse(await decompressFromTagged(dataStr));
+}
+
+// ── 삭제: Apps Script 웹 앱에 "데이터" 열 값으로 행 식별해 삭제 요청 ──
+// text/plain Content-Type을 써서 브라우저가 프리플라이트(OPTIONS) 없이 바로
+// 보내는 "단순 요청"으로 만든다 — Apps Script 웹 앱은 OPTIONS를 처리하지 않아
+// application/json으로 보내면 CORS 프리플라이트에서 막힌다.
+async function deleteCloudPreset(dataStr) {
+  const res = await fetch(CLOUD_DELETE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'delete', key: dataStr }),
+  });
+  if (!res.ok) { throw new Error('HTTP ' + res.status); }
+  const result = await res.json();
+  if (!result.ok) { throw new Error(result.error || '삭제 실패'); }
 }
 
 if (typeof module !== 'undefined') { module.exports = { parseCsv }; }

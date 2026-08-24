@@ -201,7 +201,20 @@ function render() {
   if (_canvas) {
     _canvas.style.backgroundPosition = `${pan.x}px ${pan.y}px`;
     _canvas.style.backgroundSize = `${GRID_SIZE * zoom}px ${GRID_SIZE * zoom}px`;
-    if (_ctx) { _ctx.clearRect(0, 0, _canvas.width, _canvas.height); }
+    if (_ctx) {
+      // _canvas.width/height는 이미 devicePixelRatio가 곱해진 물리 픽셀 크기인데,
+      // _ctx엔 resizeCanvas()가 건 dpr 스케일 트랜스폼이 계속 적용돼 있어 그냥
+      // clearRect(0,0,_canvas.width,_canvas.height)를 부르면 dpr이 두 번 곱해진다.
+      // dpr>=1(일반적인 고해상도 디스플레이)에선 그저 캔버스 밖까지 과하게 지우는
+      // 것뿐이라 자동 클리핑돼 티가 안 났지만, dpr<1(예: 윈도우 디스플레이 배율
+      // 90%)에서는 반대로 실제 캔버스보다 좁게 지워져 가장자리(특히 우측·하단)에
+      // 이전 프레임의 엣지 선이 지워지지 않고 잔상처럼 계속 쌓였다(사용자 제보).
+      // 트랜스폼을 잠깐 단위행렬로 되돌려 물리 픽셀 크기 그대로 지운다.
+      _ctx.save();
+      _ctx.setTransform(1, 0, 0, 1, 0, 0);
+      _ctx.clearRect(0, 0, _canvas.width, _canvas.height);
+      _ctx.restore();
+    }
   }
   renderEdges(_ctx);
 }

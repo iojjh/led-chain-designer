@@ -106,6 +106,7 @@ function renderSaveList() {
 async function onCloudShareClick(btn, idx) {
   const p = listProjects()[idx];
   if (!p) { return; }
+  if (!window.confirm(`"${p.name}"을(를) 커뮤니티에 공유할까요?`)) { return; }
   btn.disabled = true;
   btn.textContent = '공유 중…';
   try {
@@ -131,10 +132,14 @@ async function renderCloudList() {
             <span>${escapeHtml(p.date)}</span>
           </div>
           <button class="save-load-row-btn" data-idx="${i}">불러오기</button>
+          <button class="save-del-row-btn cloud-del-row-btn" data-idx="${i}">삭제</button>
         </div>`).join('')
       : '<div class="led-zone-empty">공유된 현장이 없습니다.</div>';
     el.querySelectorAll('.save-load-row-btn').forEach(btn => {
       btn.addEventListener('click', () => onCloudLoadClick(btn, presets[Number(btn.dataset.idx)]));
+    });
+    el.querySelectorAll('.cloud-del-row-btn').forEach(btn => {
+      btn.addEventListener('click', () => onCloudDeleteClick(btn, presets[Number(btn.dataset.idx)]));
     });
   } catch (e) {
     el.innerHTML = `<div class="led-zone-empty">목록을 불러오지 못했습니다: ${escapeHtml(e.message)}</div>`;
@@ -158,5 +163,21 @@ async function onCloudLoadClick(btn, preset) {
     showToast('불러오기 실패: ' + e.message);
     btn.disabled = false;
     btn.textContent = '불러오기';
+  }
+}
+
+async function onCloudDeleteClick(btn, preset) {
+  if (!preset) { return; }
+  if (!window.confirm(`"${preset.name || '(이름 없음)'}"을(를) 커뮤니티에서 삭제할까요?`)) { return; }
+  btn.disabled = true;
+  btn.textContent = '삭제 중…';
+  try {
+    await deleteCloudPreset(preset.data);
+    showToast('커뮤니티에서 삭제했습니다');
+    btn.closest('.save-row').remove(); // 게시된 CSV 캐시 반영엔 지연이 있어, 목록 재조회 대신 그 자리에서 바로 지움
+  } catch (e) {
+    showToast('삭제 실패: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '삭제';
   }
 }
