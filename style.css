@@ -790,18 +790,20 @@ button {
   #ledDesignView.led-canvas-fullscreen .led-toolbar-row .led-chip { min-width: 0; }
   #ledDesignView.led-canvas-fullscreen .led-zone-draft-bar { margin-left: auto; }
 
-  /* 풀스크린에서는 항상(드래그 중이 아니어도) 왼쪽위 정렬을 쓴다 — 평소엔
-     가운데 정렬이었다가 드래그 시작 시점에만 .is-growing으로 바뀌면, 정확히
-     그 순간 캔버스가 화면에서 한 번에 크게 튀어(정렬 기준이 바뀌므로) 그
-     이동량 자체가 터치 좌표 계산에 들어가 격자가 실제 손가락 이동량보다
-     훨씬 크게 한 번에 불어나는 문제가 있었다(일반 모바일 뷰는 여백이 작아
-     이 튐이 미미했지만, 풀스크린은 여백이 커서 도드라졌다). 아예 처음부터
-     고정해두면 드래그 시작 순간에도 정렬이 안 바뀌니 튈 일이 없다.
-     회전 때문에 화면상 왼쪽 위 모서리는 캔버스의 (회전 전) 오른쪽위 모서리에
-     대응하므로(rotate(90deg) 기준) 가로축(justify-content)은 반대로
-     flex-end를 쓴다 — 세로축(align-items)은 회전 후에도 그대로 위쪽
-     모서리와 대응되므로 flex-start를 쓴다. */
-  #ledDesignView.led-canvas-fullscreen .led-grid-scroll {
+  /* 드래그 중(.is-growing)에만 앵커 정렬로 바꾼다 — 평소(제스처 없음)엔
+     기본값인 가운데 정렬을 그대로 써서 캔버스가 화면 한쪽에 치우치지 않고
+     남는 공간 가운데 놓이게 한다. 예전엔 이 정렬을 항상 고정해뒀었는데,
+     그러면 드래그를 안 하고 있을 때도 계속 구석에 붙어 화면 대부분이
+     빈 채로 보이는 문제가 있었다(사용자 보고). 드래그 시작 순간 정렬이
+     바뀌면서 캔버스가 화면에서 튀는 것 자체는 이제 문제되지 않는다 —
+     cellFromEventRotated가 제스처 시작 시점의 클라이언트 좌표를 앵커로
+     저장해두고 이후로는 화면 좌표 델타만으로 칸을 계산하므로, 캔버스가
+     실제로 화면에서 몇 px 움직이든 터치 판정에 영향을 주지 않는다.
+     회전 때문에 화면상 왼쪽 위 모서리는 캔버스의 (회전 전) 오른쪽위
+     모서리에 대응하므로(rotate(90deg) 기준) 가로축(justify-content)은
+     반대로 flex-end를 쓴다 — 세로축(align-items)은 회전 후에도 그대로
+     위쪽 모서리와 대응되므로 flex-start를 쓴다. */
+  #ledDesignView.led-canvas-fullscreen .led-grid-scroll.is-growing {
     align-items: flex-start;
     justify-content: flex-end;
   }

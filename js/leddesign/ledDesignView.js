@@ -391,31 +391,25 @@ function gridDims() {
     : [];
   const bbox = boundingBoxOfZones(cfg.zones.concat(draftZone).concat(dragRectZone));
 
-  // 지금 있는 내용(구역+초안)이 원점 기준 기본 격자(15×10) 안에 이미 다
-  // 들어오면 원점을 그대로 (0,0)에 둔다 — 기본 격자의 남는 칸이 자연스러운
-  // 여백 역할을 하므로 굳이 미리 밀어줄 필요가 없고, 칸 선택이든 드래그든
-  // 첫 배치 직후 캔버스가 훌쩍 움직이는 문제도 방식에 상관없이 동일하게
-  // 막아준다. 내용이 기본 격자를 벗어나야만 그 순간부터 bbox를 따라가는
-  // 여백 계산으로 넘어간다(이후 다시 줄어들면 자연스럽게 (0,0)으로 복귀).
-  const fitsDefaultView = !bbox || (
-    bbox.minRow >= 0 && bbox.minCol >= 0 &&
-    bbox.maxRow <= LED_GRID_MIN_ROWS && bbox.maxCol <= LED_GRID_MIN_COLS
-  );
-
-  if (fitsDefaultView) {
-    const cols = Math.max(1, declaredCols, LED_GRID_MIN_COLS);
-    const rows = Math.max(1, declaredRows, LED_GRID_MIN_ROWS);
-    return { originRow: 0, originCol: 0, cols, rows };
-  }
-
+  // 원점(위/왼쪽 경계)은 내용이 원점 밖(음수 좌표)으로 나갈 때만 움직인다 —
+  // 내용이 기본 격자(15×10) 안에 있는 동안은 그 남는 칸이 자연스러운 여백
+  // 역할을 하므로 원점을 0에 그대로 둔다. 이전엔 "내용 전체가 기본 격자
+  // 안에 다 들어오는지"를 min/max 양쪽 다 같이 보고 원점·크기를 한 번에
+  // 두 갈래로 나눠 계산했는데, 그러면 원점과 무관한 반대쪽 경계(예: 오른쪽
+  // 끝)가 기본 격자를 넘는 순간 원점(왼쪽)이 갑자기 "bbox.min - 여백"으로
+  // 재계산되면서, 시작점이 오른쪽 끝(예: col 14)처럼 0에서 먼 곳이었으면
+  // 원점이 한 번에 수십 칸씩 튀는 문제가 있었다("자동확장이 매끄럽지
+  // 않다"는 제보의 원인 — 드래그로 반대쪽 경계를 넘기기만 해도 이쪽 원점이
+  // 같이 튀었다). 원점은 자기 쪽 경계(min)가 실제로 음수로 넘어갈 때만
+  // 움직이게 분리해서, 반대쪽이 아무리 늘어나도 원점은 그대로 있게 한다.
+  const originRow = bbox && bbox.minRow < 0 ? bbox.minRow - LED_GRID_MARGIN : 0;
+  const originCol = bbox && bbox.minCol < 0 ? bbox.minCol - LED_GRID_MARGIN : 0;
   // 세로(행)는 위쪽만 여유 칸을 미리 두고 자동으로 따라가게 하고, 아래쪽은
   // 실제 구역이 필요로 하는 만큼만 정확히 맞춘다(사용자 요청) — 아래로
   // 드래그/페인트해도 미리 여백을 붙여 늘어나지 않고, 진짜 그 줄까지 구역이
   // 생겨야만 그만큼만 늘어난다. 가로(열)는 기존처럼 양쪽 다 여유를 둔다.
-  const originRow = bbox.minRow - LED_GRID_MARGIN;
-  const originCol = bbox.minCol - LED_GRID_MARGIN;
-  const farRow = bbox.maxRow;
-  const farCol = bbox.maxCol + LED_GRID_MARGIN;
+  const farRow = bbox ? bbox.maxRow : 0;
+  const farCol = bbox ? bbox.maxCol + LED_GRID_MARGIN : 0;
 
   // declaredCols/Rows도 farCol/farRow와 같은 세계좌표계다(빠른 설정 구역은
   // 항상 (0,0)에서 시작하므로 "세계 열 declaredCols까지") — origin이 밀려있으면

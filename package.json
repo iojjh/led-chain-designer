@@ -1,6 +1,6 @@
 {
   "name": "led-chain-designer",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "commonjs",
   "description": "LED 설치 현장 신호/전원 체인 노드-그래프 설계·검증 도구",
