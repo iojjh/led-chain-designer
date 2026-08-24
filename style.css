@@ -691,6 +691,8 @@ button {
 .led-grid-btns-left { left: -24px; }
 .led-grid-btns-right { right: -24px; }
 
+/* 확장은 바깥을 향한 화살표, 축소는 안을 향한(반대 방향) 화살표 하나로만
+   표시한다 — +/− 기호 없이 방향만으로 구분. */
 .led-grid-btn {
   width: 18px;
   height: 18px;
@@ -702,16 +704,10 @@ button {
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: -2px; /* "+"/"−"와 화살표 기호를 좁은 원 안에서도 붙여 보이게 */
+  font-size: 13px;
   line-height: 1;
 }
 .led-grid-btn:hover { background: rgba(110, 107, 244, 0.6); }
-
-/* 상하단 버튼은 +/− 기호 없이 화살표 하나만 보여준다(밖을 향하면 확장,
-   안을 향하면 축소) — 글자가 하나뿐이라 좌우 버튼보다 살짝 크게 키운다. */
-.led-grid-btn-arrow-only { font-size: 13px; letter-spacing: normal; }
 
 /* 화살표는 단일 ">" 글자를 변마다 회전시켜 재사용한다(글자 자체를 4종 따로 두지 않음). */
 .grid-arrow { display: inline-block; }
