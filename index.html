@@ -135,18 +135,16 @@
     </div>
     <div class="led-body">
       <div class="led-grid-wrap" id="ledGridWrap">
-        <!-- 모바일 전용: 평소엔 캔버스를 바로 안 보여주고 이 버튼만 표시 —
-             탭하면 화면 회전 없이도 가로로 보이도록 캔버스 영역 전체를
-             CSS로 90도 돌려 풀스크린으로 띄운다(initLedDesignView 참고). -->
-        <div id="ledCanvasMobileTrigger" class="led-canvas-mobile-trigger">
-          <button id="ledOpenCanvasBtn" class="props-btn props-btn-primary">🖊 캔버스 그리기</button>
-        </div>
         <div class="led-mode-toolbar">
           <button id="ledCanvasCloseBtn" class="led-canvas-close-btn" hidden>✕ 닫기</button>
           <button class="led-mode-btn on" data-mode="zone">🔧 구역 편집</button>
           <button class="led-mode-btn" data-mode="lan">🔌 LAN 배선</button>
           <button class="led-mode-btn" data-mode="pwr">⚡ PWR 배선</button>
           <span class="led-grid-hint" id="ledModeHint">그리드를 드래그해 새 구역을 만드세요 (500mm 칸 단위)</span>
+          <!-- 모바일 전용: 캔버스는 늘 이 화면에 보이지만, 손가락으로 다루기엔
+               좁으니 탭하면 실제 기기 회전 없이 화면 전체를 90도 돌려
+               캔버스를 크게 쓸 수 있게 한다(initLedDesignView 참고). -->
+          <button id="ledOpenCanvasBtn" class="led-canvas-expand-btn" title="캔버스 크게 보기">⛶</button>
         </div>
         <div id="ledNewZoneToolbar" class="led-new-zone-toolbar">
           <div class="led-toolbar-row">

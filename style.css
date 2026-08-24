@@ -678,7 +678,7 @@ button {
 }
 
 /* 데스크톱에서는 항상 숨김 — 모바일 전용 기능(아래 미디어쿼리에서 켠다) */
-.led-canvas-mobile-trigger,
+.led-canvas-expand-btn,
 .led-canvas-close-btn { display: none; }
 
 #ledGridCanvas { image-rendering: pixelated; cursor: crosshair; }
@@ -728,18 +728,28 @@ button {
   .led-header { flex-wrap: wrap; row-gap: 8px; }
   .led-back-btn, .led-area-field, .led-area-inch { white-space: nowrap; }
 
-  /* 모바일 기본 상태: 손가락 하나로 조작하기엔 격자가 너무 좁아지는 문제를
-     원천적으로 피하려고, 캔버스/툴바를 바로 보여주지 않고 "캔버스 그리기"
-     버튼만 노출한다. 탭하면 아래 .led-canvas-fullscreen 상태로 전환된다. */
-  .led-grid-wrap .led-mode-toolbar,
-  .led-grid-wrap .led-new-zone-toolbar,
-  .led-grid-wrap .led-grid-scroll { display: none; }
-  .led-canvas-mobile-trigger { display: flex; align-items: center; justify-content: center; height: 100%; }
+  /* 모바일 기본 상태: 캔버스는 늘 이 화면에 보인다(구역/포트는 여기서도
+     바로 확인·수정 가능) — 다만 손가락으로 정밀하게 다루기엔 좁으니,
+     모드 툴바의 ⛶ 버튼을 누르면 아래 .led-canvas-fullscreen 상태로
+     전환해 화면 전체를 캔버스로 크게 쓸 수 있다. */
+  .led-canvas-expand-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    margin-left: auto;
+    border-radius: var(--radius-sm);
+    background: var(--bg-2);
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+  .led-canvas-expand-btn:hover { background: var(--border); }
 
-  /* "캔버스 그리기" 진입: 실제 기기 회전 없이도 가로 화면처럼 널찍하게 쓸 수
-     있게 .led-grid-wrap 전체(툴바+캔버스)를 뷰포트 전체 크기로 고정하고 90도
-     돌린다 — width/height를 뷰포트 기준으로 미리 맞바꿔둔 채 rotate해야 회전
-     후 실제로 화면을 꽉 채우는, 흔히 쓰는 "강제 가로모드" CSS 트릭이다.
+  /* "캔버스 크게 보기" 진입: 실제 기기 회전 없이도 가로 화면처럼 널찍하게 쓸
+     수 있게 .led-grid-wrap 전체(툴바+캔버스)를 뷰포트 전체 크기로 고정하고
+     90도 돌린다 — width/height를 뷰포트 기준으로 미리 맞바꿔둔 채 rotate해야
+     회전 후 실제로 화면을 꽉 채우는, 흔히 쓰는 "강제 가로모드" CSS 트릭이다.
      캔버스 자체의 터치 좌표 보정은 ledDesignView.js의 canvasPoint가 이
      회전을 정확히 역산해서 처리한다(회전각을 여기서 바꾸면 거기도 맞춰야 함). */
   #ledDesignView.led-canvas-fullscreen .led-grid-wrap {
@@ -754,11 +764,31 @@ button {
     background: var(--bg-0);
     border: none;
   }
-  #ledDesignView.led-canvas-fullscreen .led-grid-wrap .led-mode-toolbar,
-  #ledDesignView.led-canvas-fullscreen .led-grid-wrap .led-grid-scroll { display: flex; }
-  #ledDesignView.led-canvas-fullscreen .led-grid-wrap .led-new-zone-toolbar:not([hidden]) { display: flex; }
-  #ledDesignView.led-canvas-fullscreen .led-canvas-mobile-trigger { display: none; }
+  #ledDesignView.led-canvas-fullscreen .led-canvas-expand-btn { display: none; }
   #ledDesignView.led-canvas-fullscreen .led-canvas-close-btn { display: inline-block; }
+
+  /* 회전만으로는 "화면 꽉 채워 크게 그리기"라는 목적이 안 산다 — 툴바들이
+     세로로 쌓이며 여전히 캔버스 몫을 많이 잡아먹기 때문. 풀스크린에서는
+     가로 공간이 넉넉하니(회전 전 기준 664px) 툴바 줄들을 세로로 쌓지 않고
+     한 줄에 가로로 늘어놓아, 그만큼 남는 세로 공간을 캔버스에 몰아준다. */
+  #ledDesignView.led-canvas-fullscreen .led-mode-toolbar {
+    padding: 6px 12px;
+  }
+  #ledDesignView.led-canvas-fullscreen .led-grid-hint { display: none; }
+  #ledDesignView.led-canvas-fullscreen .led-new-zone-toolbar:not([hidden]) {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 6px 12px;
+    gap: 4px 16px;
+  }
+  /* 104px min-width는 세로로 쌓인 줄들을 표처럼 정렬하기 위한 값이라
+     가로로 나란히 놓을 땐 필요 없다 — 그대로 두면 한 줄에 다 안 들어가고
+     계속 줄바꿈돼 공간을 오히려 더 먹는다. */
+  #ledDesignView.led-canvas-fullscreen .led-toolbar-row { gap: 6px; }
+  #ledDesignView.led-canvas-fullscreen .led-toolbar-row .led-cfg-label,
+  #ledDesignView.led-canvas-fullscreen .led-toolbar-row .led-chip { min-width: 0; }
+  #ledDesignView.led-canvas-fullscreen .led-zone-draft-bar { margin-left: auto; }
 
   /* 풀스크린에서는 항상(드래그 중이 아니어도) 왼쪽위 정렬을 쓴다 — 평소엔
      가운데 정렬이었다가 드래그 시작 시점에만 .is-growing으로 바뀌면, 정확히
