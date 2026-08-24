@@ -668,17 +668,6 @@ button {
   justify-content: center;
 }
 
-/* 사각형 드래그/칸 페인트로 격자가 실시간으로 커지는 동안에는 가운데 정렬을
-   끈다 — 가운데 정렬 상태로 캔버스 raw 크기가 매 프레임 커지면, 캔버스
-   자체가 화면에서 계속 밀려나며 손가락 밑에서 격자가 미끄러지듯 움직이고,
-   그 움직임이 다시 좌표 계산에 들어가 격자를 더 키우는 되먹임이 생긴다
-   (ledDesignView.js의 setGridGrowing 참고). 왼쪽위 기준으로 고정해두면
-   캔버스는 그 자리에서 오른쪽/아래로만 자라 손가락과의 상대 위치가 안정된다. */
-.led-grid-scroll.is-growing {
-  align-items: flex-start;
-  justify-content: flex-start;
-}
-
 /* 데스크톱에서는 항상 숨김 — 모바일 전용 기능(아래 미디어쿼리에서 켠다) */
 .led-canvas-expand-btn,
 .led-canvas-close-btn { display: none; }
@@ -810,18 +799,11 @@ button {
   #ledDesignView.led-canvas-fullscreen .led-toolbar-row .led-chip { min-width: 0; }
   #ledDesignView.led-canvas-fullscreen .led-zone-draft-bar { margin-left: auto; }
 
-  /* 풀스크린에서는 드래그 중에도 정렬을 절대 안 바꾼다(.is-growing 무시) —
-     항상 가운데 정렬 그대로 둔다. cellFromEventRotated가 제스처 시작
-     시점의 클라이언트 좌표를 앵커로 저장해두고 이후로는 화면 좌표
-     델타만으로 칸을 계산하므로 캔버스의 화면상 위치는 터치 판정과
-     무관하다 — 그래서 정렬을 바꿔 캔버스를 구석에 고정해둘 이유가
-     없다. 예전엔 "드래그 중일 때만 구석 정렬"로 바꿔뒀었는데, 그 전환
-     자체가 캔버스를 화면에서 순간이동시켜(손가락은 안 움직였는데 캔버스가
-     구석으로 튐) 사용자 입장에서 오히려 더 혼란스러웠다(사용자 보고). */
-  #ledDesignView.led-canvas-fullscreen .led-grid-scroll.is-growing {
-    align-items: center;
-    justify-content: center;
-  }
+  /* 드래그/페인트 중에는 뷰(원점·크기)가 통째로 고정되므로(ledDesignView.js의
+     _led.frozenDims/gridDims 참고) 제스처 도중에는 캔버스가 아예 리사이즈되지
+     않는다 — 그래서 정렬을 특별히 손볼 필요가 없다. 캔버스 크기가 바뀌는
+     시점은 제스처가 끝나 커밋된 딱 그 순간뿐이라(화면 위로 손가락이 없는
+     상태), 기본 가운데 정렬(.led-grid-scroll)이 그대로 자연스럽게 적용된다. */
 }
 
 .led-side-section {

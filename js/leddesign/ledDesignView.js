@@ -66,6 +66,7 @@ const _led = {
 
   fullscreen: false, // 모바일 전용 "캔버스 그리기" 풀스크린(90도 회전) 활성 여부
   fsAnchor: null, // 풀스크린 좌표 보정용 제스처 시작 앵커(canvasPointRotated 참고)
+  frozenDims: null, // 드래그/페인트 제스처 진행 중 gridDims()를 고정해두는 스냅샷(아래 gridDims 참고)
 };
 
 function getLedNode() { return getNode(_led.nodeId); }
@@ -356,7 +357,19 @@ const LED_GRID_MARGIN = 2; // 구역/칸 추가 후 다음 구역을 이어 그�
 const LED_GRID_MIN_COLS = 15; // 자유 설계 시작 직후 기본 캔버스 크기(가로)
 const LED_GRID_MIN_ROWS = 10; // 세로
 
+// 드래그/페인트 제스처가 진행되는 동안은(_led.frozenDims 참고) 이 함수가
+// 항상 제스처 시작 시점의 스냅샷을 그대로 돌려준다 — 실시간으로 bbox를
+// 따라가며 매 프레임 캔버스 크기·원점을 다시 계산하면, 그때마다 캔버스
+// DOM 요소 자체의 화면 위치가 밀리는 것은 물론(정렬 기준이 어느 쪽이든
+// 캔버스 크기가 바뀌면 반드시 화면 위치도 같이 바뀐다), 이미 그려둔
+// 내용도 원점이 바뀔 때마다 캔버스 내부 픽셀 좌표가 다시 매겨져 화면에서
+// 밀리듯 움직인다 — 캔버스가 화면에서 안 움직이게 CSS로 아무리 고정해도
+// "내용 자체가 안에서 움직이는" 문제는 못 잡는다. 제스처 동안은 뷰를
+// 통째로 고정해두고(cellFromEvent의 pad만큼은 여전히 경계 밖으로 넘어가는
+// 걸 허용), 제스처가 끝나 커밋될 때 딱 한 번만 새 크기·원점으로 다시
+// 맞춘다(afterDraftChange/renderLedDesignView가 부르는 sizeGridCanvas).
 function gridDims() {
+  if (_led.frozenDims) { return _led.frozenDims; }
   const cfg = getLedConfig();
 
   // "설계 완료"를 누르면 생성된 구역만 감싸는 최소 크기로 줄어든다(여백·하한
@@ -434,19 +447,6 @@ function computeCellPx() {
   const availW = Math.max(40, wrapEl.clientWidth - padX);
   const availH = Math.max(40, wrapEl.clientHeight - padY);
   return Math.max(4, Math.min(availW / cols, availH / rows));
-}
-
-// .led-grid-scroll은 평소(격자가 뷰포트보다 작을 때) 캔버스를 가운데 정렬한다.
-// 문제는 사각형 드래그/칸 페인트로 격자가 실시간으로 커지는 동안에도 이 정렬이
-// 계속 적용된다는 것 — 캔버스 raw 픽셀 크기가 매 프레임 커지면서 가운데 정렬
-// 기준으로 캔버스 자체가 화면에서 계속 왼쪽/위로 밀려나고, canvasPoint()는
-// 손가락이 안 움직여도 "캔버스 기준 좌표"가 계속 커지는 것으로 읽어 격자가
-// 더 커지는 되먹임을 만든다 — 사용자가 "느리고 흔들린다"고 느낀 원인. 드래그/
-// 페인트가 진행되는 동안만 왼쪽위 기준 정렬로 바꿔 캔버스 위치를 고정하고,
-// 제스처가 끝나면(커밋 후 다시 화면에 맞게 축소될 때) 원래 가운데 정렬로 되돌린다.
-function setGridGrowing(on) {
-  const wrapEl = document.querySelector('.led-grid-scroll');
-  if (wrapEl) { wrapEl.classList.toggle('is-growing', on); }
 }
 
 // 마우스/터치 이벤트를 동일하게 다루기 위한 좌표 추출
@@ -621,12 +621,12 @@ function onGridKeyDown(e) {
 function onZoneMouseDown(e) {
   stopEditingZone();
   exitCompactView();
+  _led.frozenDims = gridDims(); // 제스처 끝날 때까지 뷰를 통째로 고정(위 gridDims 주석 참고)
   const cell = cellFromEvent(e);
   _led.dragStart = cell;
   _led.dragCur = cell;
   _led.wasDrag = false;
   _led.dragLerp = { r0: cell.row, c0: cell.col, r1: cell.row + 1, c1: cell.col + 1 };
-  setGridGrowing(true);
   requestAnimationFrame(zoneDragRafLoop);
 }
 
@@ -640,6 +640,9 @@ function onZoneMouseMove(e) {
 }
 
 // 드래그 미리보기 사각형을 목표 좌표로 매 프레임 25%씩 보간해 부드럽게 따라오게 한다.
+// 뷰가 고정돼 있으므로(_led.frozenDims) 여기서 캔버스를 다시 사이즈할 필요가 없다 —
+// cellFromEvent의 pad만큼 경계 밖 칸도 여전히 찍을 수 있고, 그 결과(더 큰 사각형)는
+// 커밋 후 renderLedDesignView가 한 번에 반영한다.
 function zoneDragRafLoop() {
   if (!_led.dragLerp || !_led.dragStart) { return; }
   const st = _led.dragStart; const cur = _led.dragCur;
@@ -648,19 +651,6 @@ function zoneDragRafLoop() {
   const L = 0.25; const l = _led.dragLerp;
   l.r0 += (tr0 - l.r0) * L; l.c0 += (tc0 - l.c0) * L;
   l.r1 += (tr1 - l.r1) * L; l.c1 += (tc1 - l.c1) * L;
-  // gridDims가 진행 중인 드래그 사각형도 bbox에 포함하므로, 드래그가 경계
-  // 밖으로 나가는 순간 여기서 바로 캔버스를 키워줘야 실시간으로 넓어지는 게
-  // 보인다(안 그러면 mouseup에서 커밋될 때야 한 번에 튐). 단, sizeGridCanvas가
-  // 하듯 매번 computeCellPx로 셀 크기까지 다시 맞추면(전체 격자를 항상 화면
-  // 안에 욱여넣으려 하므로) 격자가 커질수록 셀이 작아지고, 셀이 작아지면
-  // 같은 손가락 이동량이 더 많은 칸을 건너뛰어 격자가 또 커지는 양(+)의
-  // 되먹임이 생겨 살짝만 드래그해도 격자가 폭주하듯 불어난다. 드래그 도중에는
-  // 드래그 시작 시점의 cellPx를 그대로 쓰고 캔버스만 그만큼 키워(넘치면
-  // .led-grid-scroll이 스크롤 처리) 안정적으로 만들고, mouseup 커밋 후
-  // renderLedDesignView가 부르는 sizeGridCanvas에서만 화면에 맞게 다시 축소한다.
-  const { cols, rows } = gridDims();
-  _led.canvas.width = cols * _led.cellPx;
-  _led.canvas.height = rows * _led.cellPx;
   drawGrid();
   requestAnimationFrame(zoneDragRafLoop);
 }
@@ -672,7 +662,7 @@ function onZoneMouseUp() {
   const rows = Math.abs(cur.row - st.row) + 1; const cols = Math.abs(cur.col - st.col) + 1;
   const wasDrag = _led.wasDrag;
   _led.dragStart = null; _led.dragCur = null; _led.dragLerp = null; _led.wasDrag = false;
-  setGridGrowing(false);
+  _led.frozenDims = null; // 제스처 종료 — 다음 gridDims() 호출부터 다시 실제 내용 기준으로 계산
 
   if (!wasDrag) {
     selectZone(zoneAtCell(startRow, startCol));
@@ -796,17 +786,11 @@ function afterDraftChange() {
   updateZoneDraftBar();
 }
 
-// 롱프레스 페인트 드래그 중에는 셀 크기를 고정한 채 캔버스만 키운다(넘치면
-// .led-grid-scroll이 스크롤 처리). afterDraftChange처럼 매번 computeCellPx로
-// 셀 크기까지 화면에 맞춰 다시 줄이면, 격자가 커질수록 셀이 작아지고 셀이
-// 작아지면 같은 손가락 이동량이 더 많은 칸을 건너뛰어 격자가 또 커지는
-// 양(+)의 되먹임이 생겨 살짝만 드래그해도 격자가 폭주하듯 불어난다
-// (zoneDragRafLoop의 사각형 드래그와 동일한 문제). 드래그가 끝나면(mouseup)
-// 그때 가서 afterDraftChange로 한 번만 화면에 맞게 다시 축소한다.
+// 롱프레스 페인트 드래그 중에는 뷰가 고정돼 있으므로(_led.frozenDims,
+// gridDims() 주석 참고) 캔버스를 다시 사이즈할 필요 없이 그리기만 하면
+// 된다 — 페인트가 끝나면(mouseup) afterDraftChange가 그때 가서 실제
+// 내용에 맞게 한 번만 다시 사이즈한다.
 function afterDraftPaint() {
-  const { cols, rows } = gridDims();
-  _led.canvas.width = cols * _led.cellPx;
-  _led.canvas.height = rows * _led.cellPx;
   drawGrid();
   updateZoneDraftBar();
 }
@@ -851,7 +835,7 @@ function onZoneCellMouseDown(e) {
     if (!_led.draftPointerDown) { return; }
     _led.draftIsPainting = true;
     setDragBadge(true);
-    setGridGrowing(true);
+    _led.frozenDims = gridDims(); // 페인트 끝날 때까지 뷰를 통째로 고정
     paintDraftCell(cell.row, cell.col);
     _led.draftFocus = cell; // 마우스/터치로 고른 칸에서 화살표키 이동이 이어지도록
     afterDraftPaint();
@@ -874,7 +858,7 @@ function onZoneCellMouseMove(e) {
 function onZoneCellMouseUp() {
   clearTimeout(_led.draftLongPressTimer);
   setDragBadge(false);
-  setGridGrowing(false);
+  _led.frozenDims = null; // 제스처 종료 — afterDraftChange가 실제 내용 기준으로 다시 사이즈한다
   const pointerDown = _led.draftPointerDown;
   const zone = _led.draftPointerDownZone;
   const wasPainting = _led.draftIsPainting;
