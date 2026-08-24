@@ -186,7 +186,14 @@
           </div>
         </div>
         <div class="led-grid-scroll">
-          <canvas id="ledGridCanvas" tabindex="0"></canvas>
+          <div class="led-grid-frame" id="ledGridFrame">
+            <canvas id="ledGridCanvas" tabindex="0"></canvas>
+            <!-- 격자 상하좌우 확장 버튼 — 자동 확장 없이 이 버튼으로만 4칸씩 늘어난다. -->
+            <button class="led-grid-expand led-grid-expand-up" data-dir="up" title="위로 4칸 확장">▲</button>
+            <button class="led-grid-expand led-grid-expand-down" data-dir="down" title="아래로 4칸 확장">▼</button>
+            <button class="led-grid-expand led-grid-expand-left" data-dir="left" title="왼쪽으로 4칸 확장">◀</button>
+            <button class="led-grid-expand led-grid-expand-right" data-dir="right" title="오른쪽으로 4칸 확장">▶</button>
+          </div>
         </div>
       </div>
       <div class="led-side">

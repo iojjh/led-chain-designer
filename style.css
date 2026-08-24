@@ -672,7 +672,44 @@ button {
 .led-canvas-expand-btn,
 .led-canvas-close-btn { display: none; }
 
-#ledGridCanvas { image-rendering: pixelated; cursor: crosshair; }
+#ledGridCanvas { image-rendering: pixelated; cursor: crosshair; display: block; }
+
+/* inline-block 요소는 기본적으로 텍스트 베이스라인 기준으로 정렬돼 아래에
+   몇 px 틈이 생긴다 — line-height:0으로 없애야 프레임이 캔버스 크기에
+   정확히 맞아, 상하좌우 확장 버튼도 캔버스 가장자리에 딱 붙는다. */
+.led-grid-frame { position: relative; display: inline-block; line-height: 0; }
+.led-grid-frame[hidden] { display: none; }
+
+.led-grid-expand {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(110, 107, 244, 0.35);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1;
+}
+.led-grid-expand:hover { background: rgba(110, 107, 244, 0.6); }
+.led-grid-expand[hidden] { display: none; }
+.led-grid-expand-up, .led-grid-expand-down {
+  left: 50%;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 24px;
+}
+.led-grid-expand-up { top: 4px; }
+.led-grid-expand-down { bottom: 4px; }
+.led-grid-expand-left, .led-grid-expand-right {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 56px;
+}
+.led-grid-expand-left { left: 4px; }
+.led-grid-expand-right { right: 4px; }
 
 .led-cfg-row { display: flex; flex-direction: column; gap: 6px; }
 .led-cfg-row[hidden] { display: none; }
@@ -799,11 +836,12 @@ button {
   #ledDesignView.led-canvas-fullscreen .led-toolbar-row .led-chip { min-width: 0; }
   #ledDesignView.led-canvas-fullscreen .led-zone-draft-bar { margin-left: auto; }
 
-  /* 드래그/페인트 중에는 뷰(원점·크기)가 통째로 고정되므로(ledDesignView.js의
-     _led.frozenDims/gridDims 참고) 제스처 도중에는 캔버스가 아예 리사이즈되지
-     않는다 — 그래서 정렬을 특별히 손볼 필요가 없다. 캔버스 크기가 바뀌는
-     시점은 제스처가 끝나 커밋된 딱 그 순간뿐이라(화면 위로 손가락이 없는
-     상태), 기본 가운데 정렬(.led-grid-scroll)이 그대로 자연스럽게 적용된다. */
+  /* 격자는 더 이상 드래그/페인트 중에 자동으로 안 늘어난다(캔버스 상하좌우의
+     확장 버튼으로만 늘어남) — 그래서 제스처 도중 캔버스가 리사이즈될 일이
+     아예 없고, 정렬을 특별히 손볼 필요도 없다. 캔버스 크기가 바뀌는 시점은
+     확장 버튼을 누르거나 새 구역이 커밋되는 순간뿐이라(화면 위로 손가락이
+     없는 상태), 기본 가운데 정렬(.led-grid-scroll)이 그대로 자연스럽게
+     적용된다. */
 }
 
 .led-side-section {
