@@ -188,10 +188,11 @@ function initLedDesignView() {
   document.getElementById('ledOpenCanvasBtn').addEventListener('click', openLedCanvasFullscreen);
   document.getElementById('ledCanvasCloseBtn').addEventListener('click', closeLedCanvasFullscreen);
 
-  document.querySelectorAll('.led-grid-expand').forEach(btn => {
+  document.querySelectorAll('.led-grid-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      exitCompactView(); // "설계 완료" 상태에서 눌러도(버튼은 그때 숨지만 방어적으로) 편집 가능 상태로
-      expandGrid(btn.dataset.dir);
+      exitCompactView(); // "여백 정리" 상태에서 눌러도(버튼은 그때 숨지만 방어적으로) 편집 가능 상태로
+      if (btn.dataset.action === 'shrink') { shrinkGrid(btn.dataset.dir); }
+      else { expandGrid(btn.dataset.dir); }
     });
   });
 
@@ -346,18 +347,18 @@ function updateZoneModeHint() {
 
 // 격자는 더 이상 드래그/페인트 중에 자동으로 안 늘어난다 — 실시간 bbox
 // 추적 방식이 계속 미세조정을 해도 "튄다"는 문제를 근본적으로 없애기
-// 어려워서, 아예 자동 확장을 없애고 캔버스 상하좌우의 반투명 확장
-// 버튼(expandGrid)으로 사용자가 원할 때 4칸씩 직접 늘리는 방식으로
-// 바꿨다. 크기/원점(gridOriginRow/Col, gridCols/Rows)은 cfg에 저장되므로
-// 저장/불러오기에도 유지된다.
+// 어려워서, 아예 자동 확장을 없애고 캔버스 상하좌우의 원형 확장/축소
+// 버튼(expandGrid/shrinkGrid)으로 사용자가 원할 때 3칸씩 직접 늘리고
+// 줄이는 방식으로 바꿨다. 크기/원점(gridOriginRow/Col, gridCols/Rows)은
+// cfg에 저장되므로 저장/불러오기에도 유지된다.
 const LED_GRID_MIN_COLS = 15; // 자유 설계 시작 직후 기본 캔버스 크기(가로)
 const LED_GRID_MIN_ROWS = 10; // 세로
-const LED_GRID_EXPAND_STEP = 4; // 확장 버튼 한 번에 늘어나는 칸 수
+const LED_GRID_STEP = 3; // 확장/축소 버튼 한 번에 늘고 주는 칸 수
 
 function gridDims() {
   const cfg = getLedConfig();
 
-  // "설계 완료"를 누르면 생성된 구역만 감싸는 최소 크기로 줄어든다(저장된
+  // "여백 정리"를 누르면 생성된 구역만 감싸는 최소 크기로 줄어든다(저장된
   // 격자 크기·여백 다 무시). finishZoneDesign이 이때 구역 좌표를 0으로
   // 당겨오지만, 뷰 원점 자체도 bbox.min을 그대로 쓰므로 설령 당겨오기
   // 전이라도 여백 없이 딱 맞게 보인다. cfg에 저장되므로(_led의 휘발성
@@ -398,16 +399,48 @@ function gridDims() {
   };
 }
 
-// 캔버스 상하좌우 확장 버튼 — 눌린 방향으로 격자를 LED_GRID_EXPAND_STEP칸
-// 늘린다. 위/왼쪽은 원점을 그만큼 밀어야(빼야) 하고 세로/가로 칸 수도
-// 같이 늘어나야 반대쪽 끝은 그대로 두고 그 방향으로만 커진 것처럼 보인다.
+// 캔버스 상하좌우 확장 버튼 — 눌린 방향으로 격자를 LED_GRID_STEP칸 늘린다.
+// 위/왼쪽은 원점을 그만큼 밀어야(빼야) 하고 세로/가로 칸 수도 같이
+// 늘어나야 반대쪽 끝은 그대로 두고 그 방향으로만 커진 것처럼 보인다.
 function expandGrid(dir) {
   const cfg = getLedConfig();
-  const step = LED_GRID_EXPAND_STEP;
+  const step = LED_GRID_STEP;
   if (dir === 'up') { cfg.gridOriginRow = (cfg.gridOriginRow || 0) - step; cfg.gridRows = (cfg.gridRows || LED_GRID_MIN_ROWS) + step; }
   else if (dir === 'down') { cfg.gridRows = (cfg.gridRows || LED_GRID_MIN_ROWS) + step; }
   else if (dir === 'left') { cfg.gridOriginCol = (cfg.gridOriginCol || 0) - step; cfg.gridCols = (cfg.gridCols || LED_GRID_MIN_COLS) + step; }
   else if (dir === 'right') { cfg.gridCols = (cfg.gridCols || LED_GRID_MIN_COLS) + step; }
+  sizeGridCanvas();
+  drawGrid();
+}
+
+// 캔버스 상하좌우 축소 버튼 — expandGrid의 반대. 이미 그려진 구역을 화면
+// 밖으로 잘라내지 않도록, 그 변 쪽 여백(원점~구역 bbox 사이 칸 수) 안에서만
+// 줄이고, 최소 1칸은 항상 남긴다.
+function shrinkGrid(dir) {
+  const cfg = getLedConfig();
+  const step = LED_GRID_STEP;
+  const bbox = boundingBoxOfZones(cfg.zones);
+  const originRow = cfg.gridOriginRow || 0;
+  const originCol = cfg.gridOriginCol || 0;
+  const rows = cfg.gridRows || LED_GRID_MIN_ROWS;
+  const cols = cfg.gridCols || LED_GRID_MIN_COLS;
+  if (dir === 'up') {
+    const room = bbox ? Math.max(0, bbox.minRow - originRow) : rows - 1;
+    const s = Math.min(step, room, rows - 1);
+    cfg.gridOriginRow = originRow + s;
+    cfg.gridRows = rows - s;
+  } else if (dir === 'down') {
+    const room = bbox ? Math.max(0, (originRow + rows) - bbox.maxRow) : rows - 1;
+    cfg.gridRows = rows - Math.min(step, room, rows - 1);
+  } else if (dir === 'left') {
+    const room = bbox ? Math.max(0, bbox.minCol - originCol) : cols - 1;
+    const s = Math.min(step, room, cols - 1);
+    cfg.gridOriginCol = originCol + s;
+    cfg.gridCols = cols - s;
+  } else if (dir === 'right') {
+    const room = bbox ? Math.max(0, (originCol + cols) - bbox.maxCol) : cols - 1;
+    cfg.gridCols = cols - Math.min(step, room, cols - 1);
+  }
   sizeGridCanvas();
   drawGrid();
 }
@@ -532,7 +565,7 @@ function rectOverlapsZone(startRow, startCol, rows, cols, zones) {
 
 // 구역/초안 좌표 전체를 (dRow,dCol)만큼 옮긴다. 이제 좌표는 음수여도 되고
 // 뷰 원점(gridDims)이 그걸 그대로 따라가므로, 인터랙션 중에는 이 함수를 쓸
-// 일이 없다 — "설계 완료"(finishZoneDesign)가 저장 데이터를 보기 좋게
+// 일이 없다 — "여백 정리"(finishZoneDesign)가 저장 데이터를 보기 좋게
 // (0,0)부터 시작하도록 정리할 때만 쓴다.
 function shiftAllContent(dRow, dCol) {
   if (!dRow && !dCol) { return; }
@@ -925,20 +958,29 @@ function deleteZone(zoneId) {
   renderLedDesignView();
 }
 
-// "설계 완료"로 줄어든 캔버스는 다시 뭔가를 고치기 시작하면(칸 선택/드래그/
-// 구역 삭제/편집 적용/확장 버튼 등) 저장된 격자 크기(gridCols/Rows)로
-// 돌아간다 — 계속 편집하는데 캔버스가 좁게 고정돼 있으면 불편하기 때문.
-// zoneViewCompact 자체는 cfg(저장 데이터)에 있으므로, 여기서 끄는 것도
-// 반드시 저장에 반영된다.
+// "여백 정리"로 줄어든 캔버스는 다시 뭔가를 고치기 시작하면(칸 선택/드래그/
+// 구역 삭제/편집 적용/확장 버튼 등) 편집 가능 상태로 돌아간다. 이때
+// gridDims()가 지금 보여주고 있는 크기(여백 정리로 줄어든 bbox 크기)를
+// 그대로 gridOriginRow/Col·gridCols/Rows에 스냅샷해두고 끈다 — 그래야
+// 확장/축소 버튼이 "여백 정리 이전의 예전 격자 크기"가 아니라 지금 화면에
+// 보이는 캔버스를 기준으로 늘고 준다. zoneViewCompact 자체는 cfg(저장
+// 데이터)에 있으므로, 여기서 끄는 것도 반드시 저장에 반영된다.
 function exitCompactView() {
   const cfg = getLedConfig();
   if (!cfg.zoneViewCompact) { return; }
+  const dims = gridDims();
+  cfg.gridOriginRow = dims.originRow;
+  cfg.gridOriginCol = dims.originCol;
+  cfg.gridCols = dims.cols;
+  cfg.gridRows = dims.rows;
   cfg.zoneViewCompact = false;
   renderOverallResolution(cfg); // 편집 재개 시 "전체 해상도" 배지도 바로 숨긴다(다음 확정 때까진 잠정치라)
 }
 
 // 구역 편집 캔버스 전체 초기화 — 구역·포트 배정·초안을 전부 지우고 처음
-// 상태(기본 15×10 격자)로 되돌린다. LAN/PWR 포트 배정은 건드리지 않되(그건
+// 상태(기본 15×10 격자)로 되돌린다. 확장/축소 버튼으로 늘리거나 줄인
+// 격자 크기도 여기서 기본값으로 되돌려야 "초기화"가 이름 그대로 캔버스
+// 크기까지 포함해 완전히 리셋된다. LAN/PWR 포트 배정은 건드리지 않되(그건
 // ledResetAllBtn이 모드별로 따로 처리), 구역이 사라지면 어차피 포트도 다시
 // 비워야 하므로 resetPortAssignments도 함께 부른다.
 function resetAllZones() {
@@ -948,6 +990,10 @@ function resetAllZones() {
   cfg.areaW = 0;
   cfg.areaH = 0;
   cfg.zoneViewCompact = false;
+  cfg.gridOriginRow = 0;
+  cfg.gridOriginCol = 0;
+  cfg.gridCols = LED_GRID_MIN_COLS;
+  cfg.gridRows = LED_GRID_MIN_ROWS;
   clearDraft();
   stopEditingZone();
   _led.selectedZoneId = null;
@@ -955,7 +1001,7 @@ function resetAllZones() {
   renderLedDesignView();
 }
 
-// "설계 완료" — 캔버스를 구역만 감싸는 크기로 줄인다. gridDims()가 뷰 원점을
+// "여백 정리" — 캔버스를 구역만 감싸는 크기로 줄인다. gridDims()가 뷰 원점을
 // bbox.min으로 직접 계산하므로 여백 제거 자체엔 좌표 이동이 필요 없지만,
 // 저장되는 구역 좌표가 (0,0)부터 시작하는 게 더 보기 좋고 다루기 쉬우므로
 // shiftAllContent로 정리해둔다(순전히 정돈 목적, 렌더링엔 영향 없음).
@@ -967,9 +1013,7 @@ function finishZoneDesign() {
   if (!bbox) { return; } // 구역이 없으면 줄일 대상이 없음
   shiftAllContent(-bbox.minRow, -bbox.minCol);
   cfg.zoneViewCompact = true;
-  sizeGridCanvas();
-  drawGrid();
-  renderZoneList();
+  renderLedDesignView(); // 확장/축소 버튼 숨김(showExpand)까지 포함해 전체를 다시 그린다
 }
 
 // ── LAN/PWR 수동 포트 배정: 탭 토글 + 롱프레스 드래그 페인트 + 되짚기 취소 ──
@@ -1199,12 +1243,12 @@ function renderLedDesignView() {
   drawGrid();
   if (_led.mode === 'zone') { renderZoneList(); } else { renderPortPanel(); }
   document.getElementById('ledTotalPx').textContent = recomputeTotalPx().toLocaleString();
-  // 확장 버튼은 구역 편집 모드에서만, 그리고 "설계 완료"로 구역 크기에
-  // 딱 맞춰 잠긴 상태(zoneViewCompact)에서는 눌러도 다시 안 줄어드니 숨긴다.
-  // (프레임 자체를 숨기면 안 된다 — 캔버스가 그 안에 있어서 LAN/PWR
-  // 모드에서도 캔버스는 계속 보여야 한다.)
+  // 확장/축소 버튼은 구역 편집 모드에서만, 그리고 "여백 정리"로 구역
+  // 크기에 딱 맞춰 잠긴 상태(zoneViewCompact)에서는 눌러도 의미가 없으니
+  // 숨긴다. (프레임 자체를 숨기면 안 된다 — 캔버스가 그 안에 있어서
+  // LAN/PWR 모드에서도 캔버스는 계속 보여야 한다.)
   const showExpand = _led.mode === 'zone' && !getLedConfig().zoneViewCompact;
-  document.querySelectorAll('.led-grid-expand').forEach(btn => { btn.hidden = !showExpand; });
+  document.querySelectorAll('.led-grid-btns').forEach(el => { el.hidden = !showExpand; });
 }
 
 function sizeGridCanvas() {
@@ -1605,7 +1649,7 @@ function zoneEditHtml(zone) {
   </div>`;
 }
 
-// "설계 완료" 후에만 전체(모든 구역 합산) 해상도를 보여준다 — 편집 중에는
+// "여백 정리" 후에만 전체(모든 구역 합산) 해상도를 보여준다 — 편집 중에는
 // 아직 최종 배치가 아니라서 굳이 계속 노출하지 않고, 완료를 눌러야 나온다.
 function renderOverallResolution(cfg) {
   const el = document.getElementById('ledOverallRes');

@@ -662,7 +662,7 @@ button {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 20px;
+  padding: 26px; /* 격자 밖에 놓이는 확장/축소 버튼(24px 오프셋)이 잘리지 않을 여유 */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -680,36 +680,42 @@ button {
 .led-grid-frame { position: relative; display: inline-block; line-height: 0; }
 .led-grid-frame[hidden] { display: none; }
 
-.led-grid-expand {
-  position: absolute;
+/* 확장/축소 버튼 한 쌍씩 담는 그룹 — 캔버스 프레임 가장자리 바로 밖(24px)에
+   변마다 하나씩, 위아래는 가로로 나란히·좌우는 세로로 나란히 배치한다. */
+.led-grid-btns { position: absolute; display: flex; gap: 3px; }
+.led-grid-btns[hidden] { display: none; }
+.led-grid-btns-top, .led-grid-btns-bottom { left: 50%; transform: translateX(-50%); flex-direction: row; }
+.led-grid-btns-top { top: -24px; }
+.led-grid-btns-bottom { bottom: -24px; }
+.led-grid-btns-left, .led-grid-btns-right { top: 50%; transform: translateY(-50%); flex-direction: column; }
+.led-grid-btns-left { left: -24px; }
+.led-grid-btns-right { right: -24px; }
+
+/* 확장은 바깥을 향한 화살표, 축소는 안을 향한(반대 방향) 화살표 하나로만
+   표시한다 — +/− 기호 없이 방향만으로 구분. */
+.led-grid-btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(110, 107, 244, 0.35);
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   font-size: 13px;
   line-height: 1;
 }
-.led-grid-expand:hover { background: rgba(110, 107, 244, 0.6); }
-.led-grid-expand[hidden] { display: none; }
-.led-grid-expand-up, .led-grid-expand-down {
-  left: 50%;
-  transform: translateX(-50%);
-  width: 56px;
-  height: 24px;
-}
-.led-grid-expand-up { top: 4px; }
-.led-grid-expand-down { bottom: 4px; }
-.led-grid-expand-left, .led-grid-expand-right {
-  top: 50%;
-  transform: translateY(-50%);
-  width: 24px;
-  height: 56px;
-}
-.led-grid-expand-left { left: 4px; }
-.led-grid-expand-right { right: 4px; }
+.led-grid-btn:hover { background: rgba(110, 107, 244, 0.6); }
+
+/* 화살표는 단일 ">" 글자를 변마다 회전시켜 재사용한다(글자 자체를 4종 따로 두지 않음). */
+.grid-arrow { display: inline-block; }
+.grid-arrow::before { content: '>'; }
+.grid-arrow-right { transform: rotate(0deg); }
+.grid-arrow-down { transform: rotate(90deg); }
+.grid-arrow-left { transform: rotate(180deg); }
+.grid-arrow-up { transform: rotate(-90deg); }
 
 .led-cfg-row { display: flex; flex-direction: column; gap: 6px; }
 .led-cfg-row[hidden] { display: none; }
