@@ -666,6 +666,17 @@ button {
   justify-content: center;
 }
 
+/* 사각형 드래그/칸 페인트로 격자가 실시간으로 커지는 동안에는 가운데 정렬을
+   끈다 — 가운데 정렬 상태로 캔버스 raw 크기가 매 프레임 커지면, 캔버스
+   자체가 화면에서 계속 밀려나며 손가락 밑에서 격자가 미끄러지듯 움직이고,
+   그 움직임이 다시 좌표 계산에 들어가 격자를 더 키우는 되먹임이 생긴다
+   (ledDesignView.js의 setGridGrowing 참고). 왼쪽위 기준으로 고정해두면
+   캔버스는 그 자리에서 오른쪽/아래로만 자라 손가락과의 상대 위치가 안정된다. */
+.led-grid-scroll.is-growing {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
 #ledGridCanvas { image-rendering: pixelated; cursor: crosshair; }
 
 .led-cfg-row { display: flex; flex-direction: column; gap: 6px; }
