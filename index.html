@@ -129,8 +129,13 @@
   <div id="ledDesignView" class="view" hidden>
     <div class="led-header">
       <button id="ledBackBtn" class="led-back-btn">← 그래프로 돌아가기</button>
-      <label class="led-area-field">가로(m)<input id="ledAreaW" type="number" min="0" step="0.5"></label>
-      <label class="led-area-field">세로(m)<input id="ledAreaH" type="number" min="0" step="0.5"></label>
+      <!-- 가로/세로 입력칸은 하나의 묶음으로 취급 — 좁은 화면에서 줄바꿈이
+           필요해지면 이 묶음 전체가 통째로 다음 줄로 내려가고, 세로만 따로
+           떨어져 나가는 일이 없다. -->
+      <div class="led-area-fields">
+        <label class="led-area-field">가로(m)<input id="ledAreaW" type="number" min="0" step="0.5"></label>
+        <label class="led-area-field">세로(m)<input id="ledAreaH" type="number" min="0" step="0.5"></label>
+      </div>
       <span id="ledAreaInch" class="led-area-inch"></span>
     </div>
     <div class="led-body">
@@ -155,7 +160,7 @@
             </div>
           </div>
           <div class="led-toolbar-row">
-            <span class="led-cfg-label">신규 구역 LED 피치</span>
+            <span class="led-cfg-label">LED 피치</span>
             <div class="led-chip-group" id="ledNewPitchChips">
               <button class="led-chip" data-pitch="2mm">2mm</button>
               <button class="led-chip on" data-pitch="3mm">3mm</button>

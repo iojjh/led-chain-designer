@@ -537,6 +537,8 @@ button {
 }
 .led-back-btn:hover { background: var(--border); }
 
+.led-area-fields { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+
 .led-area-field {
   display: flex;
   align-items: center;
@@ -724,9 +726,27 @@ button {
   .led-grid-scroll { min-height: 220px; }
   .led-side { width: 100%; flex: 1 1 45%; min-height: 0; }
   /* 좁은 화면에서 항목이 강제로 쭈그러들며 글자가 세로로 줄바꿈되는 것을 막고,
-     대신 항목 단위로 다음 줄로 넘어가게 한다 */
+     대신 항목 단위로 다음 줄로 넘어가게 한다. 가로/세로 입력칸은
+     .led-area-fields로 한 묶음이라 항상 같이 줄바꿈된다(따로 떨어지지 않음). */
   .led-header { flex-wrap: wrap; row-gap: 8px; }
   .led-back-btn, .led-area-field, .led-area-inch { white-space: nowrap; }
+
+  /* 부가 설명 문구는 좁은 화면에서 다른 항목(모드 버튼 등)의 폭을 잡아먹어
+     버튼 글자가 세로로 쪼개져 보이는 원인이었다 — 모바일에서는 아예 뺀다. */
+  .led-grid-hint { display: none; }
+  /* 모드 버튼(구역 편집/LAN 배선/PWR 배선)과 확대·닫기 아이콘 버튼은 폭이
+     줄어들 일이 없게 고정한다 — 안 그러면 남는 공간이 부족할 때 글자가
+     세로로 한 자씩 쪼개지는 문제가 생긴다. */
+  .led-mode-btn, .led-canvas-close-btn { flex-shrink: 0; }
+
+  /* 구역 생성 방식/피치/패널크기 세 줄 모두 라벨 폭을 동일하게 고정하고
+     칩 그룹이 남은 폭 전체를 차지하게 한다 — 그러면 버튼이 2개든 3개든
+     그 줄의 칩 그룹 총 너비가 항상 똑같아지고(라벨 뒤 남은 폭을 나눠
+     가지므로), 라벨도 짧게 줄인 만큼 버튼과 한 줄에 들어간다. */
+  .led-toolbar-row { flex-wrap: nowrap; gap: 8px; }
+  .led-toolbar-row .led-cfg-label { width: 62px; min-width: 0; font-size: 10px; line-height: 1.3; }
+  .led-toolbar-row .led-chip-group { flex: 1; flex-wrap: nowrap; gap: 4px; }
+  .led-toolbar-row .led-chip { flex: 1; min-width: 0; padding: 6px 2px; font-size: 10px; }
 
   /* 모바일 기본 상태: 캔버스는 늘 이 화면에 보인다(구역/포트는 여기서도
      바로 확인·수정 가능) — 다만 손가락으로 정밀하게 다루기엔 좁으니,
@@ -790,22 +810,17 @@ button {
   #ledDesignView.led-canvas-fullscreen .led-toolbar-row .led-chip { min-width: 0; }
   #ledDesignView.led-canvas-fullscreen .led-zone-draft-bar { margin-left: auto; }
 
-  /* 드래그 중(.is-growing)에만 앵커 정렬로 바꾼다 — 평소(제스처 없음)엔
-     기본값인 가운데 정렬을 그대로 써서 캔버스가 화면 한쪽에 치우치지 않고
-     남는 공간 가운데 놓이게 한다. 예전엔 이 정렬을 항상 고정해뒀었는데,
-     그러면 드래그를 안 하고 있을 때도 계속 구석에 붙어 화면 대부분이
-     빈 채로 보이는 문제가 있었다(사용자 보고). 드래그 시작 순간 정렬이
-     바뀌면서 캔버스가 화면에서 튀는 것 자체는 이제 문제되지 않는다 —
-     cellFromEventRotated가 제스처 시작 시점의 클라이언트 좌표를 앵커로
-     저장해두고 이후로는 화면 좌표 델타만으로 칸을 계산하므로, 캔버스가
-     실제로 화면에서 몇 px 움직이든 터치 판정에 영향을 주지 않는다.
-     회전 때문에 화면상 왼쪽 위 모서리는 캔버스의 (회전 전) 오른쪽위
-     모서리에 대응하므로(rotate(90deg) 기준) 가로축(justify-content)은
-     반대로 flex-end를 쓴다 — 세로축(align-items)은 회전 후에도 그대로
-     위쪽 모서리와 대응되므로 flex-start를 쓴다. */
+  /* 풀스크린에서는 드래그 중에도 정렬을 절대 안 바꾼다(.is-growing 무시) —
+     항상 가운데 정렬 그대로 둔다. cellFromEventRotated가 제스처 시작
+     시점의 클라이언트 좌표를 앵커로 저장해두고 이후로는 화면 좌표
+     델타만으로 칸을 계산하므로 캔버스의 화면상 위치는 터치 판정과
+     무관하다 — 그래서 정렬을 바꿔 캔버스를 구석에 고정해둘 이유가
+     없다. 예전엔 "드래그 중일 때만 구석 정렬"로 바꿔뒀었는데, 그 전환
+     자체가 캔버스를 화면에서 순간이동시켜(손가락은 안 움직였는데 캔버스가
+     구석으로 튐) 사용자 입장에서 오히려 더 혼란스러웠다(사용자 보고). */
   #ledDesignView.led-canvas-fullscreen .led-grid-scroll.is-growing {
-    align-items: flex-start;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: center;
   }
 }
 
