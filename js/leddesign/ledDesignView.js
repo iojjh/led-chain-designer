@@ -405,6 +405,19 @@ function computeCellPx() {
   return Math.max(4, Math.min(availW / cols, availH / rows));
 }
 
+// .led-grid-scroll은 평소(격자가 뷰포트보다 작을 때) 캔버스를 가운데 정렬한다.
+// 문제는 사각형 드래그/칸 페인트로 격자가 실시간으로 커지는 동안에도 이 정렬이
+// 계속 적용된다는 것 — 캔버스 raw 픽셀 크기가 매 프레임 커지면서 가운데 정렬
+// 기준으로 캔버스 자체가 화면에서 계속 왼쪽/위로 밀려나고, canvasPoint()는
+// 손가락이 안 움직여도 "캔버스 기준 좌표"가 계속 커지는 것으로 읽어 격자가
+// 더 커지는 되먹임을 만든다 — 사용자가 "느리고 흔들린다"고 느낀 원인. 드래그/
+// 페인트가 진행되는 동안만 왼쪽위 기준 정렬로 바꿔 캔버스 위치를 고정하고,
+// 제스처가 끝나면(커밋 후 다시 화면에 맞게 축소될 때) 원래 가운데 정렬로 되돌린다.
+function setGridGrowing(on) {
+  const wrapEl = document.querySelector('.led-grid-scroll');
+  if (wrapEl) { wrapEl.classList.toggle('is-growing', on); }
+}
+
 // 마우스/터치 이벤트를 동일하게 다루기 위한 좌표 추출
 function clientXY(e) {
   if (e.touches && e.touches.length) { return { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
@@ -523,6 +536,7 @@ function onZoneMouseDown(e) {
   _led.dragCur = cell;
   _led.wasDrag = false;
   _led.dragLerp = { r0: cell.row, c0: cell.col, r1: cell.row + 1, c1: cell.col + 1 };
+  setGridGrowing(true);
   requestAnimationFrame(zoneDragRafLoop);
 }
 
@@ -568,6 +582,7 @@ function onZoneMouseUp() {
   const rows = Math.abs(cur.row - st.row) + 1; const cols = Math.abs(cur.col - st.col) + 1;
   const wasDrag = _led.wasDrag;
   _led.dragStart = null; _led.dragCur = null; _led.dragLerp = null; _led.wasDrag = false;
+  setGridGrowing(false);
 
   if (!wasDrag) {
     selectZone(zoneAtCell(startRow, startCol));
@@ -746,6 +761,7 @@ function onZoneCellMouseDown(e) {
     if (!_led.draftPointerDown) { return; }
     _led.draftIsPainting = true;
     setDragBadge(true);
+    setGridGrowing(true);
     paintDraftCell(cell.row, cell.col);
     _led.draftFocus = cell; // 마우스/터치로 고른 칸에서 화살표키 이동이 이어지도록
     afterDraftPaint();
@@ -768,6 +784,7 @@ function onZoneCellMouseMove(e) {
 function onZoneCellMouseUp() {
   clearTimeout(_led.draftLongPressTimer);
   setDragBadge(false);
+  setGridGrowing(false);
   const pointerDown = _led.draftPointerDown;
   const zone = _led.draftPointerDownZone;
   const wasPainting = _led.draftIsPainting;
