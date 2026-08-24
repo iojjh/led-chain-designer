@@ -709,6 +709,10 @@ button {
 }
 .led-grid-btn:hover { background: rgba(110, 107, 244, 0.6); }
 
+/* 상하단 버튼은 +/− 기호 없이 화살표 하나만 보여준다(밖을 향하면 확장,
+   안을 향하면 축소) — 글자가 하나뿐이라 좌우 버튼보다 살짝 크게 키운다. */
+.led-grid-btn-arrow-only { font-size: 13px; letter-spacing: normal; }
+
 /* 화살표는 단일 ">" 글자를 변마다 회전시켜 재사용한다(글자 자체를 4종 따로 두지 않음). */
 .grid-arrow { display: inline-block; }
 .grid-arrow::before { content: '>'; }

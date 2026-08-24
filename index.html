@@ -189,14 +189,15 @@
           <div class="led-grid-frame" id="ledGridFrame">
             <canvas id="ledGridCanvas" tabindex="0"></canvas>
             <!-- 격자 상하좌우 확장/축소 버튼 — 자동 확장 없이 이 버튼으로만 3칸씩 늘고 준다.
-                 캔버스 밖 가장자리에 원형으로 배치, 변마다 확장(+)/축소(−) 한 쌍. -->
+                 캔버스 밖 가장자리에 원형으로 배치. 상하단은 화살표만(밖을 향하면 확장,
+                 안을 향하면 축소), 좌우는 확장(+)/축소(−) 기호 한 쌍. -->
             <div class="led-grid-btns led-grid-btns-top">
-              <button class="led-grid-btn" data-dir="up" data-action="expand" title="위로 3칸 확장">+<span class="grid-arrow grid-arrow-up"></span></button>
-              <button class="led-grid-btn" data-dir="up" data-action="shrink" title="위에서 3칸 줄이기">−<span class="grid-arrow grid-arrow-up"></span></button>
+              <button class="led-grid-btn led-grid-btn-arrow-only" data-dir="up" data-action="expand" title="위로 3칸 확장"><span class="grid-arrow grid-arrow-up"></span></button>
+              <button class="led-grid-btn led-grid-btn-arrow-only" data-dir="up" data-action="shrink" title="위에서 3칸 줄이기"><span class="grid-arrow grid-arrow-down"></span></button>
             </div>
             <div class="led-grid-btns led-grid-btns-bottom">
-              <button class="led-grid-btn" data-dir="down" data-action="expand" title="아래로 3칸 확장">+<span class="grid-arrow grid-arrow-down"></span></button>
-              <button class="led-grid-btn" data-dir="down" data-action="shrink" title="아래에서 3칸 줄이기">−<span class="grid-arrow grid-arrow-down"></span></button>
+              <button class="led-grid-btn led-grid-btn-arrow-only" data-dir="down" data-action="expand" title="아래로 3칸 확장"><span class="grid-arrow grid-arrow-down"></span></button>
+              <button class="led-grid-btn led-grid-btn-arrow-only" data-dir="down" data-action="shrink" title="아래에서 3칸 줄이기"><span class="grid-arrow grid-arrow-up"></span></button>
             </div>
             <div class="led-grid-btns led-grid-btns-left">
               <button class="led-grid-btn" data-dir="left" data-action="expand" title="왼쪽으로 3칸 확장">+<span class="grid-arrow grid-arrow-left"></span></button>
