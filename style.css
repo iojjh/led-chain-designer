@@ -699,8 +699,15 @@ button {
    격자가 폭 대부분을 쓸 수 있게 한다 */
 @media (max-width: 700px) {
   .led-body { flex-direction: column; }
-  .led-grid-wrap { flex: 1 1 55%; border-right: none; border-bottom: 1px solid var(--border); }
-  .led-side { width: 100%; flex: 1 1 45%; }
+  /* min-height:0(기본 배치용)을 그대로 두면 위에 쌓인 툴바들(모드 토글·피치·
+     패널크기 칩·구역확정 바)이 자기 콘텐츠 높이를 다 차지하고 남은 자투리만
+     .led-grid-scroll에 떨어져, 격자 캔버스가 몇십 px로 찌그러들고 셀 크기가
+     4px대까지 내려가 "자동 확장"이 있으나 마나 해지는 문제가 있었다. auto로
+     바꿔 캔버스 최소 높이(.led-grid-scroll의 min-height)만큼은 항상 보장하고,
+     공간이 모자라면 대신 아래 사이드 패널(자체 스크롤 있음)이 줄어들게 한다. */
+  .led-grid-wrap { flex: 1 1 55%; min-height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+  .led-grid-scroll { min-height: 220px; }
+  .led-side { width: 100%; flex: 1 1 45%; min-height: 0; }
   /* 좁은 화면에서 항목이 강제로 쭈그러들며 글자가 세로로 줄바꿈되는 것을 막고,
      대신 항목 단위로 다음 줄로 넘어가게 한다 */
   .led-header { flex-wrap: wrap; row-gap: 8px; }

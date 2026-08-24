@@ -346,7 +346,19 @@ function gridDims() {
   const declaredCols = Math.round((cfg.areaW || 0) / 500);
   const declaredRows = Math.round((cfg.areaH || 0) / 500);
   const draftZone = _led.draftCells.length ? [{ cells: _led.draftCells.map(parseCellKey) }] : [];
-  const bbox = boundingBoxOfZones(cfg.zones.concat(draftZone));
+  // 사각형 드래그로 새 구역을 만드는 중에도(아직 mouseup으로 커밋 전) 미리보기
+  // 사각형을 bbox에 포함시켜야, 드래그 도중 경계 밖으로 나가는 순간 캔버스가
+  // 바로 따라 넓어진다 — 이게 없으면 cellFromEvent의 클램프가 "현재" 격자
+  // 크기로 좌표를 묶어버려 한 번의 드래그로는 경계를 절대 못 넘는 문제가 있었다.
+  const dragRectZone = (_led.zoneCreateMode === 'drag' && _led.dragStart && _led.dragCur)
+    ? [{
+      startRow: Math.min(_led.dragStart.row, _led.dragCur.row),
+      startCol: Math.min(_led.dragStart.col, _led.dragCur.col),
+      rows: Math.abs(_led.dragCur.row - _led.dragStart.row) + 1,
+      cols: Math.abs(_led.dragCur.col - _led.dragStart.col) + 1,
+    }]
+    : [];
+  const bbox = boundingBoxOfZones(cfg.zones.concat(draftZone).concat(dragRectZone));
 
   // 지금 있는 내용(구역+초안)이 원점 기준 기본 격자(15×10) 안에 이미 다
   // 들어오면 원점을 그대로 (0,0)에 둔다 — 기본 격자의 남는 칸이 자연스러운
@@ -412,15 +424,22 @@ function canvasPoint(e) {
 // 픽셀 좌표를 세계좌표 칸으로 바꾼다 — 뷰 원점(originRow/originCol)을 다시
 // 더해줘야 캔버스가 어느 세계좌표에서 시작하든 정확한 칸을 가리킨다. 클램프는
 // 화면 밖으로 마우스가 크게 벗어났을 때(윈도우 레벨 mousemove) 엉뚱하게 먼
-// 칸으로 튀는 것만 막는 안전장치 — 현재 보이는 창(뷰) 범위로 제한한다.
+// 칸으로 튀는 것만 막는 안전장치이지, 경계에 딱 맞춰서는 안 된다 — 딱 맞추면
+// 경계 칸을 골라도 "이미 기본 격자 안"이라 확장이 안 트리거되고, 그 바깥은
+// 애초에 좌표가 나올 수 없어 마우스/터치로는 절대 기본 15×10 밖으로 못
+// 나가는 교착 상태가 된다(키보드 화살표 내비게이션은 이 클램프를 안 거쳐서
+// 멀쩡히 확장되니 데스크톱에서는 가려져 있던 버그). LED_GRID_MARGIN만큼
+// 여유를 둬 경계 너머로 한 칸씩 이어서 드래그하면 매 이벤트마다 gridDims가
+// 따라 넓어지며 계속 나아갈 수 있게 한다.
 function cellFromEvent(e) {
   const { x, y } = canvasPoint(e);
   const { originRow, originCol, cols, rows } = gridDims();
   const col = Math.floor(x / _led.cellPx) + originCol;
   const row = Math.floor(y / _led.cellPx) + originRow;
+  const pad = LED_GRID_MARGIN;
   return {
-    row: Math.min(Math.max(row, originRow), originRow + rows - 1),
-    col: Math.min(Math.max(col, originCol), originCol + cols - 1),
+    row: Math.min(Math.max(row, originRow - pad), originRow + rows - 1 + pad),
+    col: Math.min(Math.max(col, originCol - pad), originCol + cols - 1 + pad),
   };
 }
 
@@ -525,6 +544,19 @@ function zoneDragRafLoop() {
   const L = 0.25; const l = _led.dragLerp;
   l.r0 += (tr0 - l.r0) * L; l.c0 += (tc0 - l.c0) * L;
   l.r1 += (tr1 - l.r1) * L; l.c1 += (tc1 - l.c1) * L;
+  // gridDims가 진행 중인 드래그 사각형도 bbox에 포함하므로, 드래그가 경계
+  // 밖으로 나가는 순간 여기서 바로 캔버스를 키워줘야 실시간으로 넓어지는 게
+  // 보인다(안 그러면 mouseup에서 커밋될 때야 한 번에 튐). 단, sizeGridCanvas가
+  // 하듯 매번 computeCellPx로 셀 크기까지 다시 맞추면(전체 격자를 항상 화면
+  // 안에 욱여넣으려 하므로) 격자가 커질수록 셀이 작아지고, 셀이 작아지면
+  // 같은 손가락 이동량이 더 많은 칸을 건너뛰어 격자가 또 커지는 양(+)의
+  // 되먹임이 생겨 살짝만 드래그해도 격자가 폭주하듯 불어난다. 드래그 도중에는
+  // 드래그 시작 시점의 cellPx를 그대로 쓰고 캔버스만 그만큼 키워(넘치면
+  // .led-grid-scroll이 스크롤 처리) 안정적으로 만들고, mouseup 커밋 후
+  // renderLedDesignView가 부르는 sizeGridCanvas에서만 화면에 맞게 다시 축소한다.
+  const { cols, rows } = gridDims();
+  _led.canvas.width = cols * _led.cellPx;
+  _led.canvas.height = rows * _led.cellPx;
   drawGrid();
   requestAnimationFrame(zoneDragRafLoop);
 }
@@ -649,9 +681,27 @@ function updateZoneDraftBar() {
 }
 
 // 초안 변경 후 공통 후처리: 격자가 커졌을 수 있으니 캔버스를 다시 사이즈하고
-// 그린다("칸 선택 시 캔버스 끝에 닿으면 실시간 확장").
+// 그린다("칸 선택 시 캔버스 끝에 닿으면 실시간 확장"). 탭 토글, 화살표키
+// 이동, 취소처럼 한 번에 한 칸만 바뀌는 경우에 쓴다 — sizeGridCanvas가
+// computeCellPx로 셀 크기까지 화면에 맞게 다시 계산해도 다음 변화가 바로
+// 이어지지 않으니 안전하다.
 function afterDraftChange() {
   sizeGridCanvas();
+  drawGrid();
+  updateZoneDraftBar();
+}
+
+// 롱프레스 페인트 드래그 중에는 셀 크기를 고정한 채 캔버스만 키운다(넘치면
+// .led-grid-scroll이 스크롤 처리). afterDraftChange처럼 매번 computeCellPx로
+// 셀 크기까지 화면에 맞춰 다시 줄이면, 격자가 커질수록 셀이 작아지고 셀이
+// 작아지면 같은 손가락 이동량이 더 많은 칸을 건너뛰어 격자가 또 커지는
+// 양(+)의 되먹임이 생겨 살짝만 드래그해도 격자가 폭주하듯 불어난다
+// (zoneDragRafLoop의 사각형 드래그와 동일한 문제). 드래그가 끝나면(mouseup)
+// 그때 가서 afterDraftChange로 한 번만 화면에 맞게 다시 축소한다.
+function afterDraftPaint() {
+  const { cols, rows } = gridDims();
+  _led.canvas.width = cols * _led.cellPx;
+  _led.canvas.height = rows * _led.cellPx;
   drawGrid();
   updateZoneDraftBar();
 }
@@ -698,7 +748,7 @@ function onZoneCellMouseDown(e) {
     setDragBadge(true);
     paintDraftCell(cell.row, cell.col);
     _led.draftFocus = cell; // 마우스/터치로 고른 칸에서 화살표키 이동이 이어지도록
-    afterDraftChange();
+    afterDraftPaint();
   }, isTouch ? LONG_PRESS_TOUCH_MS : LONG_PRESS_MOUSE_MS);
 }
 
@@ -712,7 +762,7 @@ function onZoneCellMouseMove(e) {
   const cell = cellFromEvent(e);
   paintDraftCell(cell.row, cell.col);
   _led.draftFocus = cell; // 페인트 드래그가 지나간 마지막 칸이 다음 화살표키 이동의 기준점
-  afterDraftChange();
+  afterDraftPaint();
 }
 
 function onZoneCellMouseUp() {
