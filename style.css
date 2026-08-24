@@ -677,6 +677,10 @@ button {
   justify-content: flex-start;
 }
 
+/* 데스크톱에서는 항상 숨김 — 모바일 전용 기능(아래 미디어쿼리에서 켠다) */
+.led-canvas-mobile-trigger,
+.led-canvas-close-btn { display: none; }
+
 #ledGridCanvas { image-rendering: pixelated; cursor: crosshair; }
 
 .led-cfg-row { display: flex; flex-direction: column; gap: 6px; }
@@ -723,6 +727,54 @@ button {
      대신 항목 단위로 다음 줄로 넘어가게 한다 */
   .led-header { flex-wrap: wrap; row-gap: 8px; }
   .led-back-btn, .led-area-field, .led-area-inch { white-space: nowrap; }
+
+  /* 모바일 기본 상태: 손가락 하나로 조작하기엔 격자가 너무 좁아지는 문제를
+     원천적으로 피하려고, 캔버스/툴바를 바로 보여주지 않고 "캔버스 그리기"
+     버튼만 노출한다. 탭하면 아래 .led-canvas-fullscreen 상태로 전환된다. */
+  .led-grid-wrap .led-mode-toolbar,
+  .led-grid-wrap .led-new-zone-toolbar,
+  .led-grid-wrap .led-grid-scroll { display: none; }
+  .led-canvas-mobile-trigger { display: flex; align-items: center; justify-content: center; height: 100%; }
+
+  /* "캔버스 그리기" 진입: 실제 기기 회전 없이도 가로 화면처럼 널찍하게 쓸 수
+     있게 .led-grid-wrap 전체(툴바+캔버스)를 뷰포트 전체 크기로 고정하고 90도
+     돌린다 — width/height를 뷰포트 기준으로 미리 맞바꿔둔 채 rotate해야 회전
+     후 실제로 화면을 꽉 채우는, 흔히 쓰는 "강제 가로모드" CSS 트릭이다.
+     캔버스 자체의 터치 좌표 보정은 ledDesignView.js의 canvasPoint가 이
+     회전을 정확히 역산해서 처리한다(회전각을 여기서 바꾸면 거기도 맞춰야 함). */
+  #ledDesignView.led-canvas-fullscreen .led-grid-wrap {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vh;
+    height: 100vw;
+    transform-origin: top left;
+    transform: rotate(90deg) translateY(-100%);
+    z-index: 500;
+    background: var(--bg-0);
+    border: none;
+  }
+  #ledDesignView.led-canvas-fullscreen .led-grid-wrap .led-mode-toolbar,
+  #ledDesignView.led-canvas-fullscreen .led-grid-wrap .led-grid-scroll { display: flex; }
+  #ledDesignView.led-canvas-fullscreen .led-grid-wrap .led-new-zone-toolbar:not([hidden]) { display: flex; }
+  #ledDesignView.led-canvas-fullscreen .led-canvas-mobile-trigger { display: none; }
+  #ledDesignView.led-canvas-fullscreen .led-canvas-close-btn { display: inline-block; }
+
+  /* 풀스크린에서는 항상(드래그 중이 아니어도) 왼쪽위 정렬을 쓴다 — 평소엔
+     가운데 정렬이었다가 드래그 시작 시점에만 .is-growing으로 바뀌면, 정확히
+     그 순간 캔버스가 화면에서 한 번에 크게 튀어(정렬 기준이 바뀌므로) 그
+     이동량 자체가 터치 좌표 계산에 들어가 격자가 실제 손가락 이동량보다
+     훨씬 크게 한 번에 불어나는 문제가 있었다(일반 모바일 뷰는 여백이 작아
+     이 튐이 미미했지만, 풀스크린은 여백이 커서 도드라졌다). 아예 처음부터
+     고정해두면 드래그 시작 순간에도 정렬이 안 바뀌니 튈 일이 없다.
+     회전 때문에 화면상 왼쪽 위 모서리는 캔버스의 (회전 전) 오른쪽위 모서리에
+     대응하므로(rotate(90deg) 기준) 가로축(justify-content)은 반대로
+     flex-end를 쓴다 — 세로축(align-items)은 회전 후에도 그대로 위쪽
+     모서리와 대응되므로 flex-start를 쓴다. */
+  #ledDesignView.led-canvas-fullscreen .led-grid-scroll {
+    align-items: flex-start;
+    justify-content: flex-end;
+  }
 }
 
 .led-side-section {

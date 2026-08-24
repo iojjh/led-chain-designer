@@ -63,6 +63,9 @@ const _led = {
   draftIsPainting: false,
   draftPaintStack: [],
   draftLongPressTimer: null,
+
+  fullscreen: false, // 모바일 전용 "캔버스 그리기" 풀스크린(90도 회전) 활성 여부
+  fsAnchor: null, // 풀스크린 좌표 보정용 제스처 시작 앵커(canvasPointRotated 참고)
 };
 
 function getLedNode() { return getNode(_led.nodeId); }
@@ -133,6 +136,8 @@ function openLedDesignView(nodeId) {
   _led.dragLerp = null;
   _led.activePort = 0;
   _led.focusPanelKey = null;
+  _led.fullscreen = false;
+  document.getElementById('ledDesignView').classList.remove('led-canvas-fullscreen');
   clearDraft();
 
   const cfg = getLedConfig();
@@ -151,6 +156,7 @@ function openLedDesignView(nodeId) {
 
 function closeLedDesignView() {
   recomputeTotalPx();
+  if (_led.fullscreen) { closeLedCanvasFullscreen(); }
   document.getElementById('ledDesignView').hidden = true;
   document.getElementById('graphView').hidden = false;
   renderValidation();
@@ -178,6 +184,9 @@ function initLedDesignView() {
   _led.canvas.addEventListener('touchmove', e => { e.preventDefault(); onGridMouseMove(e); }, { passive: false });
   _led.canvas.addEventListener('touchend', e => { e.preventDefault(); onGridMouseUp(e); }, { passive: false });
   _led.canvas.addEventListener('keydown', onGridKeyDown);
+
+  document.getElementById('ledOpenCanvasBtn').addEventListener('click', openLedCanvasFullscreen);
+  document.getElementById('ledCanvasCloseBtn').addEventListener('click', closeLedCanvasFullscreen);
 
   document.querySelectorAll('.led-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => setLedMode(btn.dataset.mode));
@@ -264,6 +273,28 @@ function initLedDesignView() {
   });
 }
 
+// ── 모바일 전용 "캔버스 그리기" 풀스크린 ──────────────────
+// 좁은 화면에서는 격자를 손가락으로 다루기엔 너무 작아지므로(캔버스를 바로
+// 안 보여주고 이 버튼만 노출 — style.css 참고), 탭하면 실제 기기를 돌리지
+// 않아도 가로 화면처럼 널찍하게 쓸 수 있도록 .led-grid-wrap 전체를 CSS로
+// 90도 돌려 풀스크린으로 띄운다. canvasPoint()가 이 회전을 역산해서 터치
+// 좌표를 보정하므로, _led.fullscreen 플래그만 켜고 끄면 된다.
+function openLedCanvasFullscreen() {
+  _led.fullscreen = true;
+  document.getElementById('ledDesignView').classList.add('led-canvas-fullscreen');
+  sizeGridCanvas();
+  drawGrid();
+  _led.canvas.focus();
+}
+
+function closeLedCanvasFullscreen() {
+  _led.fullscreen = false;
+  _led.fsAnchor = null;
+  document.getElementById('ledDesignView').classList.remove('led-canvas-fullscreen');
+  sizeGridCanvas();
+  drawGrid();
+}
+
 // ── 모드 전환 (구역 편집 / LAN 배선 / PWR 배선) ──────────
 function setLedMode(mode) {
   _led.mode = mode;
@@ -321,7 +352,7 @@ function updateZoneModeHint() {
 // bbox.min - MARGIN으로 매번 다시 계산해서(아래/오른쪽과 완전히 같은 방식으로)
 // 네 방향 모두 미리 여백이 보이게 한다. 구역/칸 좌표는 더 이상 0 이상으로
 // 강제하지 않는다 — 음수도 그냥 유효한 세계좌표일 뿐, 뷰가 따라간다.
-const LED_GRID_MARGIN = 4; // 구역/칸 추가 후 다음 구역을 이어 그릴 여유 칸
+const LED_GRID_MARGIN = 2; // 구역/칸 추가 후 다음 구역을 이어 그릴 여유 칸
 const LED_GRID_MIN_COLS = 15; // 자유 설계 시작 직후 기본 캔버스 크기(가로)
 const LED_GRID_MIN_ROWS = 10; // 세로
 
@@ -377,9 +408,13 @@ function gridDims() {
     return { originRow: 0, originCol: 0, cols, rows };
   }
 
+  // 세로(행)는 위쪽만 여유 칸을 미리 두고 자동으로 따라가게 하고, 아래쪽은
+  // 실제 구역이 필요로 하는 만큼만 정확히 맞춘다(사용자 요청) — 아래로
+  // 드래그/페인트해도 미리 여백을 붙여 늘어나지 않고, 진짜 그 줄까지 구역이
+  // 생겨야만 그만큼만 늘어난다. 가로(열)는 기존처럼 양쪽 다 여유를 둔다.
   const originRow = bbox.minRow - LED_GRID_MARGIN;
   const originCol = bbox.minCol - LED_GRID_MARGIN;
-  const farRow = bbox.maxRow + LED_GRID_MARGIN;
+  const farRow = bbox.maxRow;
   const farCol = bbox.maxCol + LED_GRID_MARGIN;
 
   // declaredCols/Rows도 farCol/farRow와 같은 세계좌표계다(빠른 설정 구역은
@@ -428,10 +463,33 @@ function clientXY(e) {
 // 캔버스가 CSS로 늘어나 있어도(반응형 등) 실제 캔버스 픽셀 좌표로 정확히 보정
 function canvasPoint(e) {
   const { x, y } = clientXY(e);
+  if (_led.fullscreen) { return canvasPointRotated(x, y); }
   const rect = _led.canvas.getBoundingClientRect();
   const scX = _led.canvas.width / (rect.width || _led.canvas.width);
   const scY = _led.canvas.height / (rect.height || _led.canvas.height);
   return { x: (x - rect.left) * scX, y: (y - rect.top) * scY };
+}
+
+// 풀스크린(캔버스 그리기) 상태에서는 .led-grid-wrap 전체가 style.css의
+// `rotate(90deg) translateY(-100%)`로 돌아가 있다 — getBoundingClientRect는
+// 회전 이후(화면에 실제 보이는) 값을 주므로 그대로 쓰면 가로/세로 축이
+// 뒤바뀐다. 캔버스 자신의 getBoundingClientRect()(회전 반영이라 항상
+// 정확)와 clientWidth/Height(변형 영향 없음, 회전 전 크기)로 그 역변환을
+// 계산한다 — 회전 때문에 rect.width는 캔버스의 회전 전 "높이"와,
+// rect.height는 회전 전 "너비"와 같다(90도 회전은 두 축을 맞바꾼다).
+// 회전각을 바꾸면 이 식도 같이 바꿔야 한다. 이 함수 자체는 항상 "지금
+// 이 순간"의 절대 위치를 구할 뿐이고, 드래그 중 원점이 실시간으로
+// 밀리는 문제에 대한 보정은 이 함수를 단 한 번만 호출해 앵커로 삼는
+// cellFromEventRotated 쪽에서 처리한다.
+function canvasPointRotated(clientX, clientY) {
+  const rect = _led.canvas.getBoundingClientRect();
+  const cw = _led.canvas.clientWidth || _led.canvas.width;
+  const ch = _led.canvas.clientHeight || _led.canvas.height;
+  const scX = _led.canvas.width / cw;
+  const scY = _led.canvas.height / ch;
+  const x = (clientY - rect.top) * scX;
+  const y = (ch - (clientX - rect.left)) * scY;
+  return { x, y };
 }
 
 // 픽셀 좌표를 세계좌표 칸으로 바꾼다 — 뷰 원점(originRow/originCol)을 다시
@@ -444,14 +502,49 @@ function canvasPoint(e) {
 // 멀쩡히 확장되니 데스크톱에서는 가려져 있던 버그). LED_GRID_MARGIN만큼
 // 여유를 둬 경계 너머로 한 칸씩 이어서 드래그하면 매 이벤트마다 gridDims가
 // 따라 넓어지며 계속 나아갈 수 있게 한다.
+// row(세로)는 위쪽(원점 방향)으로만 여유를 둬 이어서 확장할 수 있게 하고,
+// 아래쪽은 gridDims가 잡아준 현재 경계에서 멈춘다(사용자 요청 — 세로 자동
+// 확장은 위로만 작동). col(가로)은 기존처럼 양쪽 다 여유를 둔다.
 function cellFromEvent(e) {
+  if (_led.fullscreen) { return cellFromEventRotated(e); }
   const { x, y } = canvasPoint(e);
   const { originRow, originCol, cols, rows } = gridDims();
   const col = Math.floor(x / _led.cellPx) + originCol;
   const row = Math.floor(y / _led.cellPx) + originRow;
   const pad = LED_GRID_MARGIN;
   return {
-    row: Math.min(Math.max(row, originRow - pad), originRow + rows - 1 + pad),
+    row: Math.min(Math.max(row, originRow - pad), originRow + rows - 1),
+    col: Math.min(Math.max(col, originCol - pad), originCol + cols - 1 + pad),
+  };
+}
+
+// 풀스크린(회전) 상태에서는 "픽셀 좌표 + 그 시점의 원점"을 그대로 조합하는
+// 위 방식을 못 쓴다 — canvasPointRotated의 x/y는 제스처 시작 시점 기준으로
+// 고정된 값인데, 격자가 드래그 도중 실시간으로 넓어지면 원점(originRow/Col)
+// 자체가 매 이벤트마다 달라져서, "고정된 픽셀 오프셋 + 그때그때 다른 원점"을
+// 더하면 원점이 밀린 만큼 매번 이중으로 반영돼 격자가 실제 이동량보다 훨씬
+// 크게 폭주했다. 대신 제스처 시작 시점의 "월드 행/열"을 한 번만 정확히
+// 구해 앵커로 저장해두고, 그 뒤로는 화면 좌표 델타만으로(원점과 무관하게)
+// 앵커에서 몇 칸 이동했는지 직접 계산한다 — 원점이 어떻게 바뀌든 델타 자체는
+// 영향받지 않는다.
+function cellFromEventRotated(e) {
+  const { x: clientX, y: clientY } = clientXY(e);
+  if (!_led.fsAnchor) {
+    const { x, y } = canvasPointRotated(clientX, clientY);
+    const { originRow, originCol } = gridDims();
+    _led.fsAnchor = {
+      clientX, clientY,
+      row: Math.floor(y / _led.cellPx) + originRow,
+      col: Math.floor(x / _led.cellPx) + originCol,
+    };
+  }
+  const a = _led.fsAnchor;
+  const row = a.row - Math.round((clientX - a.clientX) / _led.cellPx);
+  const col = a.col + Math.round((clientY - a.clientY) / _led.cellPx);
+  const { originRow, originCol, cols, rows } = gridDims();
+  const pad = LED_GRID_MARGIN;
+  return {
+    row: Math.min(Math.max(row, originRow - pad), originRow + rows - 1),
     col: Math.min(Math.max(col, originCol - pad), originCol + cols - 1 + pad),
   };
 }
@@ -506,6 +599,7 @@ function panelAtScreenPoint(e) {
 
 // ── 캔버스 입력 디스패치 ──────────────────────────────
 function onGridMouseDown(e) {
+  _led.fsAnchor = null; // 새 제스처 시작 — canvasPointRotated가 이번 시작점을 새로 앵커로 잡게 한다
   if (_led.mode !== 'zone') { onPortMouseDown(e); return; }
   if (_led.zoneCreateMode === 'cell') { onZoneCellMouseDown(e); } else { onZoneMouseDown(e); }
 }
