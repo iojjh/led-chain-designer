@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v31';
+const CACHE_VERSION = 'v32';
 const CORE_CACHE    = `led-chain-core-${CACHE_VERSION}`;
 
 // Core assets — always cached; bump CACHE_VERSION to force update
@@ -25,6 +25,7 @@ const CORE_ASSETS = [
   './js/validation/capacityRules.js',
   './js/validation/validationEngine.js',
   './js/save/projectState.js',
+  './js/save/cloudShare.js',
   './js/save/saveStore.js',
   './js/app.js',
 ];

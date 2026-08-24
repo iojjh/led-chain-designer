@@ -1147,10 +1147,35 @@ button {
 }
 .save-row-info { flex: 1; display: flex; flex-direction: column; font-size: 12px; }
 .save-row-info span { color: var(--text-1); font-size: 11px; }
-.save-load-row-btn, .save-del-row-btn { font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); }
+.save-load-row-btn, .save-del-row-btn, .cloud-share-row-btn { font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); }
 .save-load-row-btn { background: var(--accent-soft); color: var(--text-0); }
+.cloud-share-row-btn { background: var(--bg-2); border: 1px solid var(--border); color: var(--text-0); }
 .save-del-row-btn { color: var(--err); }
 .save-del-row-btn:hover { text-decoration: underline; }
+
+.cloud-share-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.cloud-share-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+}
+.cloud-refresh-btn {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+}
+.cloud-share-hint { font-size: 11px; color: var(--text-1); }
 
 /* ── 업데이트 배너/토스트 (기존 앱과 동일 패턴) ───────── */
 .update-banner {
