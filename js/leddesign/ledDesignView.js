@@ -66,7 +66,6 @@ const _led = {
 
   fullscreen: false, // 모바일 전용 "캔버스 그리기" 풀스크린(90도 회전) 활성 여부
   fsAnchor: null, // 풀스크린 좌표 보정용 제스처 시작 앵커(canvasPointRotated 참고)
-  frozenDims: null, // 드래그/페인트 제스처 진행 중 gridDims()를 고정해두는 스냅샷(아래 gridDims 참고)
 };
 
 function getLedNode() { return getNode(_led.nodeId); }
@@ -188,6 +187,13 @@ function initLedDesignView() {
 
   document.getElementById('ledOpenCanvasBtn').addEventListener('click', openLedCanvasFullscreen);
   document.getElementById('ledCanvasCloseBtn').addEventListener('click', closeLedCanvasFullscreen);
+
+  document.querySelectorAll('.led-grid-expand').forEach(btn => {
+    btn.addEventListener('click', () => {
+      exitCompactView(); // "설계 완료" 상태에서 눌러도(버튼은 그때 숨지만 방어적으로) 편집 가능 상태로
+      expandGrid(btn.dataset.dir);
+    });
+  });
 
   document.querySelectorAll('.led-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => setLedMode(btn.dataset.mode));
@@ -338,45 +344,24 @@ function updateZoneModeHint() {
   }
 }
 
-// 격자는 "설치면적을 먼저 입력해야 그 안에서 그릴 수 있다"는 제약을 없애고,
-// 이미 그려진 구역들의 바운딩 박스를 자동으로 따라간다(+여유 칸, 상하좌우 모두) —
-// 비정형 배치(L자 등)를 그릴 때 구역 하나 추가할 때마다 캔버스가 알아서 넓어져서,
-// 미리 최소 포함 사각형을 계산해 넣고 남는 빈 칸을 감수할 필요가 없다.
-// 헤더의 가로/세로(m) 입력은 여전히 유효하다 — LED 추가 팝업의 "빠른 설정"이
-// 만든 구역(정확히 그 면적을 덮음)은 그대로 표시되고, 수동으로 더 큰 값을
-// 미리 입력해 캔버스를 넉넉히 잡아두는 것도 가능하다(자동 확장의 하한일 뿐).
-//
-// 뷰 원점(originRow/originCol): 격자를 항상 세계좌표 (0,0)부터 그리던 이전
-// 방식은 아래/오른쪽 여백(매 렌더 bbox.max+MARGIN으로 다시 계산)과 위/왼쪽
-// 여백(경계를 넘어야만 반응하는 데이터 이동)이 구조적으로 달라 위/왼쪽만
-// "닿아야 늘어나는" 것처럼 보이는 비대칭이 있었다. 이제 그리기 시작점 자체를
-// bbox.min - MARGIN으로 매번 다시 계산해서(아래/오른쪽과 완전히 같은 방식으로)
-// 네 방향 모두 미리 여백이 보이게 한다. 구역/칸 좌표는 더 이상 0 이상으로
-// 강제하지 않는다 — 음수도 그냥 유효한 세계좌표일 뿐, 뷰가 따라간다.
-const LED_GRID_MARGIN = 2; // 구역/칸 추가 후 다음 구역을 이어 그릴 여유 칸
+// 격자는 더 이상 드래그/페인트 중에 자동으로 안 늘어난다 — 실시간 bbox
+// 추적 방식이 계속 미세조정을 해도 "튄다"는 문제를 근본적으로 없애기
+// 어려워서, 아예 자동 확장을 없애고 캔버스 상하좌우의 반투명 확장
+// 버튼(expandGrid)으로 사용자가 원할 때 4칸씩 직접 늘리는 방식으로
+// 바꿨다. 크기/원점(gridOriginRow/Col, gridCols/Rows)은 cfg에 저장되므로
+// 저장/불러오기에도 유지된다.
 const LED_GRID_MIN_COLS = 15; // 자유 설계 시작 직후 기본 캔버스 크기(가로)
 const LED_GRID_MIN_ROWS = 10; // 세로
+const LED_GRID_EXPAND_STEP = 4; // 확장 버튼 한 번에 늘어나는 칸 수
 
-// 드래그/페인트 제스처가 진행되는 동안은(_led.frozenDims 참고) 이 함수가
-// 항상 제스처 시작 시점의 스냅샷을 그대로 돌려준다 — 실시간으로 bbox를
-// 따라가며 매 프레임 캔버스 크기·원점을 다시 계산하면, 그때마다 캔버스
-// DOM 요소 자체의 화면 위치가 밀리는 것은 물론(정렬 기준이 어느 쪽이든
-// 캔버스 크기가 바뀌면 반드시 화면 위치도 같이 바뀐다), 이미 그려둔
-// 내용도 원점이 바뀔 때마다 캔버스 내부 픽셀 좌표가 다시 매겨져 화면에서
-// 밀리듯 움직인다 — 캔버스가 화면에서 안 움직이게 CSS로 아무리 고정해도
-// "내용 자체가 안에서 움직이는" 문제는 못 잡는다. 제스처 동안은 뷰를
-// 통째로 고정해두고(cellFromEvent의 pad만큼은 여전히 경계 밖으로 넘어가는
-// 걸 허용), 제스처가 끝나 커밋될 때 딱 한 번만 새 크기·원점으로 다시
-// 맞춘다(afterDraftChange/renderLedDesignView가 부르는 sizeGridCanvas).
 function gridDims() {
-  if (_led.frozenDims) { return _led.frozenDims; }
   const cfg = getLedConfig();
 
-  // "설계 완료"를 누르면 생성된 구역만 감싸는 최소 크기로 줄어든다(여백·하한
-  // 다 무시). finishZoneDesign이 이때 구역 좌표를 0으로 당겨오지만, 뷰 원점
-  // 자체도 bbox.min을 그대로 쓰므로 설령 당겨오기 전이라도 여백 없이 딱 맞게
-  // 보인다. cfg에 저장되므로(_led의 휘발성 상태가 아니라) 페이지를 나갔다
-  // 돌아와도 유지된다.
+  // "설계 완료"를 누르면 생성된 구역만 감싸는 최소 크기로 줄어든다(저장된
+  // 격자 크기·여백 다 무시). finishZoneDesign이 이때 구역 좌표를 0으로
+  // 당겨오지만, 뷰 원점 자체도 bbox.min을 그대로 쓰므로 설령 당겨오기
+  // 전이라도 여백 없이 딱 맞게 보인다. cfg에 저장되므로(_led의 휘발성
+  // 상태가 아니라) 페이지를 나갔다 돌아와도 유지된다.
   if (cfg.zoneViewCompact) {
     const bbox = boundingBoxOfZones(cfg.zones);
     if (bbox) {
@@ -389,49 +374,42 @@ function gridDims() {
 
   const declaredCols = Math.round((cfg.areaW || 0) / 500);
   const declaredRows = Math.round((cfg.areaH || 0) / 500);
-  const draftZone = _led.draftCells.length ? [{ cells: _led.draftCells.map(parseCellKey) }] : [];
-  // 사각형 드래그로 새 구역을 만드는 중에도(아직 mouseup으로 커밋 전) 미리보기
-  // 사각형을 bbox에 포함시켜야, 드래그 도중 경계 밖으로 나가는 순간 캔버스가
-  // 바로 따라 넓어진다 — 이게 없으면 cellFromEvent의 클램프가 "현재" 격자
-  // 크기로 좌표를 묶어버려 한 번의 드래그로는 경계를 절대 못 넘는 문제가 있었다.
-  const dragRectZone = (_led.zoneCreateMode === 'drag' && _led.dragStart && _led.dragCur)
-    ? [{
-      startRow: Math.min(_led.dragStart.row, _led.dragCur.row),
-      startCol: Math.min(_led.dragStart.col, _led.dragCur.col),
-      rows: Math.abs(_led.dragCur.row - _led.dragStart.row) + 1,
-      cols: Math.abs(_led.dragCur.col - _led.dragStart.col) + 1,
-    }]
-    : [];
-  const bbox = boundingBoxOfZones(cfg.zones.concat(draftZone).concat(dragRectZone));
+  let originRow = cfg.gridOriginRow || 0;
+  let originCol = cfg.gridOriginCol || 0;
+  let cols = cfg.gridCols || LED_GRID_MIN_COLS;
+  let rows = cfg.gridRows || LED_GRID_MIN_ROWS;
 
-  // 원점(위/왼쪽 경계)은 자기 쪽 경계(min)에만 반응해서 움직인다 — 반대쪽
-  // (예: 오른쪽 끝)이 기본 격자를 넘어도 원점(왼쪽)은 영향받지 않는다.
-  // 이전엔 "내용 전체가 기본 격자 안에 다 들어오는지"를 min/max 양쪽 다
-  // 같이 보고 원점·크기를 한 번에 두 갈래로 나눠 계산했는데, 그러면 원점과
-  // 무관한 반대쪽 경계가 기본 격자를 넘는 순간 원점이 갑자기 "bbox.min - 여백"
-  // 으로 재계산되면서, 시작점이 0에서 먼 곳이었으면 원점이 한 번에 수십 칸씩
-  // 튀는 문제가 있었다("자동확장이 매끄럽지 않다"는 제보의 원인).
-  // min(0, bbox.min - 여백) 형태로 두면, 내용이 원점에서 여백만큼보다 더
-  // 안쪽에 있을 땐 0에 그대로 있다가, 내용이 경계(0)에 닿는 순간부터 이미
-  // 여백만큼 미리 넓어져 있다 — "칸을 끝까지 터치해서 채워도 자동확장이
-  // 안 된다"는 문제(경계 밖으로 실제로 넘어가야만, 즉 있지도 않은 칸을
-  // 어떻게든 짚어야만 넓어지던 것)를 없앤다. 반대쪽(max)은 이 계산에 전혀
-  // 안 들어가므로 위 "원점이 튀는" 버그도 다시 생기지 않는다.
-  const originRow = bbox ? Math.min(0, bbox.minRow - LED_GRID_MARGIN) : 0;
-  const originCol = bbox ? Math.min(0, bbox.minCol - LED_GRID_MARGIN) : 0;
-  // 세로(행)는 위쪽만 여유 칸을 미리 두고 자동으로 따라가게 하고, 아래쪽은
-  // 실제 구역이 필요로 하는 만큼만 정확히 맞춘다(사용자 요청) — 아래로
-  // 드래그/페인트해도 미리 여백을 붙여 늘어나지 않고, 진짜 그 줄까지 구역이
-  // 생겨야만 그만큼만 늘어난다. 가로(열)는 기존처럼 양쪽 다 여유를 둔다.
-  const farRow = bbox ? bbox.maxRow : 0;
-  const farCol = bbox ? bbox.maxCol + LED_GRID_MARGIN : 0;
+  // 안전망: 불러온 프로젝트 등에서 저장된 격자보다 바깥에 이미 구역이
+  // 있으면(예: 예전 버전에서 자동 확장으로 만들어진 음수 좌표 구역) 그
+  // 구역이 화면에서 잘려 안 보이는 일이 없도록 최소한 그만큼은 담아
+  // 보여준다 — cfg에 저장된 값 자체를 덮어쓰진 않으므로 확장 버튼을
+  // 눌러야만 "공식" 격자 크기가 실제로 바뀐다.
+  const bbox = boundingBoxOfZones(cfg.zones);
+  if (bbox) {
+    originRow = Math.min(originRow, bbox.minRow);
+    originCol = Math.min(originCol, bbox.minCol);
+  }
+  const farRow = Math.max(originRow + rows, bbox ? bbox.maxRow : 0, originRow + declaredRows);
+  const farCol = Math.max(originCol + cols, bbox ? bbox.maxCol : 0, originCol + declaredCols);
+  return {
+    originRow, originCol,
+    cols: Math.max(1, farCol - originCol),
+    rows: Math.max(1, farRow - originRow),
+  };
+}
 
-  // declaredCols/Rows도 farCol/farRow와 같은 세계좌표계다(빠른 설정 구역은
-  // 항상 (0,0)에서 시작하므로 "세계 열 declaredCols까지") — origin이 밀려있으면
-  // 그만큼 빼줘야 실제로 필요한 칸 수(originCol부터 declaredCols까지)가 나온다.
-  const cols = Math.max(1, declaredCols - originCol, farCol - originCol, LED_GRID_MIN_COLS);
-  const rows = Math.max(1, declaredRows - originRow, farRow - originRow, LED_GRID_MIN_ROWS);
-  return { originRow, originCol, cols, rows };
+// 캔버스 상하좌우 확장 버튼 — 눌린 방향으로 격자를 LED_GRID_EXPAND_STEP칸
+// 늘린다. 위/왼쪽은 원점을 그만큼 밀어야(빼야) 하고 세로/가로 칸 수도
+// 같이 늘어나야 반대쪽 끝은 그대로 두고 그 방향으로만 커진 것처럼 보인다.
+function expandGrid(dir) {
+  const cfg = getLedConfig();
+  const step = LED_GRID_EXPAND_STEP;
+  if (dir === 'up') { cfg.gridOriginRow = (cfg.gridOriginRow || 0) - step; cfg.gridRows = (cfg.gridRows || LED_GRID_MIN_ROWS) + step; }
+  else if (dir === 'down') { cfg.gridRows = (cfg.gridRows || LED_GRID_MIN_ROWS) + step; }
+  else if (dir === 'left') { cfg.gridOriginCol = (cfg.gridOriginCol || 0) - step; cfg.gridCols = (cfg.gridCols || LED_GRID_MIN_COLS) + step; }
+  else if (dir === 'right') { cfg.gridCols = (cfg.gridCols || LED_GRID_MIN_COLS) + step; }
+  sizeGridCanvas();
+  drawGrid();
 }
 
 // 가로·세로 모두 뷰포트 안에 들어오도록(overflow 없이) 맞추되, 그 안에서 가능한
@@ -489,40 +467,27 @@ function canvasPointRotated(clientX, clientY) {
 }
 
 // 픽셀 좌표를 세계좌표 칸으로 바꾼다 — 뷰 원점(originRow/originCol)을 다시
-// 더해줘야 캔버스가 어느 세계좌표에서 시작하든 정확한 칸을 가리킨다. 클램프는
-// 화면 밖으로 마우스가 크게 벗어났을 때(윈도우 레벨 mousemove) 엉뚱하게 먼
-// 칸으로 튀는 것만 막는 안전장치이지, 경계에 딱 맞춰서는 안 된다 — 딱 맞추면
-// 경계 칸을 골라도 "이미 기본 격자 안"이라 확장이 안 트리거되고, 그 바깥은
-// 애초에 좌표가 나올 수 없어 마우스/터치로는 절대 기본 15×10 밖으로 못
-// 나가는 교착 상태가 된다(키보드 화살표 내비게이션은 이 클램프를 안 거쳐서
-// 멀쩡히 확장되니 데스크톱에서는 가려져 있던 버그). LED_GRID_MARGIN만큼
-// 여유를 둬 경계 너머로 한 칸씩 이어서 드래그하면 매 이벤트마다 gridDims가
-// 따라 넓어지며 계속 나아갈 수 있게 한다.
-// row(세로)는 위쪽(원점 방향)으로만 여유를 둬 이어서 확장할 수 있게 하고,
-// 아래쪽은 gridDims가 잡아준 현재 경계에서 멈춘다(사용자 요청 — 세로 자동
-// 확장은 위로만 작동). col(가로)은 기존처럼 양쪽 다 여유를 둔다.
+// 더해줘야 캔버스가 어느 세계좌표에서 시작하든 정확한 칸을 가리킨다. 격자는
+// 더 이상 자동으로 안 늘어나므로(expandGrid 버튼으로만 늘어남) 지금 보이는
+// 격자 범위로 딱 잘라 clamp한다 — 화면 밖으로 마우스가 크게 벗어났을 때
+// (윈도우 레벨 mousemove) 엉뚱하게 먼 칸으로 튀는 것도 이 clamp가 막아준다.
 function cellFromEvent(e) {
   if (_led.fullscreen) { return cellFromEventRotated(e); }
   const { x, y } = canvasPoint(e);
   const { originRow, originCol, cols, rows } = gridDims();
   const col = Math.floor(x / _led.cellPx) + originCol;
   const row = Math.floor(y / _led.cellPx) + originRow;
-  const pad = LED_GRID_MARGIN;
   return {
-    row: Math.min(Math.max(row, originRow - pad), originRow + rows - 1),
-    col: Math.min(Math.max(col, originCol - pad), originCol + cols - 1 + pad),
+    row: Math.min(Math.max(row, originRow), originRow + rows - 1),
+    col: Math.min(Math.max(col, originCol), originCol + cols - 1),
   };
 }
 
 // 풀스크린(회전) 상태에서는 "픽셀 좌표 + 그 시점의 원점"을 그대로 조합하는
 // 위 방식을 못 쓴다 — canvasPointRotated의 x/y는 제스처 시작 시점 기준으로
-// 고정된 값인데, 격자가 드래그 도중 실시간으로 넓어지면 원점(originRow/Col)
-// 자체가 매 이벤트마다 달라져서, "고정된 픽셀 오프셋 + 그때그때 다른 원점"을
-// 더하면 원점이 밀린 만큼 매번 이중으로 반영돼 격자가 실제 이동량보다 훨씬
-// 크게 폭주했다. 대신 제스처 시작 시점의 "월드 행/열"을 한 번만 정확히
-// 구해 앵커로 저장해두고, 그 뒤로는 화면 좌표 델타만으로(원점과 무관하게)
-// 앵커에서 몇 칸 이동했는지 직접 계산한다 — 원점이 어떻게 바뀌든 델타 자체는
-// 영향받지 않는다.
+// 고정된 값인데, 매 이벤트마다 원점을 다시 더하면 부정확하다. 대신 제스처
+// 시작 시점의 "월드 행/열"을 한 번만 정확히 구해 앵커로 저장해두고, 그
+// 뒤로는 화면 좌표 델타만으로 앵커에서 몇 칸 이동했는지 직접 계산한다.
 function cellFromEventRotated(e) {
   const { x: clientX, y: clientY } = clientXY(e);
   if (!_led.fsAnchor) {
@@ -538,10 +503,9 @@ function cellFromEventRotated(e) {
   const row = a.row - Math.round((clientX - a.clientX) / _led.cellPx);
   const col = a.col + Math.round((clientY - a.clientY) / _led.cellPx);
   const { originRow, originCol, cols, rows } = gridDims();
-  const pad = LED_GRID_MARGIN;
   return {
-    row: Math.min(Math.max(row, originRow - pad), originRow + rows - 1),
-    col: Math.min(Math.max(col, originCol - pad), originCol + cols - 1 + pad),
+    row: Math.min(Math.max(row, originRow), originRow + rows - 1),
+    col: Math.min(Math.max(col, originCol), originCol + cols - 1),
   };
 }
 
@@ -621,7 +585,6 @@ function onGridKeyDown(e) {
 function onZoneMouseDown(e) {
   stopEditingZone();
   exitCompactView();
-  _led.frozenDims = gridDims(); // 제스처 끝날 때까지 뷰를 통째로 고정(위 gridDims 주석 참고)
   const cell = cellFromEvent(e);
   _led.dragStart = cell;
   _led.dragCur = cell;
@@ -640,9 +603,6 @@ function onZoneMouseMove(e) {
 }
 
 // 드래그 미리보기 사각형을 목표 좌표로 매 프레임 25%씩 보간해 부드럽게 따라오게 한다.
-// 뷰가 고정돼 있으므로(_led.frozenDims) 여기서 캔버스를 다시 사이즈할 필요가 없다 —
-// cellFromEvent의 pad만큼 경계 밖 칸도 여전히 찍을 수 있고, 그 결과(더 큰 사각형)는
-// 커밋 후 renderLedDesignView가 한 번에 반영한다.
 function zoneDragRafLoop() {
   if (!_led.dragLerp || !_led.dragStart) { return; }
   const st = _led.dragStart; const cur = _led.dragCur;
@@ -662,7 +622,6 @@ function onZoneMouseUp() {
   const rows = Math.abs(cur.row - st.row) + 1; const cols = Math.abs(cur.col - st.col) + 1;
   const wasDrag = _led.wasDrag;
   _led.dragStart = null; _led.dragCur = null; _led.dragLerp = null; _led.wasDrag = false;
-  _led.frozenDims = null; // 제스처 종료 — 다음 gridDims() 호출부터 다시 실제 내용 기준으로 계산
 
   if (!wasDrag) {
     selectZone(zoneAtCell(startRow, startCol));
@@ -786,15 +745,6 @@ function afterDraftChange() {
   updateZoneDraftBar();
 }
 
-// 롱프레스 페인트 드래그 중에는 뷰가 고정돼 있으므로(_led.frozenDims,
-// gridDims() 주석 참고) 캔버스를 다시 사이즈할 필요 없이 그리기만 하면
-// 된다 — 페인트가 끝나면(mouseup) afterDraftChange가 그때 가서 실제
-// 내용에 맞게 한 번만 다시 사이즈한다.
-function afterDraftPaint() {
-  drawGrid();
-  updateZoneDraftBar();
-}
-
 function confirmDraftZone() {
   if (!_led.draftCells.length) { return; }
   const newZone = {
@@ -835,10 +785,9 @@ function onZoneCellMouseDown(e) {
     if (!_led.draftPointerDown) { return; }
     _led.draftIsPainting = true;
     setDragBadge(true);
-    _led.frozenDims = gridDims(); // 페인트 끝날 때까지 뷰를 통째로 고정
     paintDraftCell(cell.row, cell.col);
     _led.draftFocus = cell; // 마우스/터치로 고른 칸에서 화살표키 이동이 이어지도록
-    afterDraftPaint();
+    afterDraftChange();
   }, isTouch ? LONG_PRESS_TOUCH_MS : LONG_PRESS_MOUSE_MS);
 }
 
@@ -852,13 +801,12 @@ function onZoneCellMouseMove(e) {
   const cell = cellFromEvent(e);
   paintDraftCell(cell.row, cell.col);
   _led.draftFocus = cell; // 페인트 드래그가 지나간 마지막 칸이 다음 화살표키 이동의 기준점
-  afterDraftPaint();
+  afterDraftChange();
 }
 
 function onZoneCellMouseUp() {
   clearTimeout(_led.draftLongPressTimer);
   setDragBadge(false);
-  _led.frozenDims = null; // 제스처 종료 — afterDraftChange가 실제 내용 기준으로 다시 사이즈한다
   const pointerDown = _led.draftPointerDown;
   const zone = _led.draftPointerDownZone;
   const wasPainting = _led.draftIsPainting;
@@ -900,8 +848,6 @@ function onZoneCellKeyDown(e) {
   }
 
   const cur = _led.draftFocus;
-  // 음수 좌표로 나가도 그만이다 — 뷰 원점(gridDims)이 다음 렌더에서 알아서
-  // 그 방향으로 따라간다(더 이상 좌표 자체를 밀 필요가 없다).
   const target = { row: cur.row + dir[1], col: cur.col + dir[0] };
 
   // 바로 직전 칸으로 되짚으면 취소하고 포커스를 그 칸으로 되돌린다.
@@ -915,6 +861,12 @@ function onZoneCellKeyDown(e) {
     }
   }
 
+  // 격자는 더 이상 자동으로 안 늘어나므로(expandGrid 버튼으로만 늘어남),
+  // 화살표키로도 지금 보이는 격자 밖으로는 못 나간다 — 필요하면 확장
+  // 버튼을 먼저 눌러야 한다.
+  const { originRow, originCol, cols, rows } = gridDims();
+  if (target.row < originRow || target.row >= originRow + rows
+    || target.col < originCol || target.col >= originCol + cols) { return; }
   if (!isCellSelectable(target.row, target.col)) { return; } // 기존 구역 칸은 통과 불가
   _led.draftFocus = target;
   addDraftCell(target.row, target.col);
@@ -973,10 +925,11 @@ function deleteZone(zoneId) {
   renderLedDesignView();
 }
 
-// "설계 완료"로 줄어든 캔버스는 다시 뭔가를 그리거나 고치기 시작하면(칸 선택/
-// 드래그/구역 삭제/편집 적용 등) 원래의 자동 확장 규칙으로 돌아간다 — 계속
-// 편집하는데 캔버스가 좁게 고정돼 있으면 불편하기 때문. zoneViewCompact 자체는
-// cfg(저장 데이터)에 있으므로, 여기서 끄는 것도 반드시 저장에 반영된다.
+// "설계 완료"로 줄어든 캔버스는 다시 뭔가를 고치기 시작하면(칸 선택/드래그/
+// 구역 삭제/편집 적용/확장 버튼 등) 저장된 격자 크기(gridCols/Rows)로
+// 돌아간다 — 계속 편집하는데 캔버스가 좁게 고정돼 있으면 불편하기 때문.
+// zoneViewCompact 자체는 cfg(저장 데이터)에 있으므로, 여기서 끄는 것도
+// 반드시 저장에 반영된다.
 function exitCompactView() {
   const cfg = getLedConfig();
   if (!cfg.zoneViewCompact) { return; }
@@ -1246,6 +1199,12 @@ function renderLedDesignView() {
   drawGrid();
   if (_led.mode === 'zone') { renderZoneList(); } else { renderPortPanel(); }
   document.getElementById('ledTotalPx').textContent = recomputeTotalPx().toLocaleString();
+  // 확장 버튼은 구역 편집 모드에서만, 그리고 "설계 완료"로 구역 크기에
+  // 딱 맞춰 잠긴 상태(zoneViewCompact)에서는 눌러도 다시 안 줄어드니 숨긴다.
+  // (프레임 자체를 숨기면 안 된다 — 캔버스가 그 안에 있어서 LAN/PWR
+  // 모드에서도 캔버스는 계속 보여야 한다.)
+  const showExpand = _led.mode === 'zone' && !getLedConfig().zoneViewCompact;
+  document.querySelectorAll('.led-grid-expand').forEach(btn => { btn.hidden = !showExpand; });
 }
 
 function sizeGridCanvas() {

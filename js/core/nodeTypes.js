@@ -52,6 +52,10 @@ function defaultConfig(type) {
           pwrPorts: [], pwrOrder: [], pwrPortCount: PWR_PORT_COUNT, // 포트 추가/제거 버튼으로 조절 — 저장/불러오기에도 유지됨
           spareAdj: { l1: 2, sl: 20, c1: 2, sp: 20 },
           zoneViewCompact: false, // "설계 완료"로 캔버스를 구역 크기만큼 줄인 상태 — 저장/불러오기에도 유지됨
+          // 격자 크기/원점 — 더 이상 드래그 중 자동으로 안 늘어나고, 캔버스
+          // 상하좌우의 확장 버튼을 눌러야만 바뀐다(ledDesignView.js 참고).
+          // 저장/불러오기에도 유지됨.
+          gridOriginRow: 0, gridOriginCol: 0, gridCols: 15, gridRows: 10,
         },
         totalRequiredPx: 0,
       };
