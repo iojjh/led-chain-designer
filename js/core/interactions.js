@@ -621,7 +621,7 @@ function onLedAddConfirm() {
   node.config.totalRequiredPx = plan.totalPx;
 
   // 빠른 설정은 구역이 하나뿐이고 형태가 이미 확정이라 나중에 이어그릴 여백이
-  // 필요 없다 — 구역 설계 캔버스를 열자마자 "설계 완료" 상태(여백 없는 축소
+  // 필요 없다 — 구역 설계 캔버스를 열자마자 "여백 정리" 상태(여백 없는 축소
   // 뷰)로 시작하고, LAN 배선도 그 자리에서 바로 자동 배정해둔다(자유 설계는
   // 사용자가 직접 구역을 그려야 하므로 이 자동화 대상이 아니다).
   node.config.ledDesign.zoneViewCompact = true;
