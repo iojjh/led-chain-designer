@@ -159,6 +159,10 @@ function closeLedDesignView() {
   if (_led.fullscreen) { closeLedCanvasFullscreen(); }
   document.getElementById('ledDesignView').hidden = true;
   document.getElementById('graphView').hidden = false;
+  // 구역 설계 진입 시 열려 있던 해당 LED의 빠른 설정 패널이 뒤로가기 후에도
+  // 숨겨진 채 남아 있다가 그대로 다시 노출되는 문제 방지 — 선택 하이라이트는
+  // 유지하고 패널만 닫는다.
+  closePropertiesPanel();
   renderValidation();
 }
 
@@ -1052,8 +1056,19 @@ function portIndexOfKey(key) {
 // 아직 아무 패널도 없는 첫 포트(원본 §11 nextEmpty 이식). 롱프레스로 새 배선을
 // 시작할 때 빈 칸을 누르면 "다음 포트"로 자동 넘어가게 하는 데 쓴다 — 이미 채운
 // 포트를 매번 수동으로 선택하지 않아도 P1→P2→P3처럼 이어서 배정할 수 있다.
+// LAN 모드에서 샌딩카드 여러 대가 연결돼 있으면, 방금 배정한 포트가 속한
+// 샌딩카드(그룹) 안에서 먼저 빈 포트를 찾는다 — 안 그러면 두 번째 카드에
+// 배정을 이어가던 중에도 항상 첫 번째 카드의 빈 포트로 튀어버린다(사용자 요청).
+// 그 카드 안에 더 빈 포트가 없을 때만 전체(다음 카드 포함)에서 찾는다.
 function nextEmptyPort() {
   const ports = activePortsArray();
+  if (_led.mode === 'lan') {
+    const layout = ledPortLayout();
+    const currentGroupNodeId = layout.ports[_led.activePort] && layout.ports[_led.activePort].nodeId;
+    for (let i = 0; i < ports.length; i += 1) {
+      if (layout.ports[i].nodeId === currentGroupNodeId && ports[i].length === 0 && !sharedUsageOf(i)) { return i; }
+    }
+  }
   for (let i = 0; i < ports.length; i += 1) {
     if (ports[i].length === 0 && !sharedUsageOf(i)) { return i; }
   }
@@ -1140,6 +1155,11 @@ function onPortMouseMove(e) {
   if (!panel) { return; }
   paintPanel(panel);
   drawGrid();
+  // 픽셀 한도(현재 포트 px/한도 바·초과 경고)도 드래그 중에 실시간으로 갱신 —
+  // 예전엔 mouseup 때 renderPortPanel()로만 반영돼 드래그 도중엔 그리드만
+  // 칠해지고 숫자는 손을 뗄 때까지 안 바뀌었다.
+  renderPortStrip();
+  renderPortDetail();
 }
 
 function onPortMouseUp() {
@@ -1243,11 +1263,12 @@ function renderLedDesignView() {
   drawGrid();
   if (_led.mode === 'zone') { renderZoneList(); } else { renderPortPanel(); }
   document.getElementById('ledTotalPx').textContent = recomputeTotalPx().toLocaleString();
-  // 확장/축소 버튼은 구역 편집 모드에서만, 그리고 "여백 정리"로 구역
-  // 크기에 딱 맞춰 잠긴 상태(zoneViewCompact)에서는 눌러도 의미가 없으니
-  // 숨긴다. (프레임 자체를 숨기면 안 된다 — 캔버스가 그 안에 있어서
-  // LAN/PWR 모드에서도 캔버스는 계속 보여야 한다.)
-  const showExpand = _led.mode === 'zone' && !getLedConfig().zoneViewCompact;
+  // 확장/축소 버튼은 구역 편집 모드에서만 보인다. "여백 정리"로 구역 크기에
+  // 딱 맞춰 잠긴 상태(zoneViewCompact)에서도 눌러서 편집을 재개(exitCompactView)하고
+  // 바로 그 방향으로 캔버스를 늘릴 수 있어야 하므로 이때도 숨기지 않는다.
+  // (프레임 자체를 숨기면 안 된다 — 캔버스가 그 안에 있어서 LAN/PWR 모드에서도
+  // 캔버스는 계속 보여야 한다.)
+  const showExpand = _led.mode === 'zone';
   document.querySelectorAll('.led-grid-btns').forEach(el => { el.hidden = !showExpand; });
 }
 
