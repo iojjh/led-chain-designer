@@ -353,6 +353,40 @@ button {
 .port-dot.port-full { background: var(--err); cursor: not-allowed; }
 .port-dot.port-full:hover { transform: none; }
 
+/* ── 연결선(엣지) 삭제 버튼 ─────────────────────────────
+   #nodeLayer와 같은 좌표계를 쓰는 #graphView의 형제 요소라, JS는
+   getBoundingClientRect() 보정 없이 캔버스 로컬 좌표(worldToScreen 그대로)를
+   그대로 transform: translate()에 넣는다 — 여기서 -50%로 중앙 정렬만 한다.
+   위치를 transform으로 잡고 있어서 등장 애니메이션에 transform(scale 등)을
+   또 쓰면 CSS 애니메이션이 재생되는 동안 그 transform 전체를 덮어써 위치가
+   깨진다 — 그래서 opacity만 애니메이션한다. 클릭 판정용 보이지 않는 여유
+   영역은 port-dot의 ::after와 같은 방식. */
+.edge-delete-btn {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 6;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--err);
+  color: #fff;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  animation: edge-delete-btn-in 0.14s ease;
+}
+.edge-delete-btn::after { content: ''; position: absolute; inset: -7px; }
+@keyframes edge-delete-btn-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.edge-delete-btn:hover { background: #ff6b7d; }
+.edge-delete-btn[hidden] { display: none; }
+
 /* ── 포트 피커 (인풋소스→콘솔 연결 시 물리 포트 선택) ──── */
 .port-picker {
   position: fixed;

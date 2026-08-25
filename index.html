@@ -21,6 +21,12 @@
     <canvas id="graphCanvas"></canvas>
     <div id="nodeLayer"></div>
 
+    <!-- 연결선(엣지) 삭제 버튼: 선을 클릭/탭해 선택하면 그 중간 지점에 뜬다
+         (canvasRenderer.js의 updateEdgeDeleteBtn). #nodeLayer와 같은 좌표계
+         (position:absolute, left/top:0, worldToScreen 그대로)를 쓰므로
+         getBoundingClientRect() 보정 없이 캔버스 로컬 좌표를 그대로 쓴다. -->
+    <button id="edgeDeleteBtn" class="edge-delete-btn" hidden title="연결선 삭제">🗑</button>
+
     <!-- 노드 추가: "+ 장비 추가" 버튼을 누르면 드롭다운이 애니메이션과 함께 펼쳐진다.
          js/core/nodeTypes.js의 NODE_TYPES와 아이콘/라벨을 맞춰 유지할 것.
          카테고리(레벨1) → 장비 프리셋 목록(레벨2, js/devices/devices.js에 프리셋이

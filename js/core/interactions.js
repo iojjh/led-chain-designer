@@ -23,6 +23,11 @@ function initInteractions(canvasEl, nodeLayerEl) {
   window.addEventListener('mouseup', e => handlePointerUp(e.clientX, e.clientY));
   window.addEventListener('keydown', onKeyDown);
 
+  document.getElementById('edgeDeleteBtn').addEventListener('click', e => {
+    e.stopPropagation();
+    deleteSelectedEdge();
+  });
+
   canvasEl.addEventListener('touchstart', e => { e.preventDefault(); onCanvasTouchStart(e); }, { passive: false });
   nodeLayerEl.addEventListener('touchstart', e => { e.preventDefault(); onNodeLayerTouchStart(e); }, { passive: false });
   window.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -333,10 +338,16 @@ function onKeyDown(e) {
     renderPropertiesPanel();
     renderValidation();
   } else if (State.ui.selectedEdgeId) {
-    removeEdge(State.ui.selectedEdgeId);
-    renderValidation();
-    renderPropertiesPanel();
+    deleteSelectedEdge();
   }
+}
+
+// Delete/Backspace 키와 연결선 삭제 버튼(#edgeDeleteBtn) 둘 다 여기로 모인다.
+function deleteSelectedEdge() {
+  if (!State.ui.selectedEdgeId) { return; }
+  removeEdge(State.ui.selectedEdgeId);
+  renderValidation();
+  renderPropertiesPanel();
 }
 
 // ── 터치: 팬/드래그는 마우스와 같은 핸들러를 재사용, 두 손가락은 핀치줌 ──
@@ -472,11 +483,11 @@ function showToast(message) {
 // 그 사이에 팬/줌을 바꿨을 때 격자가 어긋나 새 카드가 기존 카드와 겹칠 수
 // 있다(실제로 겹치는 버그의 원인이었음).
 //
-// 모바일(좁은 화면): 여러 열을 한 화면에 동시에 볼 수 없어서, 위 격자 규칙을
-// 그대로 쓰면 새 카드가 화면 밖 먼 곳에 놓이고 ensureNodeVisible이 그걸
-// 좇아 화면을 크게 홱 이동시키는 것처럼 느껴진다(사용자 요청 — "현재 보고
-// 있는 화면에 장비가 추가됐으면"). 대신 모바일에서는 격자를 포기하고 항상
-// 현재 화면 중앙에 놓되, 기존 카드와 겹치면 대각선으로 조금씩 밀어낸다.
+// 모바일(좁은 화면): 여러 열을 한 화면에 동시에 볼 수 없어서 PC 규칙을
+// 90도 돌린 모양으로 쓴다 — 타입별로 행(가로줄)이 고정돼(NODE_ORDER 순서)
+// 위→아래로 읽히고, 같은 장비를 추가로 놓으면 먼저 놓인 것 바로 오른쪽에
+// 붙는다(사용자 요청). PC와 같은 이유로 좌표는 항상 "이미 놓인 노드들의
+// 실제 위치"를 기준으로 계산한다.
 function addNodeFromPalette(type) {
   finalizeAddedNode(createPositionedNode(type));
 }
@@ -490,14 +501,14 @@ function addNodeFromPaletteWithDevice(type, deviceId) {
   finalizeAddedNode(node, false);
 }
 
-// 위치 계산(PC 격자/모바일 화면중앙)만 떼어낸 것 — LED 추가 팝업(openLedAddModal)이
+// 위치 계산(PC 격자/모바일 세로 한 줄)만 떼어낸 것 — LED 추가 팝업(openLedAddModal)이
 // addNode 직후·finalizeAddedNode 이전에 config(ledDesign)를 채워 넣어야 해서
 // addNodeFromPalette를 통째로 쓸 수 없기 때문에 두 조각으로 나눴다.
 function createPositionedNode(type) {
   const canvasEl = document.getElementById('graphCanvas');
   const rect = canvasEl.getBoundingClientRect();
   const isMobile = window.matchMedia('(max-width: 640px)').matches;
-  const { x, y } = isMobile ? pickVisibleSpot(rect) : pickSwimlaneSpot(type, rect);
+  const { x, y } = isMobile ? pickMobileSpot(type, rect) : pickSwimlaneSpot(type, rect);
   return addNode(type, x, y);
 }
 
@@ -535,30 +546,34 @@ function pickSwimlaneSpot(type, rect) {
   return { x: world.x - (NODE_ORDER.length * gapX) / 2 + col * gapX, y: world.y - CARD_MIN_HEIGHT / 2 };
 }
 
-// 현재 화면 중앙 월드 좌표에서 시작해, 기존 카드와 겹치면 겹치지 않을 때까지
-// 대각선으로 밀어낸다(간이 캐스케이드). 새 카드의 실제 높이는 아직 만들어지지
-// 않아 알 수 없으므로 여유를 준 고정 높이로 근사한다 — 정확한 겹침 판정보다
-// "화면 안에서 겹치지 않게"가 목적이라 충분하다.
-function pickVisibleSpot(rect) {
-  const world = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
-  let x = world.x - CARD_WIDTH / 2;
-  let y = world.y - CARD_MIN_HEIGHT / 2;
-  const step = 28;
-  const approxHeight = CARD_MIN_HEIGHT + PORT_ROW_HEIGHT * 3;
-  for (let i = 0; i < 24 && overlapsExistingNode(x, y, approxHeight); i += 1) {
-    x += step;
-    y += step;
-  }
-  return { x, y };
-}
+// pickSwimlaneSpot과 정확히 같은 구조를 x/y만 맞바꿔서 쓴다 — 타입별 "행"
+// 위치는 NODE_ORDER 순서로 정해지고, 같은 타입을 추가로 놓으면 그 행
+// 안에서 오른쪽으로 이어 붙는다.
+function pickMobileSpot(type, rect) {
+  const gapX = CARD_WIDTH + 60;
+  const gapY = 140;
+  const row = NODE_ORDER.indexOf(type);
 
-function overlapsExistingNode(x, y, height) {
-  const pad = 12;
-  return State.graph.nodes.some(n => {
-    const h = cardHeightFor(n);
-    return x < n.x + CARD_WIDTH + pad && x + CARD_WIDTH + pad > n.x &&
-      y < n.y + h + pad && y + height + pad > n.y;
-  });
+  const sameType = State.graph.nodes.filter(n => n.type === type);
+  if (sameType.length > 0) {
+    // 같은 타입의 마지막 노드 바로 오른쪽(같은 행)에 이어 붙인다.
+    const last = sameType[sameType.length - 1];
+    return { x: last.x + gapX, y: last.y };
+  }
+  if (State.graph.nodes.length > 0) {
+    // 이 타입은 처음 추가하지만 다른 노드가 이미 있으면, 맨 처음 놓인
+    // 노드의 x(왼쪽 기준선)를 그대로 따르고 y만 이 타입의 행(NODE_ORDER
+    // 순서상 위치)으로 맞춘다.
+    const ref = State.graph.nodes[0];
+    const refRow = NODE_ORDER.indexOf(ref.type);
+    return { x: ref.x, y: ref.y + (row - refRow) * gapY };
+  }
+  // 캔버스가 완전히 비어 있을 때만 새로 시작한다 — 화면 중앙이 아니라
+  // 위쪽에 둬서, 아래로 쌓일 때 노드 4개 정도는 스크롤 없이 한 화면에
+  // 들어오게 한다(사용자 요청).
+  const topOffset = 90;
+  const world = screenToWorld(rect.left + rect.width / 2, rect.top + topOffset);
+  return { x: world.x - CARD_WIDTH / 2, y: world.y };
 }
 
 // 열 배치(swimlane)가 화면 폭을 넘어가면(특히 좁은 모바일 화면) 새로 추가된

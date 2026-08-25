@@ -9,7 +9,9 @@ const ZOOM_MIN = 0.35;
 const ZOOM_MAX = 2;
 const EDGE_COLORS = { video: '#4d8ff0', lan: '#3ecf8e', power: '#e7b549' };
 const EDGE_SELECTED_COLOR = '#6e6bf4';
-const EDGE_HIT_TOLERANCE = 7;
+// 선이 가늘어(2px) 클릭/탭으로 정확히 맞히기 어렵다는 피드백에 따라 실제
+// 보이는 두께보다 훨씬 넓게 잡는다(사용자 요청 — "선택되는 부분을 넓혀줘").
+const EDGE_HIT_TOLERANCE = 14;
 
 let _canvas = null;
 let _ctx = null;
@@ -68,8 +70,13 @@ function worldToScreen(worldPos) {
   return { x: worldPos.x * zoom + pan.x, y: worldPos.y * zoom + pan.y };
 }
 
-function bezierControlDx(p0, p1) {
-  return Math.max(60, Math.abs(p1.x - p0.x) * 0.5);
+// 두 앵커 사이 거리를 기준으로 커브가 얼마나 부풀지 정한다. 기존엔 가로
+// 거리만 봤지만(포트가 항상 좌/우 고정이라 그걸로 충분했음) 이제 앵커가
+// 위/아래일 수도 있어 두 점 사이 전체 거리(hypot)로 일반화한다 — 같은 행에
+// 나란히 놓인(가로 배치) 카드끼리는 세로 거리가 거의 0이라 결과가 기존
+// 공식과 동일하다.
+function bezierControlDist(p0, p1) {
+  return Math.max(60, Math.hypot(p1.x - p0.x, p1.y - p0.y) * 0.5);
 }
 
 function bezierPoint(p0, c0, c1, p1, t) {
@@ -79,10 +86,14 @@ function bezierPoint(p0, c0, c1, p1, t) {
   return { x, y };
 }
 
-function strokeEdgePath(ctx, p0, p1, color, width, dashed) {
-  const dx = bezierControlDx(p0, p1);
-  const c0 = { x: p0.x + dx, y: p0.y };
-  const c1 = { x: p1.x - dx, y: p1.y };
+// dir0/dir1은 각 끝점이 카드 밖으로 "빠져나가는" 방향의 단위벡터(우측=
+// {1,0}, 하단={0,1} 등, sideAnchor 참고) — 제어점을 그 방향으로 밀어내
+// 카드 변에서 자연스럽게 이어지는 곡선을 만든다. 기존엔 항상 출력=오른쪽
+// 방향, 입력=왼쪽 방향으로 고정이라 dir0={1,0}/dir1={-1,0}만 있었던 셈이다.
+function strokeEdgePath(ctx, p0, dir0, p1, dir1, color, width, dashed) {
+  const dist = bezierControlDist(p0, p1);
+  const c0 = { x: p0.x + dir0.x * dist, y: p0.y + dir0.y * dist };
+  const c1 = { x: p1.x + dir1.x * dist, y: p1.y + dir1.y * dist };
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
@@ -130,6 +141,32 @@ function drawEdgeLabel(ctx, midPoint, text, color) {
   ctx.restore();
 }
 
+function nodeCenter(node) {
+  return { x: node.x + CARD_WIDTH / 2, y: node.y + cardHeightFor(node) / 2 };
+}
+
+// 카드 사각형 네 변(상/하/좌/우) 중 (towardX,towardY) 방향에 가장 가까운
+// 변의 중앙점 + 그 변을 "빠져나가는" 방향의 단위벡터를 돌려준다. 카드가
+// 정사각형이 아니라 옆으로 넓으므로(CARD_WIDTH ≫ 카드 높이인 경우가 많음)
+// 단순 각도 비교 대신 카드 절반 폭/높이로 정규화한 상대 위치를 비교한다 —
+// 안 그러면 상대 노드가 살짝만 위아래로 벗어나도 옆면 대신 자꾸 위/아래를
+// 고르게 된다. 가로로 나란히 놓인(같은 행) 카드끼리는 항상 좌/우가 나와
+// 지금까지의 모양과 똑같다 — 세로로 겹치거나 붙어 있을 때만 상/하로 바뀐다.
+function sideAnchor(node, towardX, towardY) {
+  const h = cardHeightFor(node);
+  const c = nodeCenter(node);
+  const nx = (towardX - c.x) / (CARD_WIDTH / 2);
+  const ny = (towardY - c.y) / (h / 2);
+  if (Math.abs(nx) >= Math.abs(ny)) {
+    return nx >= 0
+      ? { x: node.x + CARD_WIDTH, y: c.y, dir: { x: 1, y: 0 } }
+      : { x: node.x, y: c.y, dir: { x: -1, y: 0 } };
+  }
+  return ny >= 0
+    ? { x: c.x, y: node.y + h, dir: { x: 0, y: 1 } }
+    : { x: c.x, y: node.y, dir: { x: 0, y: -1 } };
+}
+
 function renderEdges(ctx) {
   if (!ctx) { return; }
   _edgePaths = [];
@@ -137,12 +174,20 @@ function renderEdges(ctx) {
     const fromNode = getNode(edge.from.nodeId);
     const toNode = getNode(edge.to.nodeId);
     if (!fromNode || !toNode) { return; }
-    const p0 = worldToScreen(getPortWorldPos(fromNode, 'out', edge.from.portId));
-    const p1 = worldToScreen(getPortWorldPos(toNode, 'in', edge.to.portId));
+    // 엣지마다 상대 노드 방향을 따로 계산한다 — 포트 하나에 여러 엣지가
+    // 동시에 붙는 경우(예: 샌딩카드 여러 대 → LED 하나, 캔버스에는 점
+    // 하나로 통합 표시되는 그 포트)에도 각 연결선이 자기 상대 노드 쪽으로
+    // 각자 알맞은 변을 골라 들어오게 하기 위함.
+    const toCenter = nodeCenter(toNode);
+    const fromCenter = nodeCenter(fromNode);
+    const fromAnchor = sideAnchor(fromNode, toCenter.x, toCenter.y);
+    const toAnchor = sideAnchor(toNode, fromCenter.x, fromCenter.y);
+    const p0 = worldToScreen({ x: fromAnchor.x, y: fromAnchor.y });
+    const p1 = worldToScreen({ x: toAnchor.x, y: toAnchor.y });
     const selected = State.ui.selectedEdgeId === edge.id;
     const hasIssue = !!(State.ui.validation && State.ui.validation.edgeIssues.has(edge.id));
     const color = selected ? EDGE_SELECTED_COLOR : hasIssue ? '#f0576b' : (EDGE_COLORS[edge.kind] || EDGE_COLORS.video);
-    const points = strokeEdgePath(ctx, p0, p1, color, selected ? 3 : 2, false);
+    const points = strokeEdgePath(ctx, p0, fromAnchor.dir, p1, toAnchor.dir, color, selected ? 3 : 2, false);
     _edgePaths.push({ edgeId: edge.id, points });
 
     const label = edgeLabelFor(edge, fromNode, toNode);
@@ -150,10 +195,14 @@ function renderEdges(ctx) {
   });
 
   if (_connectPreview) {
+    // 드래그로 새 연결을 만드는 중인 프리뷰는 지금까지처럼 고정 방향(출력=
+    // 오른쪽에서 나가 왼쪽으로 들어가는 모양)을 그대로 쓴다 — 아직 상대
+    // 노드가 정해지지 않아 "어느 변이 적절한지" 판단할 기준(상대 위치)이
+    // 없고, 커서를 따라다니는 동안 방향이 계속 바뀌면 오히려 산만하다.
     const p0 = worldToScreen(_connectPreview.fromWorld);
     const p1 = _connectPreview.toScreen;
     const color = EDGE_COLORS[_connectPreview.kind] || EDGE_COLORS.video;
-    strokeEdgePath(ctx, p0, p1, color, 2, true);
+    strokeEdgePath(ctx, p0, { x: 1, y: 0 }, p1, { x: -1, y: 0 }, color, 2, true);
   }
 }
 
@@ -217,4 +266,17 @@ function render() {
     }
   }
   renderEdges(_ctx);
+  updateEdgeDeleteBtn();
+}
+
+// 선택된 엣지가 있으면 그 중간 지점(라벨과 같은 위치)에 삭제 버튼을 띄운다.
+// pan/zoom이 바뀔 때마다(=render() 호출마다) 다시 계산해야 선을 계속 따라간다.
+function updateEdgeDeleteBtn() {
+  const btn = document.getElementById('edgeDeleteBtn');
+  if (!btn) { return; }
+  const path = State.ui.selectedEdgeId && _edgePaths.find(p => p.edgeId === State.ui.selectedEdgeId);
+  if (!path) { btn.hidden = true; return; }
+  const mid = path.points[10];
+  btn.hidden = false;
+  btn.style.transform = `translate(${mid.x}px, ${mid.y}px) translate(-50%, -50%)`;
 }
