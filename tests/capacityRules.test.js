@@ -1,6 +1,6 @@
 const {
   checkConsoleOutput, checkSendingOutput, checkSendingInput, checkConsoleSingleOutput,
-  FALLBACK_PER_PORT_MAX_PX,
+  checkLedLanPortCount, FALLBACK_PER_PORT_MAX_PX,
 } = require('../js/validation/capacityRules.js');
 const { getDevice } = require('../js/devices/devices.js');
 
@@ -128,5 +128,25 @@ describe('checkConsoleSingleOutput', () => {
     const synthetic = { name: '테스트콘솔', outputKind: 'lan-ports', outputs: { portCount: 10, perPortMaxPx8bit: 500000 } };
     expect(checkConsoleSingleOutput(synthetic, 500000).ok).toBe(true);
     expect(checkConsoleSingleOutput(synthetic, 500001).ok).toBe(false);
+  });
+});
+
+describe('checkLedLanPortCount', () => {
+  test('defers when requiredLanPorts has never been determined (0)', () => {
+    const res = checkLedLanPortCount({ requiredLanPorts: 0 }, 16);
+    expect(res.ok).toBe(true);
+    expect(res.limit).toBe(16);
+  });
+
+  test('ok when the connected sending card(s) have enough ports', () => {
+    expect(checkLedLanPortCount({ requiredLanPorts: 10 }, 16).ok).toBe(true);
+    expect(checkLedLanPortCount({ requiredLanPorts: 16 }, 16).ok).toBe(true); // 경계값
+  });
+
+  test('fails when required ports exceed what is actually connected', () => {
+    const res = checkLedLanPortCount({ requiredLanPorts: 10 }, sendingMctrl660pro.portCount);
+    expect(res.ok).toBe(false);
+    expect(res.actual).toBe(10);
+    expect(res.limit).toBe(sendingMctrl660pro.portCount);
   });
 });

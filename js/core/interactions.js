@@ -29,15 +29,22 @@ function initInteractions(canvasEl, nodeLayerEl) {
   window.addEventListener('touchend', onTouchEnd, { passive: false });
   window.addEventListener('touchcancel', onTouchEnd, { passive: false });
 
-  document.querySelectorAll('.palette-btn').forEach(btn => {
+  // 레벨1(카테고리) 버튼: js/devices/devices.js에 프리셋이 있는 타입(콘솔/샌딩카드)은
+  // 레벨2 장비 목록으로 드릴다운하고, 프리셋이 없지만 설정할 게 있는 타입(인풋소스)은
+  // 바로 초안(draft) 설정창을 연다. 그 외(메인전원/분전함)는 지금까지처럼 바로 추가한다.
+  document.querySelectorAll('#paletteLevelCategories .palette-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      closePaletteMenu();
+      const type = btn.dataset.type;
       // LED디스플레이만 추가 전에 설치면적/피치/패널크기를 미리 물어보는 팝업을
       // 거친다(선택 사항 — 건너뛰면 다른 타입과 동일하게 빈 상태로 추가된다).
-      if (btn.dataset.type === 'led') { openLedAddModal(); return; }
-      addNodeFromPalette(btn.dataset.type);
+      if (type === 'led') { closePaletteMenu(); openLedAddModal(); return; }
+      if (listDevices(type).length > 0) { openPaletteDeviceList(type); return; }
+      if (CONFIGURABLE_TYPES.has(type)) { closePaletteMenu(); openDraftPanel(type, 'categories'); return; }
+      closePaletteMenu();
+      addNodeFromPalette(type);
     });
   });
+  initPaletteDeviceList();
   initLedAddModal();
   initPaletteMenu();
 }
@@ -47,7 +54,19 @@ function initPaletteMenu() {
   const toggleBtn = document.getElementById('paletteToggleBtn');
   toggleBtn.addEventListener('click', e => {
     e.stopPropagation();
-    setPaletteMenuOpen(!document.getElementById('palette').classList.contains('open'));
+    const opening = !document.getElementById('palette').classList.contains('open');
+    // 토글 버튼으로 새로 열 때는 항상 처음부터 다시 시작한다 — 편집 중이던
+    // 초안, 열려 있던 속성 패널(기존 노드 편집), LED 추가 창은 모두 버리고
+    // 카테고리 목록으로.
+    if (opening) {
+      discardDraft();
+      selectNode(null);
+      renderNodeCards();
+      renderPropertiesPanel();
+      closeLedAddModal();
+      showPaletteLevel('categories');
+    }
+    setPaletteMenuOpen(opening);
   });
   const outsideHandler = e => {
     const wrap = document.getElementById('paletteWrap');
@@ -64,6 +83,48 @@ function setPaletteMenuOpen(open) {
 
 function closePaletteMenu() {
   setPaletteMenuOpen(false);
+}
+
+// ── 팔레트 레벨2: 카테고리별 장비 프리셋 목록 ─────────
+function showPaletteLevel(level) {
+  const palette = document.getElementById('palette');
+  palette.dataset.level = level;
+  document.getElementById('paletteLevelCategories').hidden = level !== 'categories';
+  document.getElementById('paletteLevelDevices').hidden = level !== 'devices';
+}
+
+function initPaletteDeviceList() {
+  document.getElementById('paletteBackBtn').addEventListener('click', e => {
+    e.stopPropagation();
+    showPaletteLevel('categories');
+  });
+  document.getElementById('paletteDeviceList').addEventListener('click', e => {
+    const btn = e.target.closest('.palette-btn[data-device-id]');
+    if (!btn) { return; }
+    const type = btn.dataset.type;
+    const deviceId = btn.dataset.deviceId;
+    if (deviceId) {
+      closePaletteMenu();
+      addNodeFromPaletteWithDevice(type, deviceId);
+    } else {
+      closePaletteMenu();
+      openDraftPanel(type, 'devices');
+    }
+  });
+}
+
+// 프리셋이 있는 장비는 짧은 이름(shortName)만 보여준다. "수동 입력"도 같은
+// 목록 안에 같은 모양 버튼으로 섞어 넣어 — 프리셋이든 수동이든 똑같이 눌러
+// 고르는 선택지 하나일 뿐이라는 걸 강조한다(구분선이나 다른 스타일 없음).
+function openPaletteDeviceList(type) {
+  const deviceBtns = listDevices(type).map(d => `
+    <button class="palette-btn" data-type="${type}" data-device-id="${d.id}">${escapeHtml(d.shortName)}</button>
+  `).join('');
+  document.getElementById('paletteDeviceList').innerHTML = `
+    ${deviceBtns}
+    <button class="palette-btn" data-type="${type}" data-device-id="">수동 입력</button>
+  `;
+  showPaletteLevel('devices');
 }
 
 function handleCanvasDown(x, y) {
@@ -185,11 +246,13 @@ function handlePointerUp(x, y) {
       } else if (toNode && target.portId) {
         const edge = addEdge(_connectFrom.nodeId, _connectFrom.portId, toNode.id, target.portId);
         if (edge) {
-          // 샌딩카드를 LED디스플레이에 새로 연결하면, 그 자리에서 바로 LAN
-          // 자동 할당을 다시 돌려 방금 늘어난 포트 용량을 즉시 반영한다 —
-          // 안 그러면 사용자가 구역 설계로 들어가 수동으로 다시 눌러야 한다.
+          // 샌딩카드를 LED디스플레이에 새로 연결하면, 이미 그려져 있는 배선(포트
+          // 하나에 묶인 패널들)은 그대로 두고 몇 번 포트냐만 새 레이아웃에 맞춰
+          // 옮긴다 — 자동 배정을 통째로 다시 돌리지 않는다("빠른 설정"은 생성
+          // 시점에 이미 자동 배정이 끝나 있고, "자유 설계"는 애초에 자동 배정
+          // 대상이 아니므로 둘 다 이걸로 충분하다 — 사용자 요청).
           if (fromNode.type === 'sending' && toNode.type === 'led') {
-            autoAssignLanForLedNode(toNode.id);
+            reflowLanPortsForLedNode(toNode.id);
           }
           renderValidation();
           renderPropertiesPanel();
@@ -418,6 +481,15 @@ function addNodeFromPalette(type) {
   finalizeAddedNode(createPositionedNode(type));
 }
 
+// 팔레트 레벨2에서 프리셋 있는 장비를 바로 골랐을 때 — 노드를 만들자마자
+// deviceId를 적용해 완성된 상태로 놓는다. 프리셋이 이미 모든 설정을 정하므로
+// 수동 입력과 달리 속성 패널을 열 필요가 없다(finalizeAddedNode의 openPanel=false).
+function addNodeFromPaletteWithDevice(type, deviceId) {
+  const node = createPositionedNode(type);
+  applyDevicePreset(node, deviceId);
+  finalizeAddedNode(node, false);
+}
+
 // 위치 계산(PC 격자/모바일 화면중앙)만 떼어낸 것 — LED 추가 팝업(openLedAddModal)이
 // addNode 직후·finalizeAddedNode 이전에 config(ledDesign)를 채워 넣어야 해서
 // addNodeFromPalette를 통째로 쓸 수 없기 때문에 두 조각으로 나눴다.
@@ -429,13 +501,15 @@ function createPositionedNode(type) {
   return addNode(type, x, y);
 }
 
-function finalizeAddedNode(node) {
+// openPanel=false면 카드는 선택(하이라이트)만 하고 속성 패널은 열지 않는다
+// (선택 유지 채 패널만 닫는 closePropertiesPanel과 동일한 규칙).
+function finalizeAddedNode(node, openPanel = true) {
   const canvasEl = document.getElementById('graphCanvas');
   const rect = canvasEl.getBoundingClientRect();
   ensureNodeVisible(node, rect);
   selectNode(node.id);
   renderNodeCards();
-  renderPropertiesPanel();
+  if (openPanel) { renderPropertiesPanel(); } else { closePropertiesPanel(); }
 }
 
 function pickSwimlaneSpot(type, rect) {
@@ -517,13 +591,17 @@ function ensureNodeVisible(node, rect) {
 // 대등한 첫 선택지로 둔 이유는 자유 배치도 정식 경로이지 미룬 게 아니라서.
 const _ledAdd = { mode: 'rect' };
 let _ledAddInited = false;
-let _ledAddOutsideHandler = null;
 
 function initLedAddModal() {
   if (_ledAddInited) { return; }
   _ledAddInited = true;
 
   document.getElementById('ledAddCloseBtn').addEventListener('click', closeLedAddModal);
+  document.getElementById('ledAddBackBtn').addEventListener('click', () => {
+    closeLedAddModal();
+    showPaletteLevel('categories');
+    setPaletteMenuOpen(true);
+  });
   document.getElementById('ledAddConfirmBtn').addEventListener('click', onLedAddConfirm);
 
   document.getElementById('ledAddAreaW').addEventListener('input', updateLedAddPreview);
@@ -550,22 +628,11 @@ function openLedAddModal() {
   document.getElementById('ledAddPitch').value = '3mm';
   document.getElementById('ledAddPanelSize').value = '500x1000';
   setLedAddMode('rect');
-
-  const el = document.getElementById('ledAddModal');
-  el.hidden = false;
-  _ledAddOutsideHandler = ev => {
-    if (ev.target === el) { closeLedAddModal(); }
-  };
-  setTimeout(() => el.addEventListener('mousedown', _ledAddOutsideHandler), 0);
+  document.getElementById('ledAddModal').classList.add('open');
 }
 
 function closeLedAddModal() {
-  const el = document.getElementById('ledAddModal');
-  el.hidden = true;
-  if (_ledAddOutsideHandler) {
-    el.removeEventListener('mousedown', _ledAddOutsideHandler);
-    _ledAddOutsideHandler = null;
-  }
+  document.getElementById('ledAddModal').classList.remove('open');
 }
 
 function readLedAddAreaMm() {
@@ -622,16 +689,19 @@ function onLedAddConfirm() {
 
   // 빠른 설정은 구역이 하나뿐이고 형태가 이미 확정이라 나중에 이어그릴 여백이
   // 필요 없다 — 구역 설계 캔버스를 열자마자 "여백 정리" 상태(여백 없는 축소
-  // 뷰)로 시작하고, LAN 배선도 그 자리에서 바로 자동 배정해둔다(자유 설계는
-  // 사용자가 직접 구역을 그려야 하므로 이 자동화 대상이 아니다).
+  // 뷰)로 시작하고, LAN·PWR 배선도 그 자리에서 바로 자동 배정해둔다(자유 설계는
+  // 사용자가 직접 구역을 그려야 하므로 이 자동화 대상이 아니다). quickSetup을
+  // 켜두면 이 LED가 나중에 샌딩카드에 새로 연결될 때도 같은 자동 배정이
+  // 다시 돌아간다(handlePointerUp 참고).
   node.config.ledDesign.zoneViewCompact = true;
+  node.config.ledDesign.quickSetup = true;
   autoAssignLanForLedNode(node.id);
+  autoAssignPwrForLedNode(node.id);
 
   closeLedAddModal();
-  finalizeAddedNode(node);
   // 방금 뜬 빠른 설정 팝업에서 이미 같은 값(면적/피치/패널크기)을 다 입력받았으므로,
   // 속성 패널을 또 띄우면 방금 입력한 걸 그대로 중복해서 보여주는 셈이다 — 캔버스
-  // 선택 표시(하이라이트)는 유지하되 패널만 닫는다.
-  closePropertiesPanel();
+  // 선택 표시(하이라이트)는 유지하되 패널은 열지 않는다.
+  finalizeAddedNode(node, false);
   renderValidation();
 }

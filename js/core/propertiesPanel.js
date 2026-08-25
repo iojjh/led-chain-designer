@@ -8,11 +8,26 @@ let _panelEl = null;
 let _titleEl = null;
 let _bodyEl = null;
 
+// ── 팔레트 "초안(draft)" 추가 흐름 ─────────────────────
+// 인풋소스 / 콘솔·샌딩카드의 "수동 입력"은 이 패널에서 설정을 다 채운 뒤
+// "확인"을 눌러야 비로소 캔버스에 노드가 생긴다 — 그 전까진 State.graph에
+// 없는 임시 객체(_draftNode)를 이 패널이 그대로 그린다. 기존 노드를
+// 캔버스에서 클릭해 편집하는 라이브 모드와는 별개 흐름이고, _draftNode가
+// 있으면 그쪽을 우선한다.
+let _draftNode = null;
+let _draftReturnLevel = 'categories';
+
+function currentEditTarget() {
+  return _draftNode || getNode(State.ui.selectedId);
+}
+
 function initPropertiesPanel(panelEl) {
   _panelEl = panelEl;
   _titleEl = panelEl.querySelector('#propsTitle');
   _bodyEl = panelEl.querySelector('#propsBody');
+  panelEl.querySelector('#propsBackBtn').addEventListener('click', backFromDraftPanel);
   panelEl.querySelector('#propsClose').addEventListener('click', () => {
+    if (_draftNode) { cancelDraftPanel(); return; }
     selectNode(null);
     renderNodeCards();
     renderPropertiesPanel();
@@ -40,23 +55,83 @@ function escapeHtml(s) {
 const CONFIGURABLE_TYPES = new Set(['input', 'console', 'sending', 'led']);
 
 // 선택은 그대로 둔 채(캔버스 카드 하이라이트 유지) 패널만 숨긴다 — 이미 다른
-// 팝업(예: LED 빠른 설정)에서 같은 값을 입력받아 패널을 다시 띄우면 중복인 경우용.
+// 팝업(예: LED 빠른 설정, 팔레트에서 장비 프리셋을 바로 골랐을 때)에서 같은
+// 값을 입력받아 패널을 다시 띄우면 중복인 경우용.
 function closePropertiesPanel() {
-  if (_panelEl) { _panelEl.hidden = true; }
+  if (_panelEl) { _panelEl.classList.remove('open'); }
 }
 
 function renderPropertiesPanel() {
   if (!_panelEl) { return; }
-  const nodeId = State.ui.selectedId;
-  const node = nodeId ? getNode(nodeId) : null;
-  if (!node) { _panelEl.hidden = true; return; }
-  _panelEl.hidden = false;
-  _titleEl.textContent = `${NODE_TYPES[node.type].icon} ${node.label}`;
-  _bodyEl.innerHTML = buildFieldsHtml(node);
+  const selectedNode = State.ui.selectedId ? getNode(State.ui.selectedId) : null;
+  // 초안을 설정하는 중에 캔버스에서 다른 실제 노드를 클릭하면 초안은 조용히 버려진다.
+  if (_draftNode && selectedNode) { discardDraft(); }
 
-  const configurable = CONFIGURABLE_TYPES.has(node.type);
+  if (_draftNode) {
+    _panelEl.classList.add('open');
+    _panelEl.querySelector('#propsBackBtn').hidden = false;
+    _panelEl.querySelector('#propsDeleteBtn').hidden = true;
+    _panelEl.querySelector('#propsResetBtn').hidden = false;
+    _panelEl.querySelector('#propsApplyBtn').hidden = false;
+    _titleEl.textContent = `${NODE_TYPES[_draftNode.type].icon} ${_draftNode.label}`;
+    _bodyEl.innerHTML = buildFieldsHtml(_draftNode);
+    return;
+  }
+
+  if (!selectedNode) { _panelEl.classList.remove('open'); return; }
+  _panelEl.classList.add('open');
+  _panelEl.querySelector('#propsBackBtn').hidden = true;
+  _panelEl.querySelector('#propsDeleteBtn').hidden = false;
+  _titleEl.textContent = `${NODE_TYPES[selectedNode.type].icon} ${selectedNode.label}`;
+  _bodyEl.innerHTML = buildFieldsHtml(selectedNode);
+
+  const configurable = CONFIGURABLE_TYPES.has(selectedNode.type);
   _panelEl.querySelector('#propsResetBtn').hidden = !configurable;
   _panelEl.querySelector('#propsApplyBtn').hidden = !configurable;
+}
+
+// 팔레트에서 인풋소스 카테고리를 고르거나 콘솔·샌딩카드에서 "수동 입력"을
+// 골랐을 때 시작된다 — returnLevel은 "← 뒤로"를 눌렀을 때 되돌아갈 팔레트
+// 레벨('categories' 또는 'devices', interactions.js 참고).
+function openDraftPanel(type, returnLevel) {
+  const config = defaultConfig(type);
+  const label = type === 'input' ? inputKindLabel(config.sourceKind) : NODE_TYPES[type].label;
+  _draftNode = { id: null, type, label, config };
+  _draftReturnLevel = returnLevel;
+  selectNode(null);
+  renderNodeCards();
+  renderPropertiesPanel();
+}
+
+function discardDraft() {
+  _draftNode = null;
+}
+
+// "✕" — 초안을 버리고 그냥 닫는다(팔레트는 다시 열지 않음).
+function cancelDraftPanel() {
+  discardDraft();
+  closePropertiesPanel();
+}
+
+// "← 뒤로" — 초안을 버리고 팔레트를 원래 있던 레벨로 되돌려 연다.
+function backFromDraftPanel() {
+  const returnLevel = _draftReturnLevel;
+  discardDraft();
+  closePropertiesPanel();
+  showPaletteLevel(returnLevel);
+  setPaletteMenuOpen(true);
+}
+
+// "확인" — 초안을 그제서야 실제 캔버스 노드로 커밋한다.
+function commitDraftPanel() {
+  if (!_draftNode) { return; }
+  _bodyEl.querySelectorAll('[data-field]').forEach(el => applyFieldValue(_draftNode, el.dataset.field, el));
+  const node = createPositionedNode(_draftNode.type);
+  node.config = _draftNode.config;
+  node.label = _draftNode.label;
+  discardDraft();
+  finalizeAddedNode(node, false);
+  renderValidation();
 }
 
 function buildFieldsHtml(node) {
@@ -280,20 +355,27 @@ function pruneOrphanConsoleEdges(node) {
   );
 }
 
+// deviceId를 노드에 적용하고 그에 딸린 파생 필드(콘솔의 outputKind/mode)를
+// 함께 갱신한다. 속성 패널의 "장비 프리셋" select 변경과, 팔레트 드롭다운에서
+// 장비를 바로 골라 추가하는 경우(interactions.js) 양쪽이 공유한다.
+function applyDevicePreset(node, deviceId) {
+  const value = deviceId || null;
+  node.config.deviceId = value;
+  if (node.type === 'console') {
+    const device = value ? getDevice('console', value) : null;
+    node.config.outputKind = device ? device.outputKind : (node.config.outputKind || 'lan-ports');
+    node.config.mode = device && device.modes ? device.defaultMode : null;
+    pruneOrphanConsoleEdges(node);
+  }
+}
+
 // 필드 하나의 DOM 값을 node에 반영. onFieldChange(라이브 적용)와 확인 버튼
 // (전체 재적용) 양쪽에서 공유한다.
 function applyFieldValue(node, field, el) {
   if (field === 'label') {
     node.label = el.value;
   } else if (field === 'deviceId') {
-    const value = el.value || null;
-    node.config.deviceId = value;
-    if (node.type === 'console') {
-      const device = value ? getDevice('console', value) : null;
-      node.config.outputKind = device ? device.outputKind : (node.config.outputKind || 'lan-ports');
-      node.config.mode = device && device.modes ? device.defaultMode : null;
-      pruneOrphanConsoleEdges(node);
-    }
+    applyDevicePreset(node, el.value);
   } else if (field === 'sourceKind') {
     // 라벨을 아직 사용자가 직접 바꾸지 않았다면(기본값 또는 이전 종류 라벨 그대로)
     // 새 종류에 맞춰 카드 이름도 함께 갱신 — 인풋소스가 여러 개일 때 구분이 쉬워짐.
@@ -339,7 +421,7 @@ function applyLedQuickFields(node) {
 function onFieldChange(e) {
   const field = e.target.dataset.field;
   if (!field) { return; }
-  const node = getNode(State.ui.selectedId);
+  const node = currentEditTarget();
   if (!node) { return; }
 
   applyFieldValue(node, field, e.target);
@@ -359,10 +441,12 @@ function onFieldChange(e) {
   }
 }
 
-// "확인" — 현재 폼에 보이는 모든 필드 값을 강제로 다시 반영한 뒤(대부분은 이미
-// change 시점에 반영돼 있지만, 포커스가 남아있는 필드까지 확실히 커밋한다)
-// 패널을 닫는다.
+// "확인" — 초안 모드면 그제서야 캔버스에 커밋(commitDraftPanel)하고, 기존
+// 노드 편집 모드면 현재 폼에 보이는 모든 필드 값을 강제로 다시 반영한 뒤
+// (대부분은 이미 change 시점에 반영돼 있지만, 포커스가 남아있는 필드까지
+// 확실히 커밋한다) 패널을 닫는다.
 function onApplyClick() {
+  if (_draftNode) { commitDraftPanel(); return; }
   const node = getNode(State.ui.selectedId);
   if (!node) { return; }
   _bodyEl.querySelectorAll('[data-field]').forEach(el => applyFieldValue(node, el.dataset.field, el));
@@ -373,8 +457,9 @@ function onApplyClick() {
 }
 
 // "초기화" — 그 노드 타입의 기본 config로 되돌린다(장비 프리셋도 해제됨).
+// 초안 모드면 초안 객체를, 아니면 선택된 실제 노드를 되돌린다.
 function onResetClick() {
-  const node = getNode(State.ui.selectedId);
+  const node = currentEditTarget();
   if (!node) { return; }
   node.config = defaultConfig(node.type);
   node.label = node.type === 'input' ? inputKindLabel(node.config.sourceKind) : NODE_TYPES[node.type].label;
@@ -384,8 +469,9 @@ function onResetClick() {
 }
 
 // "삭제" — 캔버스에 추가한 노드를 제거한다(Delete/Backspace 키와 동일 동작).
+// 초안은 아직 캔버스에 없으므로(버튼도 숨겨져 있다) 여기 오지 않는다.
 function onDeleteClick() {
-  if (!State.ui.selectedId) { return; }
+  if (_draftNode || !State.ui.selectedId) { return; }
   removeNode(State.ui.selectedId);
   renderPropertiesPanel();
   renderValidation();

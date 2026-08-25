@@ -34,7 +34,15 @@ function resolveLedPortGroups(graph, ledNodeId) {
       ? { nodeId: consoleNode.id, portCount: device.outputs.portCount, capPerPort: device.outputs.perPortMaxPx8bit, label: `${device.vendor} ${device.name} (직결)` }
       : { nodeId: consoleNode.id, portCount: 8, capPerPort: MAX_PX, label: '콘솔 (수동 설정, 직결)' }];
   }
-  return [{ nodeId: null, portCount: 8, capPerPort: MAX_PX, label: '미연결 — 기본값 사용' }];
+  // 아무 것도 연결돼 있지 않을 때의 기본 포트 수는 보통 8이지만, 자동 배정이
+  // 이미 그보다 많은 포트가 필요하다고 확인해둔 적 있으면(requiredLanPorts,
+  // nodeTypes.js 참고) 그 값을 그대로 쓴다 — 자동 배정이 "포트가 모자라서
+  // 일부 패널을 못 담는" 대신 포트 수 자체를 늘려 전부 담을 수 있게 하기 위함
+  // (ledDesignView.js의 autoAssignLanForLedNode).
+  const ledNode = graph.nodes.find(n => n.id === ledNodeId);
+  const cfg = ledNode && ledNode.config && ledNode.config.ledDesign;
+  const portCount = (cfg && cfg.requiredLanPorts) || 8;
+  return [{ nodeId: null, portCount, capPerPort: MAX_PX, label: '미연결 — 기본값 사용' }];
 }
 
 // 그룹들을 실제 포트 배열 인덱스에 맞춰 펼친 전체 레이아웃 — ports[i]로 i번

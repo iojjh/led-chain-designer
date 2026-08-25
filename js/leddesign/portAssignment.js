@@ -232,9 +232,41 @@ function autoAssignAllZonesBalanced(zones, groups, reservedIndices) {
   return assignments;
 }
 
+// LAN 자동 배정이 이 구역들을 전부(한 패널도 빠짐없이) 포트에 담는 데 필요한
+// 최소 포트 수 — autoAssignZoneToPorts와 같은 열/용량 계산을 구역별로 반복해
+// 합산한다(실제 배정은 하지 않고 개수만 구함). 구역마다 열의 픽셀량이 달라
+// 필요 포트 수가 단순 비례하지 않으므로 전체 열 수만으로는 계산할 수 없다.
+// ledDesignView.js의 autoAssignLanForLedNode가 미연결(기본값) 상태에서 포트
+// 수 자체를 늘려야 하는지 판단하는 데 쓴다.
+function requiredLanPortCount(zones, capPerPort) {
+  const sorted = [...zones].sort((a, b) =>
+    a.startRow !== b.startRow ? a.startRow - b.startRow : a.startCol - b.startCol
+  );
+  return sorted.reduce((total, zone) => {
+    const columns = columnsOfZone(zone);
+    if (columns.length === 0) { return total; }
+    const maxColPx = Math.max(...columns.map(col => col.reduce((sum, p) => sum + panelPx(p), 0)));
+    if (maxColPx === 0) { return total; }
+    const maxRaw = Math.max(1, Math.floor(capPerPort / maxColPx));
+    const maxEven = maxRaw >= 2 ? (maxRaw % 2 === 0 ? maxRaw : maxRaw - 1) : maxRaw;
+    return total + Math.ceil(columns.length / maxEven);
+  }, 0);
+}
+
+// PWR 자동 배정의 기본 밀도(포트당 2열)를 유지하는 데 필요한 최소 포트 수.
+// autoAssignPwrZones는 고정된 portCount 안에 다 안 담기면 포트당 열 수를
+// 늘려 알아서 다 담아버리므로 "부족"이 절대 드러나지 않는다 — 그 전에
+// ledDesignView.js의 autoAssignPwrForLedNode가 이 값과 현재 pwrPortCount를
+// 비교해, 부족하면 밀도를 늘리는 대신 포트 수 자체를 늘린다(사용자 요청).
+function requiredPwrPortCount(zones) {
+  const totalCols = zones.reduce((sum, z) => sum + columnsOfZone(z).length, 0);
+  return totalCols > 0 ? Math.ceil(totalCols / 2) : 0;
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     panelPx, portPx, isOverCapacity, balancedCols, columnsOfZone,
     autoAssignZoneToPorts, autoAssignAllZones, autoAssignPwrZones, autoAssignAllZonesBalanced,
+    requiredLanPortCount, requiredPwrPortCount,
   };
 }

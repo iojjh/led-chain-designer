@@ -13,6 +13,7 @@ if (typeof module !== 'undefined' && typeof resolveLedPortLayout === 'undefined'
   global.checkSendingOutput = require('./capacityRules.js').checkSendingOutput;
   global.checkSendingInput = require('./capacityRules.js').checkSendingInput;
   global.checkConsoleSingleOutput = require('./capacityRules.js').checkConsoleSingleOutput;
+  global.checkLedLanPortCount = require('./capacityRules.js').checkLedLanPortCount;
 }
 
 function ledRequiredPx(ledNode) {
@@ -86,6 +87,18 @@ function runValidation(graph) {
 
   graph.nodes.forEach(node => {
     if (node.type === 'led' && !hasZones(node)) { nodeProvisional.add(node.id); }
+
+    // 픽셀 용량과는 별개로 "물리 LAN 포트 자체가 모자란지" 검사 — 실제로
+    // 뭔가(샌딩카드 또는 lan-ports 콘솔)에 연결돼 있을 때만 의미가 있다
+    // (미연결 기본값 그룹은 진짜 장비가 아니므로 대상이 아님).
+    if (node.type === 'led') {
+      const layout = resolveLedPortLayout(graph, node.id);
+      if (layout.groups.length > 0 && layout.groups[0].nodeId !== null) {
+        const availablePorts = layout.groups.reduce((sum, g) => sum + g.portCount, 0);
+        const res = checkLedLanPortCount(node.config.ledDesign, availablePorts);
+        if (!res.ok) { addNodeIssue(node.id, res); }
+      }
+    }
 
     if (node.type === 'console') {
       const device = node.config.deviceId ? getDevice('console', node.config.deviceId) : null;

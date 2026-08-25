@@ -107,9 +107,30 @@ function checkConsoleSingleOutput(device, singleDownstreamRequiredPx) {
   };
 }
 
+// LED디스플레이가 실제로 필요로 하는 LAN 포트 수(ledDesign.requiredLanPorts —
+// 미연결 상태의 자동 배정이나, 샌딩카드에 연결되는 순간의 배선 개수로 갱신됨,
+// nodeTypes.js/ledDesignView.js 참고)가 지금 연결된 샌딩카드(들)의 실제 포트
+// 수 합계보다 많은지 검사. 픽셀 용량과는 별개로 "물리 포트 자체가 모자라
+// 케이블을 다 못 꽂는" 경우를 잡는다. requiredLanPorts가 아직 0(파악된 적
+// 없음)이면 판정을 보류한다.
+function checkLedLanPortCount(ledDesign, availablePorts) {
+  const required = ledDesign.requiredLanPorts || 0;
+  if (!required) {
+    return { ok: true, message: '필요 LAN 포트 수 미확인 — 검증 보류', actual: 0, limit: availablePorts };
+  }
+  const ok = required <= availablePorts;
+  return {
+    ok,
+    message: ok
+      ? 'LAN 포트 수 충분'
+      : `이 LED디스플레이에 필요한 LAN 포트 수(${required})가 연결된 샌딩카드의 실제 포트 수(${availablePorts})보다 많습니다`,
+    actual: required, limit: availablePorts,
+  };
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     checkConsoleOutput, checkSendingOutput, checkSendingInput, checkConsoleSingleOutput,
-    FALLBACK_PER_PORT_MAX_PX,
+    checkLedLanPortCount, FALLBACK_PER_PORT_MAX_PX,
   };
 }

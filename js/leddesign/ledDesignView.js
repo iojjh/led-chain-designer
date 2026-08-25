@@ -102,14 +102,30 @@ function ledPortLayout() {
   return resolveLedPortLayout(State.graph, _led.nodeId);
 }
 
-// LAN 자동 할당 — "자동 할당" 버튼, 빠른 설정으로 LED 추가, 샌딩카드에 새로
-// 연결될 때 모두 이 로직을 공유한다. _led(구역 설계 화면이 열려 있을 때만
-// 유효한 휘발성 상태)에 기대지 않고 nodeId만으로 동작해 어디서든 호출할 수 있다.
+// LAN 자동 할당 — "자동 할당" 버튼과 빠른 설정으로 LED를 추가하는 시점에만
+// 쓴다(샌딩카드에 새로 연결될 때는 더 이상 이걸 다시 돌리지 않고
+// reflowLanPortsForLedNode를 쓴다 — 아래 참고). _led(구역 설계 화면이 열려
+// 있을 때만 유효한 휘발성 상태)에 기대지 않고 nodeId만으로 동작해 어디서든
+// 호출할 수 있다.
 function autoAssignLanForLedNode(ledNodeId) {
   const node = getNode(ledNodeId);
   if (!node) { return; }
   const cfg = node.config.ledDesign;
-  const layout = resolveLedPortLayout(State.graph, ledNodeId);
+  let layout = resolveLedPortLayout(State.graph, ledNodeId);
+
+  // 샌딩카드가 하나도 안 붙어 있으면(미연결 기본값 그룹 하나뿐) 실제 장비
+  // 스펙이 없어 "몇 포트를 쓸지"가 requiredLanPorts 하나로만 정해진다 —
+  // 기본 8개에 다 못 담으면 포트당 더 눌러 담는 대신 이 값을 필요한 만큼
+  // 늘려 전부 배정되게 한다(사용자 요청). 실제 샌딩카드가 붙어 있으면 포트
+  // 수는 그 장비 스펙이 정하므로(자동으로 늘릴 수 있는 값이 아님) 손대지 않는다.
+  if (layout.groups.length === 1 && layout.groups[0].nodeId === null) {
+    const required = requiredLanPortCount(cfg.zones, layout.groups[0].capPerPort);
+    if (required > (cfg.requiredLanPorts || 8)) {
+      cfg.requiredLanPorts = required;
+      layout = resolveLedPortLayout(State.graph, ledNodeId);
+    }
+  }
+
   // 같은 샌딩카드를 공유하는 다른 LED디스플레이가 이미 쓰고 있는 포트는
   // 예약된 것으로 취급해 자동 배정에서 건너뛴다.
   const reserved = resolveSharedPortUsage(State.graph, ledNodeId)
@@ -126,6 +142,61 @@ function autoAssignLanForLedNode(ledNodeId) {
     const safeCap = Math.min(...layout.groups.map(g => g.capPerPort));
     cfg.lanPorts = autoAssignAllZones(cfg.zones, layout.ports.length, safeCap, reserved);
   }
+}
+
+// 샌딩카드에 새로 연결됐을 때 쓴다 — 자동 할당을 다시 돌려 배선(포트 하나에
+// 어떤 패널들이 묶여 있는지)을 재계산하지 않고, 이미 있던 묶음은 그대로 둔
+// 채 "몇 번 포트냐"만 새 레이아웃에 맞춰 옮긴다(사용자 요청 — 자유 설계는
+// 원래도 자동 배정 대상이 아니고, 빠른 설정은 생성 시점에 이미 자동 배정이
+// 끝나 있으므로, 연결 시점엔 포트 재배치만 하면 충분하다). 다른 LED디스플레이가
+// 같은 샌딩카드의 물리 포트를 이미 쓰고 있으면(resolveSharedPortUsage) 그
+// 자리를 건너뛰고 다음 빈 포트로 순서대로 채우며, 카드가 여러 대면 카드
+// 경계 안에서만 채운다(묶음이 카드끼리 섞이지 않음 — autoAssignAllZonesBalanced와
+// 같은 원칙). 새 레이아웃에 다 못 담는 묶음은(포트가 실제로 모자란 경우)
+// 배정에서 빠지고 requiredLanPorts는 원래 필요했던 개수로 남아 있어
+// validationEngine.js가 "포트 수 부족" 이슈로 잡아낸다.
+function reflowLanPortsForLedNode(ledNodeId) {
+  const node = getNode(ledNodeId);
+  if (!node) { return; }
+  const cfg = node.config.ledDesign;
+  const bundles = (cfg.lanPorts || []).filter(p => p && p.length > 0);
+  if (bundles.length === 0) { return; }
+
+  cfg.requiredLanPorts = Math.max(cfg.requiredLanPorts || 0, bundles.length);
+
+  const layout = resolveLedPortLayout(State.graph, ledNodeId);
+  const reserved = new Set(
+    resolveSharedPortUsage(State.graph, ledNodeId).map((u, i) => (u ? i : -1)).filter(i => i !== -1)
+  );
+
+  const newPorts = Array.from({ length: layout.ports.length }, () => []);
+  let bundleIdx = 0;
+  let groupOffset = 0;
+  layout.groups.forEach(group => {
+    for (let i = 0; i < group.portCount && bundleIdx < bundles.length; i += 1) {
+      const portIdx = groupOffset + i;
+      if (!reserved.has(portIdx)) { newPorts[portIdx] = bundles[bundleIdx]; bundleIdx += 1; }
+    }
+    groupOffset += group.portCount;
+  });
+
+  cfg.lanPorts = newPorts;
+}
+
+// PWR 자동 할당 — "자동 할당" 버튼(PWR 탭)과 빠른 설정으로 LED를 추가하는
+// 시점에 쓴다(샌딩카드 연결과는 무관 — PWR 배선은 상류 장비와 독립적이라
+// 연결 이벤트에 반응할 이유가 없다). autoAssignLanForLedNode와 같은 이유로
+// _led에 기대지 않고 nodeId만으로 동작한다. autoAssignPwrZones 자체는 고정된
+// 포트 수 안에 안 담기면 포트당 열 수를 늘려 알아서 다 담아버리므로(포트
+// 부족이 절대 드러나지 않음), 그 전에 필요한 포트 수를 먼저 계산해 부족하면
+// 밀도를 늘리는 대신 포트 수 자체를 늘린다(사용자 요청).
+function autoAssignPwrForLedNode(ledNodeId) {
+  const node = getNode(ledNodeId);
+  if (!node) { return; }
+  const cfg = node.config.ledDesign;
+  const required = requiredPwrPortCount(cfg.zones);
+  if (required > (cfg.pwrPortCount || PWR_PORT_COUNT)) { cfg.pwrPortCount = required; }
+  cfg.pwrPorts = autoAssignPwrZones(cfg.zones, cfg.pwrPortCount || PWR_PORT_COUNT);
 }
 
 function openLedDesignView(nodeId) {
@@ -229,11 +300,10 @@ function initLedDesignView() {
   document.getElementById('ledZoneCompactBtn').addEventListener('click', finishZoneDesign);
 
   document.getElementById('ledAutoAssignBtn').addEventListener('click', () => {
-    const cfg = getLedConfig();
     if (_led.mode === 'lan') {
       autoAssignLanForLedNode(_led.nodeId);
     } else {
-      cfg.pwrPorts = autoAssignPwrZones(cfg.zones, pwrPortCount());
+      autoAssignPwrForLedNode(_led.nodeId);
     }
     renderPortPanel();
     drawGrid();

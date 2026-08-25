@@ -22,24 +22,34 @@
     <div id="nodeLayer"></div>
 
     <!-- 노드 추가: "+ 장비 추가" 버튼을 누르면 드롭다운이 애니메이션과 함께 펼쳐진다.
-         js/core/nodeTypes.js의 NODE_TYPES와 아이콘/라벨을 맞춰 유지할 것 -->
+         js/core/nodeTypes.js의 NODE_TYPES와 아이콘/라벨을 맞춰 유지할 것.
+         카테고리(레벨1) → 장비 프리셋 목록(레벨2, js/devices/devices.js에 프리셋이
+         있는 콘솔/샌딩카드만) 2단 드릴다운 — interactions.js의 openDeviceList 참고. -->
     <div id="paletteWrap" class="palette-wrap">
       <button id="paletteToggleBtn" class="palette-toggle-btn">
         <span class="palette-toggle-plus">+</span> 장비 추가
       </button>
-      <div id="palette" class="palette">
-        <button class="palette-btn" data-type="input">💻 인풋소스</button>
-        <button class="palette-btn" data-type="console">🖥️ 콘솔</button>
-        <button class="palette-btn" data-type="sending">📡 샌딩카드</button>
-        <button class="palette-btn" data-type="led">🟩 LED디스플레이</button>
-        <button class="palette-btn" data-type="power">🔌 메인전원</button>
-        <button class="palette-btn" data-type="distro">⚡ 분전함</button>
+      <div id="palette" class="palette" data-level="categories">
+        <div id="paletteLevelCategories" class="palette-level palette-level-categories">
+          <button class="palette-btn" data-type="input">💻 인풋소스</button>
+          <button class="palette-btn" data-type="console">🖥️ 콘솔</button>
+          <button class="palette-btn" data-type="sending">📡 샌딩카드</button>
+          <button class="palette-btn" data-type="led">🟩 LED디스플레이</button>
+          <button class="palette-btn" data-type="power">🔌 메인전원</button>
+          <button class="palette-btn" data-type="distro">⚡ 분전함</button>
+        </div>
+        <div id="paletteLevelDevices" class="palette-level palette-level-devices" hidden>
+          <button id="paletteBackBtn" class="palette-back-btn">← 뒤로</button>
+          <div id="paletteDeviceList" class="palette-device-list"></div>
+        </div>
       </div>
     </div>
 
-    <!-- 선택 노드 속성 패널 -->
-    <div id="propsPanel" class="props-panel" hidden>
+    <!-- 선택 노드 속성 패널: 팔레트와 같은 좌상단 자리에 뜬다(통일성 —
+         한 번에 팔레트 아니면 속성 패널, 둘 다 동시에는 안 보임) -->
+    <div id="propsPanel" class="props-panel">
       <div class="props-head">
+        <button id="propsBackBtn" class="props-back-btn" hidden>← 뒤로</button>
         <span id="propsTitle"></span>
         <button id="propsClose" class="props-close">✕</button>
       </div>
@@ -92,10 +102,12 @@
     </div>
 
     <!-- LED디스플레이 노드 추가 팝업: 첫 선택이 "단일 사각형 빠른 설정" vs "자유 설계"
-         (여러 구역·비정형 설치면적)인지를 정하는 탭 — 후자는 바로 구역 편집 캔버스로 이동. -->
-    <div id="ledAddModal" class="modal-bg" hidden>
+         (여러 구역·비정형 설치면적)인지를 정하는 탭 — 후자는 바로 구역 편집 캔버스로 이동.
+         팔레트·속성 패널과 같은 좌상단 자리에, 배경을 어둡게 깔지 않고 뜬다(led-add-panel). -->
+    <div id="ledAddModal" class="led-add-panel">
       <div class="modal-card">
         <div class="modal-head">
+          <button id="ledAddBackBtn" class="props-back-btn">← 뒤로</button>
           <span>🟩 LED디스플레이 추가</span>
           <button id="ledAddCloseBtn" class="props-close">✕</button>
         </div>

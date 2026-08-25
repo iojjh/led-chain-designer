@@ -116,10 +116,7 @@ button {
   position: absolute;
   left: 0;
   top: calc(100% + 6px);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 168px;
+  min-width: 190px;
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -130,11 +127,34 @@ button {
   transform-origin: top left;
   pointer-events: none;
   transition: opacity 0.16s ease, transform 0.16s ease;
+  overflow: hidden;
 }
 .palette.open {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
+}
+
+/* 레벨(카테고리 목록 ↔ 장비 목록) 전환 — hidden 속성이 display:none↔flex를
+   토글할 때마다 아래 애니메이션이 매번 새로 재생된다(엘리먼트가 실제로
+   다시 렌더링되는 시점이라 브라우저가 애니메이션을 새로 시작함). 그래서
+   JS는 hidden만 토글하면 되고 클래스 추가/제거 같은 별도 처리가 필요 없다. */
+.palette-level {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.palette-level[hidden] { display: none; }
+.palette-level-categories { animation: palette-level-in-back 0.18s ease; }
+.palette-level-devices { animation: palette-level-in-fwd 0.18s ease; }
+
+@keyframes palette-level-in-fwd {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes palette-level-in-back {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 .palette-btn {
@@ -144,9 +164,27 @@ button {
   font-size: 13px;
   white-space: nowrap;
   color: var(--text-0);
+  transition: background 0.12s ease;
 }
 
 .palette-btn:hover { background: var(--bg-2); }
+
+.palette-back-btn {
+  align-self: flex-start;
+  padding: 5px 8px 5px 4px;
+  margin-bottom: 2px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-1);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.palette-back-btn:hover { background: var(--bg-2); color: var(--text-0); }
+
+.palette-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 
 /* 캔버스가 비어있을 때 "여기부터 시작" 넛지 — 드롭다운이 닫혀 있어도 보이도록
    토글 버튼 자체에 펄스를 주고, 드롭다운을 열면 LED디스플레이 항목에도 표시한다.
@@ -177,6 +215,15 @@ button {
   cursor: grab;
   z-index: 5;
   transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+  animation: node-card-in 0.18s ease;
+}
+
+/* 새 카드가 DOM에 처음 생성될 때만 재생된다(buildCardEl은 노드당 한 번만
+   호출되고, 이후 위치·내용 갱신은 이미 있는 엘리먼트를 그대로 고쳐 쓰므로
+   애니메이션이 다시 재생되지 않는다) */
+@keyframes node-card-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 .node-card:active { cursor: grabbing; }
@@ -322,21 +369,57 @@ button {
 .port-picker-btn:hover { background: var(--bg-2); }
 
 /* ── 속성 패널 ──────────────────────────────────────── */
+/* 팔레트(.palette)와 같은 좌상단 자리에 뜬다 — 통일성을 위해 한 자리를
+   공유하며(props-panel이 열리면 팔레트는 그 아래 가려짐), 열고 닫힘도
+   팔레트와 같은 opacity/transform 방식이라 항상 display:flex로 DOM에
+   남아있고 pointer-events로만 클릭 통과 여부를 가른다(닫힌 상태에선
+   뒤에 깔린 "+ 장비 추가" 버튼을 그대로 누를 수 있다). */
 .props-panel {
   position: absolute;
-  right: 16px;
+  left: 16px;
   top: 16px;
-  width: 260px;
+  width: min(260px, calc(100vw - 32px));
   max-height: calc(100% - 32px);
-  z-index: 10;
+  z-index: 11;
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top left;
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
 }
-.props-panel[hidden] { display: none; }
+.props-panel.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* LED디스플레이 추가 창도 같은 좌상단 자리·같은 열림 방식을 쓴다 — 화면
+   전체를 어둡게 깔던 중앙 모달(.modal-bg, 저장/불러오기가 계속 쓰는 방식)
+   대신 팔레트·속성 패널과 통일된 위치로 옮겼다. 안쪽 .modal-card는 그대로
+   재사용(카드 배경/테두리/그림자)하고, 이 래퍼는 위치·열림 애니메이션만
+   맡는다. */
+.led-add-panel {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  z-index: 11;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top left;
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.led-add-panel.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
 
 .props-head {
   display: flex;
@@ -356,6 +439,12 @@ button {
 
 .props-close { font-size: 13px; color: var(--text-1); padding: 2px 4px; }
 .props-close:hover { color: var(--text-0); }
+
+/* 팔레트에서 새 노드를 설정 중일 때만(초안 모드) 보인다 — 눌러서 이전
+   팔레트 레벨(장비 목록/카테고리 목록)로 돌아간다. 기존 노드를 캔버스에서
+   클릭해 편집할 때는 숨겨진다(돌아갈 팔레트 단계가 없음). */
+.props-back-btn { flex-shrink: 0; padding: 3px 6px; border-radius: var(--radius-sm); font-size: 12px; color: var(--text-1); transition: background 0.12s ease, color 0.12s ease; }
+.props-back-btn:hover { background: var(--bg-2); color: var(--text-0); }
 
 .props-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
 
@@ -492,16 +581,13 @@ button {
 /* 좁은 화면(모바일)에서는 좌상단 팔레트와 우상단 속성 패널이 나란히 놓일
    가로 폭이 부족해 서로 겹친다 — 속성 패널을 하단 시트로, 이슈 패널을
    하단 전체 폭 바로 위에 접히도록 옮겨 세로로 쌓이게 한다. */
+/* 예전엔 속성 패널이 우상단, 팔레트가 좌상단이라 좁은 화면에서 서로 겹쳐
+   하단 시트로 따로 뺐었다 — 지금은 둘 다 같은 좌상단 자리를 쓰므로(팔레트
+   위에 뜸) 그 문제 자체가 없어졌다. 화면 폭이 좁을 때 카드 너비만 줄어들게
+   기본 규칙에 이미 반영해뒀고(min(260px, 100vw-32px)), 모바일 전용 위치
+   재배치는 더 이상 필요 없다 — 오히려 팔레트에서 고른 위치와 동떨어진
+   화면 하단에서 불쑥 튀어나오는 문제만 만들었었다. */
 @media (max-width: 640px) {
-  .props-panel {
-    top: auto;
-    bottom: 56px;
-    left: 8px;
-    right: 8px;
-    width: auto;
-    max-height: 50vh;
-    z-index: 20;
-  }
   .issues-panel {
     left: 8px;
     right: 8px;
@@ -1108,11 +1194,17 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--border-soft);
   font-size: 14px;
   font-weight: 600;
 }
+
+/* LED디스플레이 추가 창만 뒤로가기 버튼이 있어 자식이 3개(뒤로/제목/닫기) —
+   나머지 modal-head(저장/불러오기 등)는 그대로 2개짜리 space-between 유지,
+   여긴 제목만 늘어나게 해서 뒤로가기·닫기가 양끝에 붙게 한다. */
+#ledAddModal .modal-head span { flex: 1; min-width: 0; }
 
 .modal-body { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 

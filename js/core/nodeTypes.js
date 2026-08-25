@@ -56,6 +56,20 @@ function defaultConfig(type) {
           // 상하좌우의 확장 버튼을 눌러야만 바뀐다(ledDesignView.js 참고).
           // 저장/불러오기에도 유지됨.
           gridOriginRow: 0, gridOriginCol: 0, gridCols: 15, gridRows: 10,
+          // LED 추가 팝업의 "빠른 설정"으로 만들어졌는지 — true면 노드가 생성되는
+          // 그 순간 LAN/PWR 자동 할당이 한 번 돌아간다(interactions.js의
+          // onLedAddConfirm). "자유 설계"는 사용자가 구역을 직접 그려 배치하므로
+          // 자동 배정 대상이 아니다 — 그래서 기본값도 false. 샌딩카드에 나중에
+          // 연결될 때는 quickSetup 여부와 무관하게 항상 포트 재배치(reflow)만
+          // 일어난다(자동 배정을 다시 돌리지 않음 — ledDesignView.js 참고).
+          quickSetup: false,
+          // 이 LED가 실제로 필요로 하는 LAN 포트 수의 "최고 기록"치. 샌딩카드
+          // 미연결 상태의 자동 배정이 기본 8포트로 다 못 담으면 이 값을 필요한
+          // 만큼 늘려 포트 수 자체를 늘리고(ledPortGroups.js의 미연결 기본값
+          // 그룹이 이 값을 읽음), 샌딩카드에 연결될 때도 그 순간의 배선 개수로
+          // 갱신된다. validationEngine.js가 실제 연결된 샌딩카드의 포트 수와
+          // 비교해 부족하면 이슈로 표시한다. 0이면 "아직 파악된 적 없음".
+          requiredLanPorts: 0,
         },
         totalRequiredPx: 0,
       };

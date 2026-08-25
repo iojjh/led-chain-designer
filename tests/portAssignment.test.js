@@ -1,6 +1,6 @@
 const {
   panelPx, portPx, isOverCapacity, balancedCols, autoAssignAllZones, autoAssignPwrZones,
-  autoAssignAllZonesBalanced,
+  autoAssignAllZonesBalanced, requiredLanPortCount, requiredPwrPortCount,
 } = require('../js/leddesign/portAssignment.js');
 const { betaPanels } = require('../js/leddesign/betaPanels.js');
 
@@ -165,6 +165,36 @@ describe('autoAssignAllZonesBalanced', () => {
   test('no zones or no groups: all-empty result, no crash', () => {
     expect(autoAssignAllZonesBalanced([], [{ portCount: 4, capPerPort: HUGE_CAP }], null).every(p => p.length === 0)).toBe(true);
     expect(autoAssignAllZonesBalanced([wideZone], [], null)).toEqual([]);
+  });
+});
+
+describe('requiredLanPortCount', () => {
+  test('matches how many ports autoAssignAllZones actually ends up using when given plenty of room', () => {
+    const bigZone = { id: 'z2', led: '3mm', startRow: 0, startCol: 0, rows: 8, cols: 8, panelW: 500, panelH: 500 };
+    const required = requiredLanPortCount([bigZone], 655360);
+    const assignments = autoAssignAllZones([bigZone], 999, 655360);
+    const usedPorts = assignments.filter(keys => keys.length > 0).length;
+    expect(required).toBe(usedPorts);
+  });
+
+  test('zero when there are no zones (or all zones are empty)', () => {
+    expect(requiredLanPortCount([], 655360)).toBe(0);
+  });
+
+  test('a small zone that fits one port needs exactly one port', () => {
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 4, cols: 4, panelW: 500, panelH: 500 };
+    expect(requiredLanPortCount([zone], 655360)).toBe(1);
+  });
+});
+
+describe('requiredPwrPortCount', () => {
+  test('defaults to ceil(totalColumns / 2)', () => {
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 1, cols: 7, panelW: 500, panelH: 500 };
+    expect(requiredPwrPortCount([zone])).toBe(4); // 7열 / 2 = 3.5 -> 4
+  });
+
+  test('zero when there are no columns', () => {
+    expect(requiredPwrPortCount([])).toBe(0);
   });
 });
 
