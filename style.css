@@ -226,6 +226,16 @@ button {
   to   { opacity: 1; transform: scale(1); }
 }
 
+/* 목록형 UI(구역 목록, 저장/공유 목록)가 innerHTML로 통째로 다시 그려질 때
+   공통으로 쓰는 진입 애니메이션 — node-card-in과 같은 취지(추가되는 순간
+   부드럽게 나타나게)를 목록 행에도 맞춘 것. 자주(연속 드래그 등으로) 다시
+   그려지는 목록(이슈 패널, LED 포트 칩)에는 일부러 안 썼다 — 그런 곳에 쓰면
+   조작할 때마다 매번 다시 팝인되어 오히려 산만해진다. */
+@keyframes list-row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .node-card:active { cursor: grabbing; }
 
 .node-card:hover:not(.selected):not(.has-issue) {
@@ -554,13 +564,23 @@ button {
 }
 .issues-panel.collapsed .issues-chevron { transform: rotate(-90deg); }
 
+/* display:none 대신 max-height/opacity로 접어서 다른 패널들(팔레트·속성
+   패널·LED 추가 창)과 같은 방식으로 부드럽게 트랜지션되게 한다 —
+   display:none 전환은 애니메이션이 아예 재생되지 않는다. */
 .issues-list {
   overflow-y: auto;
+  max-height: 220px;
+  opacity: 1;
   border-top: 1px solid var(--border-soft);
-  transition: max-height 0.15s ease;
+  transition: max-height 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
 }
 
-.issues-panel.collapsed .issues-list { display: none; }
+.issues-panel.collapsed .issues-list {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  border-top-color: transparent;
+}
 
 .issue-row {
   padding: 8px 12px;
@@ -707,12 +727,13 @@ button {
 }
 .led-mode-btn {
   padding: 6px 10px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-2);
   color: var(--text-1);
   font-size: 12px;
 }
-.led-mode-btn.on { background: var(--accent-soft); color: var(--text-0); }
+.led-mode-btn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text-0); }
 .led-mode-btn:hover { background: var(--border); }
 .led-grid-hint { color: var(--text-2); margin-left: 6px; }
 
@@ -903,7 +924,10 @@ button {
     height: 100vw;
     transform-origin: top left;
     transform: rotate(90deg) translateY(-100%);
-    z-index: 500;
+    /* 업데이트 배너(z-index:500)와 우연히 같은 값이었다 — 전역 알림류(배너/
+       토스트, 500~700)는 어떤 화면이 떠 있든 항상 그 위에 보여야 하므로
+       이쪽을 그보다 낮게 둔다. */
+    z-index: 400;
     background: var(--bg-0);
     border: none;
   }
@@ -977,6 +1001,7 @@ button {
   border: 1px solid var(--border-soft);
   font-size: 12px;
   overflow: hidden;
+  animation: list-row-in 0.16s ease;
 }
 .led-zone-row.sel { border-color: var(--accent); }
 
@@ -1241,6 +1266,7 @@ button {
   padding: 8px 10px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
+  animation: list-row-in 0.16s ease;
 }
 .save-row-info { flex: 1; display: flex; flex-direction: column; font-size: 12px; }
 .save-row-info span { color: var(--text-1); font-size: 11px; }

@@ -1706,7 +1706,7 @@ function drawPanelsForPortMode(ctx, originRow, originCol) {
       ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
       if (p.key === _led.focusPanelKey) {
         ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.strokeRect(px + 3, py + 3, pw - 6, ph - 6);
-        ctx.strokeStyle = '#378ADD'; ctx.lineWidth = 2; ctx.strokeRect(px + 3, py + 3, pw - 6, ph - 6);
+        ctx.strokeStyle = '#6e6bf4'; ctx.lineWidth = 2; ctx.strokeRect(px + 3, py + 3, pw - 6, ph - 6); // style.css --accent
       }
     });
   });
@@ -1849,7 +1849,7 @@ function drawDragRect(ctx, originRow, originCol) {
   const hm = ((r1 - r0 + 1) * 0.5).toFixed(1).replace(/\.0$/, '');
   const fs = Math.max(11, Math.min(16, sw * 0.18));
   ctx.font = `700 ${fs}px sans-serif`;
-  ctx.fillStyle = '#e8e8ef'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ececee'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; // style.css --text-0
   ctx.fillText(`${wm}m × ${hm}m`, sx + sw / 2, sy + sh / 2);
   ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
 }
