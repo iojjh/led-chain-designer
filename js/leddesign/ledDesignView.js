@@ -595,12 +595,16 @@ function clientXY(e) {
 // 실제 캔버스 픽셀 좌표로 정확히 보정. getBoundingClientRect()는 항상 "지금
 // 실제 화면에 그려진 크기·위치"를 주므로, #ledGridFrame에 건 확대(zoom)/이동
 // (panX,panY) transform이 몇 개가 겹쳐 있든 이 비율 계산 하나로 자동 역산된다
-// — zoom/pan 값을 여기서 직접 참조할 필요가 없다.
+// — zoom/pan 값을 여기서 직접 참조할 필요가 없다. 캔버스 버퍼는 고해상도
+// 디스플레이에서 선명하게 그리려고 devicePixelRatio(dpr)만큼 더 크게
+// 잡혀 있으므로(sizeGridCanvas), 그 비율을 나눠 cellPx 기준의 "논리" 좌표로
+// 되돌린다 — 안 그러면 dpr배만큼 더 먼 칸을 가리키게 된다.
 function canvasPointFromClient(x, y) {
   if (_led.fullscreen) { return canvasPointRotated(x, y); }
   const rect = _led.canvas.getBoundingClientRect();
-  const scX = _led.canvas.width / (rect.width || _led.canvas.width);
-  const scY = _led.canvas.height / (rect.height || _led.canvas.height);
+  const dpr = window.devicePixelRatio || 1;
+  const scX = _led.canvas.width / (rect.width || _led.canvas.width) / dpr;
+  const scY = _led.canvas.height / (rect.height || _led.canvas.height) / dpr;
   return { x: (x - rect.left) * scX, y: (y - rect.top) * scY };
 }
 
@@ -623,10 +627,11 @@ function canvasPoint(e) {
 // 함수를 단 한 번만 호출해 앵커로 삼는 cellFromEventRotated 쪽에서 처리한다.
 function canvasPointRotated(clientX, clientY) {
   const rect = _led.canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
   const cw = rect.height || _led.canvas.width;
   const ch = rect.width || _led.canvas.height;
-  const scX = _led.canvas.width / cw;
-  const scY = _led.canvas.height / ch;
+  const scX = _led.canvas.width / cw / dpr;
+  const scY = _led.canvas.height / ch / dpr;
   const x = (clientY - rect.top) * scX;
   const y = (ch - (clientX - rect.left)) * scY;
   return { x, y };
@@ -1493,16 +1498,29 @@ function renderLedDesignView() {
   document.querySelectorAll('.led-grid-btns').forEach(el => { el.hidden = !showExpand; });
 }
 
+// 캔버스 버퍼를 화면 표시 크기보다 devicePixelRatio배 더 크게 잡고(width/height
+// 속성) 실제 표시 크기는 style로 그대로 고정한다 — 고해상도(레티나) 화면에서
+// 격자선·텍스트가 흐릿하게 뭉개지지 않고 또렷하게 보이는 표준적인 방법이다.
+// 그 차이만큼은 drawGrid 맨 앞의 ctx.setTransform(dpr,...)이 보정해주므로,
+// 이 아래 모든 그리기 코드는 지금까지처럼 cellPx 기준 "논리" 좌표만 쓰면 된다
+// (확대(zoom)와는 별개 — zoom은 #ledGridFrame의 CSS transform이 맡는다).
 function sizeGridCanvas() {
   const { cols, rows } = gridDims();
   _led.cellPx = computeCellPx();
-  _led.canvas.width = cols * _led.cellPx;
-  _led.canvas.height = rows * _led.cellPx;
+  const dpr = window.devicePixelRatio || 1;
+  const w = cols * _led.cellPx;
+  const h = rows * _led.cellPx;
+  _led.canvas.width = Math.round(w * dpr);
+  _led.canvas.height = Math.round(h * dpr);
+  _led.canvas.style.width = `${w}px`;
+  _led.canvas.style.height = `${h}px`;
 }
 
 function drawGrid() {
   const ctx = _led.ctx;
   const { originRow, originCol, cols, rows } = gridDims();
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cols * _led.cellPx, rows * _led.cellPx);
 
   ctx.fillStyle = '#17181c';
