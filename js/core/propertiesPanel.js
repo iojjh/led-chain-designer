@@ -149,10 +149,6 @@ function inputFields(node) {
   const kindOptions = INPUT_KINDS
     .map(k => `<option value="${k.id}" ${c.sourceKind === k.id ? 'selected' : ''}>${k.label}</option>`)
     .join('');
-  const etcLabelField = c.sourceKind === 'etc' ? `
-    <label class="props-field">세부 이름
-      <input type="text" data-field="sourceLabel" placeholder="예: 카메라 3" value="${escapeHtml(c.sourceLabel || '')}">
-    </label>` : '';
 
   return `
     <label class="props-field">이름
@@ -161,7 +157,6 @@ function inputFields(node) {
     <label class="props-field">종류
       <select data-field="sourceKind">${kindOptions}</select>
     </label>
-    ${etcLabelField}
   `;
 }
 

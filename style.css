@@ -747,7 +747,12 @@ button {
 .led-grid-scroll {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  /* 확대/이동(zoom/pan)은 이제 #ledGridFrame의 transform으로 직접 다루므로
+     (ledDesignView.js), 브라우저 기본 스크롤은 필요 없고 오히려 확대된
+     내용이 이 영역 밖으로 삐져나오지 않게 잘라내야 한다. */
+  overflow: hidden;
+  overscroll-behavior: contain;
+  touch-action: none;
   padding: 26px; /* 격자 밖에 놓이는 확장/축소 버튼(24px 오프셋)이 잘리지 않을 여유 */
   display: flex;
   align-items: center;
@@ -763,7 +768,7 @@ button {
 /* inline-block 요소는 기본적으로 텍스트 베이스라인 기준으로 정렬돼 아래에
    몇 px 틈이 생긴다 — line-height:0으로 없애야 프레임이 캔버스 크기에
    정확히 맞아, 상하좌우 확장 버튼도 캔버스 가장자리에 딱 붙는다. */
-.led-grid-frame { position: relative; display: inline-block; line-height: 0; }
+.led-grid-frame { position: relative; display: inline-block; line-height: 0; transform-origin: 0 0; }
 .led-grid-frame[hidden] { display: none; }
 
 /* 확장/축소 버튼 한 쌍씩 담는 그룹 — 캔버스 프레임 가장자리 바로 밖(24px)에

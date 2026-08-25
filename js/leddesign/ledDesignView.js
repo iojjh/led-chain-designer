@@ -19,6 +19,8 @@ const PWR_PORT_CAP = 500000; // 수동 배정 시 초과 표시 기준으로도 
 const ZONE_ANIM_MS = 380;
 const LAN_SHORT_BUNDLE = 20; // 숏랜 묶음 단위(원본 §11 그대로)
 const PWR_SHORT_BUNDLE = 10; // 숏 파워 묶음 단위(원본 §11 그대로)
+const LED_ZOOM_MIN = 1; // 기본이 이미 격자 전체가 보이도록 맞춰져 있어 이보다 더 축소할 필요는 없음
+const LED_ZOOM_MAX = 4;
 
 const _led = {
   nodeId: null,
@@ -66,6 +68,19 @@ const _led = {
 
   fullscreen: false, // 모바일 전용 "캔버스 그리기" 풀스크린(90도 회전) 활성 여부
   fsAnchor: null, // 풀스크린 좌표 보정용 제스처 시작 앵커(canvasPointRotated 참고)
+
+  // ── 캔버스 확대/이동(zoom/pan) — 구역/LAN/PWR 세 모드 공통 ─────────
+  // #ledGridFrame(캔버스 + 확장·축소 버튼을 함께 감싸는 요소)에 CSS
+  // transform으로만 적용한다 — 실제 그리드 그리기(cellPx 등)는 전혀
+  // 건드리지 않으므로 zoom=1/pan=0이면 지금까지와 완전히 동일하다.
+  frame: null,
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  viewPinch: null, // { lastDist, lastMid:{x,y} } — 두 손가락 확대/이동 진행 중
+  viewPanning: false, // PC: 스크롤 버튼(휠 클릭) 드래그로 이동 중
+  viewPanStart: { x: 0, y: 0 },
+  viewPanOrigin: { x: 0, y: 0 },
 };
 
 function getLedNode() { return getNode(_led.nodeId); }
@@ -218,6 +233,7 @@ function openLedDesignView(nodeId) {
   document.getElementById('ledDesignView').hidden = false;
 
   if (!_led.canvas) { initLedDesignView(); }
+  resetLedView();
 
   document.getElementById('ledAreaW').value = cfg.areaW ? cfg.areaW / 1000 : '';
   document.getElementById('ledAreaH').value = cfg.areaH ? cfg.areaH / 1000 : '';
@@ -240,6 +256,7 @@ function closeLedDesignView() {
 function initLedDesignView() {
   _led.canvas = document.getElementById('ledGridCanvas');
   _led.ctx = _led.canvas.getContext('2d');
+  _led.frame = document.getElementById('ledGridFrame');
 
   document.getElementById('ledBackBtn').addEventListener('click', closeLedDesignView);
 
@@ -252,13 +269,44 @@ function initLedDesignView() {
     renderLedDesignView();
   });
 
-  _led.canvas.addEventListener('mousedown', onGridMouseDown);
-  window.addEventListener('mousemove', onGridMouseMove);
-  window.addEventListener('mouseup', onGridMouseUp);
-  _led.canvas.addEventListener('touchstart', e => { e.preventDefault(); onGridMouseDown(e); }, { passive: false });
-  _led.canvas.addEventListener('touchmove', e => { e.preventDefault(); onGridMouseMove(e); }, { passive: false });
-  _led.canvas.addEventListener('touchend', e => { e.preventDefault(); onGridMouseUp(e); }, { passive: false });
+  // 왼쪽 버튼(그리고 한 손가락 터치)은 지금까지처럼 구역/포트 편집 전용이다.
+  // 확대된 화면 이동은 겹치지 않는 별도 입력(PC: 스크롤 버튼 드래그, 모바일:
+  // 두 손가락)으로만 반응한다.
+  _led.canvas.addEventListener('mousedown', e => {
+    if (e.button === 1) { e.preventDefault(); startLedPan(e.clientX, e.clientY); return; }
+    onGridMouseDown(e);
+  });
+  window.addEventListener('mousemove', e => {
+    if (_led.viewPanning) { updateLedPan(e.clientX, e.clientY); return; }
+    onGridMouseMove(e);
+  });
+  window.addEventListener('mouseup', e => {
+    if (_led.viewPanning) { endLedPan(); return; }
+    onGridMouseUp(e);
+  });
+  _led.canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (e.touches.length >= 2) { startLedPinch(e.touches); return; }
+    onGridMouseDown(e);
+  }, { passive: false });
+  _led.canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (_led.viewPinch && e.touches.length >= 2) { updateLedPinch(e.touches); return; }
+    onGridMouseMove(e);
+  }, { passive: false });
+  _led.canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (_led.viewPinch) { if (e.touches.length < 2) { _led.viewPinch = null; } return; }
+    onGridMouseUp(e);
+  }, { passive: false });
   _led.canvas.addEventListener('keydown', onGridKeyDown);
+
+  // 마우스 휠(PC) — 캔버스뿐 아니라 그 주변 여백(.led-grid-scroll)에서도 반응해
+  // 커서를 정확히 캔버스 위에 올리지 않아도 확대/축소할 수 있게 한다.
+  document.querySelector('.led-grid-scroll').addEventListener('wheel', e => {
+    e.preventDefault();
+    ledZoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.1 : 1 / 1.1);
+  }, { passive: false });
 
   document.getElementById('ledOpenCanvasBtn').addEventListener('click', openLedCanvasFullscreen);
   document.getElementById('ledCanvasCloseBtn').addEventListener('click', closeLedCanvasFullscreen);
@@ -364,6 +412,7 @@ function initLedDesignView() {
 function openLedCanvasFullscreen() {
   _led.fullscreen = true;
   document.getElementById('ledDesignView').classList.add('led-canvas-fullscreen');
+  resetLedView(); // 회전으로 cellPx 기준이 바뀌므로 이전 확대/이동 값은 의미가 없어짐
   sizeGridCanvas();
   drawGrid();
   _led.canvas.focus();
@@ -373,6 +422,7 @@ function closeLedCanvasFullscreen() {
   _led.fullscreen = false;
   _led.fsAnchor = null;
   document.getElementById('ledDesignView').classList.remove('led-canvas-fullscreen');
+  resetLedView();
   sizeGridCanvas();
   drawGrid();
 }
@@ -541,9 +591,12 @@ function clientXY(e) {
   return { x: e.clientX, y: e.clientY };
 }
 
-// 캔버스가 CSS로 늘어나 있어도(반응형 등) 실제 캔버스 픽셀 좌표로 정확히 보정
-function canvasPoint(e) {
-  const { x, y } = clientXY(e);
+// 캔버스가 CSS로 늘어나 있어도(반응형 등, 지금은 확대/이동 transform 포함)
+// 실제 캔버스 픽셀 좌표로 정확히 보정. getBoundingClientRect()는 항상 "지금
+// 실제 화면에 그려진 크기·위치"를 주므로, #ledGridFrame에 건 확대(zoom)/이동
+// (panX,panY) transform이 몇 개가 겹쳐 있든 이 비율 계산 하나로 자동 역산된다
+// — zoom/pan 값을 여기서 직접 참조할 필요가 없다.
+function canvasPointFromClient(x, y) {
   if (_led.fullscreen) { return canvasPointRotated(x, y); }
   const rect = _led.canvas.getBoundingClientRect();
   const scX = _led.canvas.width / (rect.width || _led.canvas.width);
@@ -551,26 +604,124 @@ function canvasPoint(e) {
   return { x: (x - rect.left) * scX, y: (y - rect.top) * scY };
 }
 
+function canvasPoint(e) {
+  const { x, y } = clientXY(e);
+  return canvasPointFromClient(x, y);
+}
+
 // 풀스크린(캔버스 그리기) 상태에서는 .led-grid-wrap 전체가 style.css의
 // `rotate(90deg) translateY(-100%)`로 돌아가 있다 — getBoundingClientRect는
 // 회전 이후(화면에 실제 보이는) 값을 주므로 그대로 쓰면 가로/세로 축이
-// 뒤바뀐다. 캔버스 자신의 getBoundingClientRect()(회전 반영이라 항상
-// 정확)와 clientWidth/Height(변형 영향 없음, 회전 전 크기)로 그 역변환을
-// 계산한다 — 회전 때문에 rect.width는 캔버스의 회전 전 "높이"와,
-// rect.height는 회전 전 "너비"와 같다(90도 회전은 두 축을 맞바꾼다).
-// 회전각을 바꾸면 이 식도 같이 바꿔야 한다. 이 함수 자체는 항상 "지금
-// 이 순간"의 절대 위치를 구할 뿐이고, 드래그 중 원점이 실시간으로
-// 밀리는 문제에 대한 보정은 이 함수를 단 한 번만 호출해 앵커로 삼는
-// cellFromEventRotated 쪽에서 처리한다.
+// 뒤바뀐다. 회전 때문에 rect.width(화면)는 캔버스의 회전 전 "높이"와,
+// rect.height(화면)는 회전 전 "너비"와 같다(90도 회전은 두 축을 맞바꾼다).
+// getBoundingClientRect는 항상 "지금 실제 화면에 그려진" 크기이므로, 확대
+// (zoom)로 캔버스가 커져 있어도 이 비율에 그대로 반영된다 — clientWidth/
+// Height(엘리먼트 자신의 transform 영향을 안 받는 레이아웃 크기)를 쓰면
+// zoom을 못 잡아내므로 일부러 안 쓴다. 회전각을 바꾸면 이 식도 같이
+// 바꿔야 한다. 이 함수 자체는 항상 "지금 이 순간"의 절대 위치를 구할
+// 뿐이고, 드래그 중 원점이 실시간으로 밀리는 문제에 대한 보정은 이
+// 함수를 단 한 번만 호출해 앵커로 삼는 cellFromEventRotated 쪽에서 처리한다.
 function canvasPointRotated(clientX, clientY) {
   const rect = _led.canvas.getBoundingClientRect();
-  const cw = _led.canvas.clientWidth || _led.canvas.width;
-  const ch = _led.canvas.clientHeight || _led.canvas.height;
+  const cw = rect.height || _led.canvas.width;
+  const ch = rect.width || _led.canvas.height;
   const scX = _led.canvas.width / cw;
   const scY = _led.canvas.height / ch;
   const x = (clientY - rect.top) * scX;
   const y = (ch - (clientX - rect.left)) * scY;
   return { x, y };
+}
+
+// ── 캔버스 확대/이동 ─────────────────────────────────
+// #ledGridFrame(캔버스+확장축소버튼)에 translate+scale만 걸어 시각적으로
+// 확대/이동한다 — 실제 그리기(cellPx, canvas.width/height)는 전혀 안
+// 바뀌므로 zoom=1/pan=0이면 지금까지와 완전히 동일하다. 좌표 역산은
+// canvasPointFromClient/canvasPointRotated가 getBoundingClientRect
+// 기반으로 자동 처리한다(위 참고).
+function clampLedZoom(z) {
+  return Math.min(LED_ZOOM_MAX, Math.max(LED_ZOOM_MIN, z));
+}
+
+function applyLedViewTransform() {
+  if (!_led.frame) { return; }
+  _led.frame.style.transform = `translate(${_led.panX}px, ${_led.panY}px) scale(${_led.zoom})`;
+}
+
+function resetLedView() {
+  _led.zoom = 1;
+  _led.panX = 0;
+  _led.panY = 0;
+  applyLedViewTransform();
+}
+
+// 마우스 휠(PC) — clientX/clientY 아래의 캔버스 픽셀이 그대로 그 자리에
+// 남도록 pan을 다시 계산한다(줌 전후로 커서가 가리키는 지점이 안 튐).
+function ledZoomAt(clientX, clientY, factor) {
+  const before = canvasPointFromClient(clientX, clientY);
+  const newZoom = clampLedZoom(_led.zoom * factor);
+  if (newZoom === _led.zoom) { return; }
+  if (newZoom <= LED_ZOOM_MIN) {
+    _led.zoom = LED_ZOOM_MIN;
+    _led.panX = 0;
+    _led.panY = 0;
+  } else {
+    _led.panX += (_led.zoom - newZoom) * before.x;
+    _led.panY += (_led.zoom - newZoom) * before.y;
+    _led.zoom = newZoom;
+  }
+  applyLedViewTransform();
+}
+
+// 두 손가락 터치(모바일) — 손가락 사이 거리 변화는 확대/축소로, 중점
+// 자체의 이동은 그대로 화면 픽셀만큼 이동(pan)으로 반영한다. 두 효과를
+// 더해야 "벌리면서 동시에 옮기는" 실제 핀치 제스처가 자연스럽게 맞는다
+// (ledZoomAt처럼 매번 같은 지점을 목표점으로 다시 계산하면, 손가락을
+// 벌리지 않고 옮기기만 할 때는 factor가 거의 1이라 이동량이 0으로
+// 계산돼버린다 — 그래서 이동은 별도 항으로 더한다).
+function startLedPinch(touches) {
+  _led.viewPanning = false;
+  _led.dragStart = null; _led.dragCur = null; _led.dragLerp = null; // 진행 중이던 사각형 드래그 취소
+  _led.draftPointerDown = null; _led.draftIsPainting = false; clearTimeout(_led.draftLongPressTimer); // 칸 선택 페인트 취소
+  _led.viewPinch = { lastDist: touchDist(touches), lastMid: touchMid(touches) };
+}
+
+function updateLedPinch(touches) {
+  const dist = touchDist(touches);
+  const mid = touchMid(touches);
+  const before = canvasPointFromClient(_led.viewPinch.lastMid.x, _led.viewPinch.lastMid.y);
+  const factor = _led.viewPinch.lastDist > 0 ? dist / _led.viewPinch.lastDist : 1;
+  const newZoom = clampLedZoom(_led.zoom * factor);
+  if (newZoom <= LED_ZOOM_MIN) {
+    _led.zoom = LED_ZOOM_MIN;
+    _led.panX = 0;
+    _led.panY = 0;
+  } else {
+    _led.panX += (mid.x - _led.viewPinch.lastMid.x) + before.x * (_led.zoom - newZoom);
+    _led.panY += (mid.y - _led.viewPinch.lastMid.y) + before.y * (_led.zoom - newZoom);
+    _led.zoom = newZoom;
+  }
+  applyLedViewTransform();
+  _led.viewPinch.lastDist = dist;
+  _led.viewPinch.lastMid = mid;
+}
+
+// PC에서 확대된 뒤 화면을 이동하는 수단 — 스크롤 버튼(마우스 휠 클릭) 드래그.
+// 왼쪽 버튼은 구역/포트 편집에 이미 쓰고 있어(모든 모드에서) 겹치지 않는
+// 별도 입력으로 뒀다(사용자 요청).
+function startLedPan(clientX, clientY) {
+  _led.viewPanning = true;
+  _led.viewPanStart = { x: clientX, y: clientY };
+  _led.viewPanOrigin = { x: _led.panX, y: _led.panY };
+}
+
+function updateLedPan(clientX, clientY) {
+  _led.panX = _led.viewPanOrigin.x + (clientX - _led.viewPanStart.x);
+  _led.panY = _led.viewPanOrigin.y + (clientY - _led.viewPanStart.y);
+  applyLedViewTransform();
+}
+
+function endLedPan() {
+  _led.viewPanning = false;
 }
 
 // 픽셀 좌표를 세계좌표 칸으로 바꾼다 — 뷰 원점(originRow/originCol)을 다시

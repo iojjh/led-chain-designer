@@ -141,11 +141,8 @@ function renderValidationBadge(el, node) {
 
 function cardSummary(node) {
   switch (node.type) {
-    case 'input': {
-      const kindLabel = inputKindLabel(node.config.sourceKind);
-      const etc = node.config.sourceKind === 'etc' && node.config.sourceLabel ? ` (${node.config.sourceLabel})` : '';
-      return `${kindLabel}${etc}`;
-    }
+    case 'input':
+      return inputKindLabel(node.config.sourceKind);
     case 'console': {
       const d = node.config.deviceId ? getDevice('console', node.config.deviceId) : null;
       const total = getConsoleInputPorts(node).length;

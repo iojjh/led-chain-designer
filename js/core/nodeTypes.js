@@ -39,7 +39,7 @@ function inputKindLabel(kindId) {
 function defaultConfig(type) {
   switch (type) {
     case 'input':
-      return { sourceKind: 'vmix', sourceLabel: '' };
+      return { sourceKind: 'vmix' };
     case 'console':
       return { deviceId: null, outputKind: 'lan-ports', mode: null, cascade: 1, manualInputPorts: 2 };
     case 'sending':
