@@ -1,4 +1,7 @@
-const { snapAreaToGrid, resolutionForArea, planFullAreaLed, boundingBoxOfZones, boundingResolutionForZones, zoneBounds } = require('../js/leddesign/ledAreaSetup.js');
+const {
+  snapAreaToGrid, resolutionForArea, planFullAreaLed, boundingBoxOfZones, boundingResolutionForZones, zoneBounds,
+  zoneGridCells, labelCellForZone,
+} = require('../js/leddesign/ledAreaSetup.js');
 
 describe('snapAreaToGrid', () => {
   test('exact multiples of 500mm pass through unchanged', () => {
@@ -103,5 +106,48 @@ describe('boundingResolutionForZones', () => {
     const rect = { id: 'r1', led: '3mm', startRow: 0, startCol: 0, rows: 2, cols: 2 };
     const free = { id: 'f1', led: '3mm', cells: [{ row: 4, col: 4 }] };
     expect(boundingBoxOfZones([rect, free])).toEqual({ minRow: 0, minCol: 0, maxRow: 5, maxCol: 5 });
+  });
+});
+
+describe('zoneGridCells', () => {
+  test('rectangular zone expands to every (row,col) it spans', () => {
+    const zone = { startRow: 1, startCol: 2, rows: 2, cols: 3 };
+    expect(zoneGridCells(zone)).toEqual([
+      { row: 1, col: 2 }, { row: 1, col: 3 }, { row: 1, col: 4 },
+      { row: 2, col: 2 }, { row: 2, col: 3 }, { row: 2, col: 4 },
+    ]);
+  });
+
+  test('freeform zone passes its own cells through unchanged (shape, not order, matters)', () => {
+    const zone = { cells: [{ row: 5, col: 5 }, { row: 5, col: 6 }] };
+    expect(zoneGridCells(zone)).toEqual(zone.cells);
+  });
+});
+
+describe('labelCellForZone', () => {
+  test('rectangular zone: label sits at the bounding box center (always inside a rectangle)', () => {
+    const zone = { startRow: 0, startCol: 0, rows: 2, cols: 4 };
+    expect(labelCellForZone(zone)).toEqual({ row: 1, col: 2 });
+  });
+
+  test('L-shaped freeform zone: bounding-box center falls in the empty notch, so the label snaps to the nearest real cell instead', () => {
+    // L 모양: (0,0)(0,1)(0,2) 가로줄 + (1,0)(2,0) 세로줄 — 바운딩 박스는
+    // 0~3행 0~3열이라 중심(1.5,1.5)은 L의 안쪽 빈 칸(구역에 없는 칸)이다.
+    const zone = {
+      cells: [{ row: 0, col: 0 }, { row: 0, col: 1 }, { row: 0, col: 2 }, { row: 1, col: 0 }, { row: 2, col: 0 }],
+    };
+    expect(zoneBounds(zone)).toEqual({ minRow: 0, minCol: 0, maxRow: 3, maxCol: 3 });
+
+    const label = labelCellForZone(zone);
+    // 바운딩 박스 중심(1.5,1.5) 그대로가 아니라, 실제 구역 칸 중 하나로 스냅돼야 한다.
+    expect(label).not.toEqual({ row: 1.5, col: 1.5 });
+    const labelRow = Math.floor(label.row);
+    const labelCol = Math.floor(label.col);
+    expect(zone.cells.some(c => c.row === labelRow && c.col === labelCol)).toBe(true);
+  });
+
+  test('single-cell freeform zone: label is that cell\'s own center', () => {
+    const zone = { cells: [{ row: 5, col: 7 }] };
+    expect(labelCellForZone(zone)).toEqual({ row: 5.5, col: 7.5 });
   });
 });

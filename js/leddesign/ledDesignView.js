@@ -311,6 +311,13 @@ function initLedDesignView() {
   document.getElementById('ledOpenCanvasBtn').addEventListener('click', openLedCanvasFullscreen);
   document.getElementById('ledCanvasCloseBtn').addEventListener('click', closeLedCanvasFullscreen);
 
+  document.getElementById('guideImageClose').addEventListener('click', closeGuideImageModal);
+  document.getElementById('guideImageModal').addEventListener('click', e => {
+    if (e.target.id === 'guideImageModal') { closeGuideImageModal(); }
+  });
+  document.getElementById('guideImageDownloadBtn').addEventListener('click', downloadGuideImage);
+  document.getElementById('guideImageShareBtn').addEventListener('click', shareGuideImage);
+
   document.querySelectorAll('.led-grid-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       exitCompactView(); // "여백 정리" 상태에서 눌러도(버튼은 그때 숨지만 방어적으로) 편집 가능 상태로
@@ -1234,14 +1241,35 @@ function resetAllZones() {
 // "여백 정리" — 캔버스를 구역만 감싸는 크기로 줄인다. gridDims()가 뷰 원점을
 // bbox.min으로 직접 계산하므로 여백 제거 자체엔 좌표 이동이 필요 없지만,
 // 저장되는 구역 좌표가 (0,0)부터 시작하는 게 더 보기 좋고 다루기 쉬우므로
-// shiftAllContent로 정리해둔다(순전히 정돈 목적, 렌더링엔 영향 없음).
-// zoneViewCompact를 cfg(저장 데이터)에 남겨서, 페이지를 나갔다 돌아와도 —
-// 심지어 저장/불러오기를 해도 — 줄어든 상태가 그대로 유지된다.
+// shiftAllContent로 정리해둔다. zoneViewCompact를 cfg(저장 데이터)에 남겨서,
+// 페이지를 나갔다 돌아와도 — 심지어 저장/불러오기를 해도 — 줄어든 상태가
+// 그대로 유지된다.
+//
+// 자유 구역(zone.cells)의 패널 key는 betaPanels.js에서 `${zoneId}:${row}:${col}`
+// 처럼 좌표를 그대로 담는다(사각형 구역의 key는 루프 내 상대 인덱스라 이동과
+// 무관) — shiftAllContent로 좌표가 바뀌면 이미 LAN/PWR 포트에 배정해둔
+// key들이 새 좌표의 key와 어긋나 버려서, 포트 목록엔 개수가 그대로 보이는데
+// 캔버스엔 색이 하나도 안 칠해지는 버그가 있었다(drawPanelsForPortMode가
+// 못 찾는 key는 그냥 건너뜀). 옮기기 전에 구/신 key 대응표를 만들어 배정을
+// 그대로 따라가게 한다.
 function finishZoneDesign() {
   const cfg = getLedConfig();
   const bbox = boundingBoxOfZones(cfg.zones);
   if (!bbox) { return; } // 구역이 없으면 줄일 대상이 없음
-  shiftAllContent(-bbox.minRow, -bbox.minCol);
+  const dRow = -bbox.minRow;
+  const dCol = -bbox.minCol;
+  const keyMap = new Map();
+  if (dRow || dCol) {
+    cfg.zones.forEach(z => {
+      if (!z.cells) { return; }
+      z.cells.forEach(c => { keyMap.set(`${z.id}:${c.row}:${c.col}`, `${z.id}:${c.row + dRow}:${c.col + dCol}`); });
+    });
+  }
+  shiftAllContent(dRow, dCol);
+  if (keyMap.size) {
+    cfg.lanPorts = cfg.lanPorts.map(keys => keys.map(k => keyMap.get(k) || k));
+    cfg.pwrPorts = cfg.pwrPorts.map(keys => keys.map(k => keyMap.get(k) || k));
+  }
   cfg.zoneViewCompact = true;
   renderLedDesignView(); // 확장/축소 버튼 숨김(showExpand)까지 포함해 전체를 다시 그린다
 }
@@ -1561,11 +1589,12 @@ function drawDraftCells(ctx, originRow, originCol) {
 
 // 칸 선택(자유)으로 만든 구역(zone.cells)은 사각형이 아닐 수 있어 하나의
 // roundRect+클립으로 그릴 수 없다 — 칸마다 개별적으로 채우고 테두리를 그린다.
-// 라벨(zN)은 바운딩 박스 안쪽 중앙에 한 번만 표시(각 칸 크기가 라벨을 담기엔
-// 작을 수 있으므로).
+// 라벨(zN)은 한 번만 표시하되, 위치는 ledAreaSetup.js의 labelCellForZone이
+// 고른 "구역 내부의 실제 칸"을 쓴다 — 오목한 모양이면 바운딩 박스 중심이
+// 구역 밖(빈 칸)일 수 있어, 그 중심에 가장 가까운 실제 칸으로 스냅한다
+// (사용자 요청 — 라벨이 항상 구역 안에 들어오도록).
 function drawFreeformZone(ctx, zone, i, isSelected, originRow, originCol) {
   const color = portColor(i);
-  const bounds = zoneBounds(zone);
   const anim = _led.animProg;
   const isNew = anim && anim.ids.has(zone.id);
 
@@ -1580,13 +1609,12 @@ function drawFreeformZone(ctx, zone, i, isSelected, originRow, originCol) {
     ctx.strokeRect(x + (isSelected ? 1.5 : 0.75), y + (isSelected ? 1.5 : 0.75), _led.cellPx - (isSelected ? 3 : 1.5), _led.cellPx - (isSelected ? 3 : 1.5));
   });
 
-  const bx = (bounds.minCol - originCol) * _led.cellPx; const by = (bounds.minRow - originRow) * _led.cellPx;
-  const bw = (bounds.maxCol - bounds.minCol) * _led.cellPx; const bh = (bounds.maxRow - bounds.minRow) * _led.cellPx;
+  const labelCell = labelCellForZone(zone);
+  const cx = (labelCell.col - originCol) * _led.cellPx; const cy = (labelCell.row - originRow) * _led.cellPx;
   const fs = Math.max(11, Math.min(16, _led.cellPx * 0.22));
   ctx.font = `700 ${fs}px sans-serif`;
   ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, fs * 0.3); ctx.strokeStyle = 'rgba(0,0,0,0.85)';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const cx = bx + bw / 2; const cy = by + bh / 2;
   ctx.strokeText(`z${i + 1} · ${zone.led}`, cx, cy);
   ctx.fillStyle = '#fff'; ctx.fillText(`z${i + 1} · ${zone.led}`, cx, cy);
   ctx.textBaseline = 'alphabetic';
@@ -1911,6 +1939,8 @@ function zoneEditHtml(zone) {
 
 // "여백 정리" 후에만 전체(모든 구역 합산) 해상도를 보여준다 — 편집 중에는
 // 아직 최종 배치가 아니라서 굳이 계속 노출하지 않고, 완료를 눌러야 나온다.
+// led-calculator 혼합 시뮬레이터의 "가이드 이미지 저장" 버튼도 같은 자리에
+// 둔다(최종 해상도가 확정된 시점에만 의미가 있으므로 노출 조건이 같다).
 function renderOverallResolution(cfg) {
   const el = document.getElementById('ledOverallRes');
   if (!cfg.zoneViewCompact || !cfg.zones.length) { el.hidden = true; return; }
@@ -1918,7 +1948,11 @@ function renderOverallResolution(cfg) {
   if (!res) { el.hidden = true; return; }
   const totalPanels = cfg.zones.reduce((s, z) => s + betaPanels(z).length, 0);
   el.hidden = false;
-  el.textContent = `전체 해상도 ${res.w.toLocaleString()}×${res.h.toLocaleString()}px · ${totalPanels}장`;
+  el.innerHTML = `
+    <span>전체 해상도 ${res.w.toLocaleString()}×${res.h.toLocaleString()}px · ${totalPanels}장</span>
+    <button type="button" id="ledGuideImageBtn" class="zone-btn">가이드 이미지 저장</button>
+  `;
+  document.getElementById('ledGuideImageBtn').addEventListener('click', openGuideImageModal);
 }
 
 function renderZoneList() {
@@ -2172,4 +2206,216 @@ function updateCableSum() {
     warnEl.hidden = unassigned <= 0;
     warnEl.textContent = `미할당 ${unassigned} / ${totalPanels} 패널`;
   }
+}
+
+// ── 가이드 이미지 (led-calculator 혼합 시뮬레이터의 "가이드 이미지 저장" 이식) ──
+// 설치 기사·클라이언트에게 최종 구역 배치를 보여줄 수 있는 워터마크 PNG를
+// 만든다. led-calculator 원본은 사각형 구역만 다뤘지만, 이 앱은 자유(비정형)
+// 구역도 있으므로 구역의 실제 칸 목록(ledAreaSetup.js의 zoneGridCells)을
+// 기준으로 배경 채우기·테두리를 그려 오목한 모양도 정확히 표현한다.
+let _guideImagePending = null; // { url, filename } — 모달에 떠 있는 동안의 다운로드/공유 대상
+
+function openGuideImageModal() {
+  const cfg = getLedConfig();
+  const url = generateGuideImageDataUrl(cfg);
+  if (!url) {
+    showToast('구역들의 피치가 모두 같아야 가이드 이미지를 만들 수 있습니다');
+    return;
+  }
+  const res = boundingResolutionForZones(cfg.zones);
+  _guideImagePending = { url, filename: `guide_${res.w}x${res.h}.png` };
+  document.getElementById('guideImagePreview').src = url;
+  document.getElementById('guideImageShareBtn').hidden = !(navigator.share);
+  document.getElementById('guideImageModal').hidden = false;
+}
+
+function closeGuideImageModal() {
+  document.getElementById('guideImageModal').hidden = true;
+  document.getElementById('guideImagePreview').src = '';
+  _guideImagePending = null;
+}
+
+function downloadGuideImage() {
+  if (!_guideImagePending) { return; }
+  const a = document.createElement('a');
+  a.href = _guideImagePending.url;
+  a.download = _guideImagePending.filename;
+  a.click();
+}
+
+async function shareGuideImage() {
+  if (!_guideImagePending || !navigator.share) { return; }
+  try {
+    const res = await fetch(_guideImagePending.url);
+    const blob = await res.blob();
+    const file = new File([blob], _guideImagePending.filename, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'LED 설계 가이드 이미지' });
+    } else {
+      await navigator.share({ title: 'LED 설계 가이드 이미지', text: _guideImagePending.filename });
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') { console.warn(err); }
+  }
+}
+
+// 구역이 실제로 차지하는 칸(cells)의 경계만 굵게 그린다 — 이웃 칸이 같은
+// 구역이 아닌 변만 "테두리"이므로, 사각형이든 오목한 자유 구역이든 같은
+// 코드로 정확한 외곽선이 나온다(사각형은 결과적으로 그냥 사각형 테두리가 됨).
+function drawGuideZoneOutline(ctx, cells, cellX, cellY, cellPx, color, lineWidth) {
+  const set = new Set(cells.map(c => `${c.row}:${c.col}`));
+  const has = (r, c) => set.has(`${r}:${c}`);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = 'square';
+  cells.forEach(({ row, col }) => {
+    const x = cellX(col); const y = cellY(row);
+    ctx.beginPath();
+    if (!has(row - 1, col)) { ctx.moveTo(x, y); ctx.lineTo(x + cellPx, y); }
+    if (!has(row + 1, col)) { ctx.moveTo(x, y + cellPx); ctx.lineTo(x + cellPx, y + cellPx); }
+    if (!has(row, col - 1)) { ctx.moveTo(x, y); ctx.lineTo(x, y + cellPx); }
+    if (!has(row, col + 1)) { ctx.moveTo(x + cellPx, y); ctx.lineTo(x + cellPx, y + cellPx); }
+    ctx.stroke();
+  });
+}
+
+// 구역 하나(어두운 배경+비네팅, 워터마크, 패널 격자선, 해상도 텍스트)를 그린다.
+// cellX/cellY는 (bbox 기준 상대 row/col) → 캔버스 픽셀 변환 함수, cellPx는
+// 격자 한 칸(500mm)의 출력 픽셀 크기, wmText/fSizeWm/stepX/stepY/halfD는
+// 캔버스 전체 기준으로 미리 계산해둔 워터마크 파라미터(구역 경계를 넘어도
+// 무늬가 이어지도록 zone마다 새로 만들지 않고 공유한다).
+function drawGuideZone(ctx, zone, zi, cellX, cellY, cellPx, cv, wm) {
+  const cells = zoneGridCells(zone);
+  const bounds = zoneBounds(zone);
+  const zx = cellX(bounds.minCol); const zy = cellY(bounds.minRow);
+  const zw = (bounds.maxCol - bounds.minCol) * cellPx; const zh = (bounds.maxRow - bounds.minRow) * cellPx;
+  const gridLW = Math.max(1, Math.round(cv.width / 700));
+
+  ctx.save();
+  ctx.beginPath();
+  cells.forEach(({ row, col }) => { ctx.rect(cellX(col), cellY(row), cellPx, cellPx); });
+  ctx.clip();
+
+  ctx.fillStyle = '#141414';
+  ctx.fillRect(zx, zy, zw, zh);
+  const vg = ctx.createRadialGradient(zx + zw / 2, zy + zh / 2, 0, zx + zw / 2, zy + zh / 2, Math.hypot(zw, zh) / 2);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.42)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(zx, zy, zw, zh);
+
+  ctx.save();
+  ctx.font = `600 ${wm.fSize}px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.translate(cv.width / 2, cv.height / 2);
+  ctx.rotate(-Math.PI / 6);
+  for (let r = -Math.ceil(wm.halfD / wm.stepY); r <= Math.ceil(wm.halfD / wm.stepY) + 1; r++) {
+    for (let c = -Math.ceil(wm.halfD / wm.stepX); c <= Math.ceil(wm.halfD / wm.stepX) + 1; c++) {
+      if ((r + c) % 2 !== 0) { continue; }
+      ctx.fillText(wm.text, c * wm.stepX, r * wm.stepY);
+    }
+  }
+  ctx.restore();
+
+  // 패널 격자선(실제 패널 타일 경계 — betaPanels 재사용, 자유 구역은 항상
+  // 500×500 단위라 이 반복이 곧 칸 경계와 같다).
+  ctx.strokeStyle = 'rgba(255,255,255,0.60)';
+  ctx.lineWidth = gridLW;
+  betaPanels(zone).forEach(p => {
+    const px = cellX(p.x / 500); const py = cellY(p.y / 500);
+    ctx.strokeRect(px, py, p.w / 500 * cellPx, p.h / 500 * cellPx);
+  });
+
+  ctx.restore(); // 클립 해제 — 이후로는 구역 밖(빈 칸)에도 그릴 수 있다
+
+  drawGuideZoneOutline(ctx, cells, cellX, cellY, cellPx, portColor(zi), gridLW * 2);
+
+  // 해상도 텍스트 — ledAreaSetup.js의 labelCellForZone으로 항상 구역 내부의
+  // 실제 칸 위에 놓는다(오목한 모양이면 바운딩 박스 중심이 빈 칸일 수 있어서).
+  const zRes = boundingResolutionForZones([zone]);
+  if (!zRes) { return; }
+  const label = labelCellForZone(zone);
+  const lx = cellX(label.col); const ly = cellY(label.row);
+  const fsRes = Math.round(Math.max(wm.fSize, Math.min(cellPx * 0.9, 120)));
+  ctx.font = `300 ${fsRes}px 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const wStr = `${zRes.w}`; const sepStr = '  ×  '; const hStr = `${zRes.h}`;
+  const wW = ctx.measureText(wStr).width;
+  const sepW = ctx.measureText(sepStr).width;
+  const hW = ctx.measureText(hStr).width;
+  const totalTW = wW + sepW + hW;
+  const tx = lx - totalTW / 2;
+  const ty = ly;
+  ctx.fillStyle = '#ffffff'; ctx.fillText(wStr, tx, ty);
+  ctx.fillStyle = '#FF7A2A'; ctx.fillText(sepStr, tx + wW, ty);
+  ctx.fillStyle = '#ffffff'; ctx.fillText(hStr, tx + wW + sepW, ty);
+
+  const padding = Math.round(fsRes * 0.15);
+  const gap = Math.min(fsRes * 0.55, zh * 0.12);
+  const barLW = Math.max(1, Math.round(totalTW / 300));
+  const barL = tx - padding; const barR = tx + totalTW + padding;
+  ctx.strokeStyle = '#FF7A2A'; ctx.lineWidth = barLW;
+  ctx.beginPath(); ctx.moveTo(barL, ty - gap); ctx.lineTo(barR, ty - gap); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(barL, ty + gap); ctx.lineTo(barR, ty + gap); ctx.stroke();
+  ctx.textBaseline = 'alphabetic';
+}
+
+// 구역 전체(cfg.zones)를 하나의 PNG data URL로 그려낸다. 모든 구역의 피치가
+// 같아야 하나의 px 밀도로 변환할 수 있으므로(boundingResolutionForZones와
+// 동일한 제약 — 노드 카드 요약이 이미 같은 이유로 그러듯), 피치가 섞였거나
+// 구역이 없으면 null.
+function generateGuideImageDataUrl(cfg) {
+  const zones = cfg.zones || [];
+  if (!zones.length) { return null; }
+  const res = boundingResolutionForZones(zones);
+  if (!res || !res.w || !res.h) { return null; }
+  const bbox = boundingBoxOfZones(zones);
+  const totalCols = bbox.maxCol - bbox.minCol;
+  const totalRows = bbox.maxRow - bbox.minRow;
+  // SPECS의 px500은 가로·세로가 항상 같아(specs.js) res.w/res.h가 각각
+  // totalCols/totalRows에 정확히 비례한다 — 스케일을 하나만 쓰면 된다.
+  const scale = res.w / (totalCols * 500);
+
+  const cv = document.createElement('canvas');
+  cv.width = res.w;
+  cv.height = res.h;
+  const ctx = cv.getContext('2d');
+  const cellPx = 500 * scale;
+  const cellX = col => (col - bbox.minCol) * cellPx;
+  const cellY = row => (row - bbox.minRow) * cellPx;
+
+  ctx.fillStyle = '#f0f0f0';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.strokeStyle = '#d0d0d0';
+  ctx.lineWidth = Math.max(0.5, cv.width / 1400);
+  for (let c = 0; c <= totalCols; c++) {
+    const x = c * cellPx;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cv.height); ctx.stroke();
+  }
+  for (let r = 0; r <= totalRows; r++) {
+    const y = r * cellPx;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cv.width, y); ctx.stroke();
+  }
+
+  // 워터마크 크기·간격은 캔버스 전체에서 한 번만 정해 모든 구역이 공유한다
+  // (구역마다 새로 계산하면 경계에서 무늬가 안 맞고 뚝뚝 끊겨 보인다).
+  const minZoneDimPx = Math.min(...zones.map(z => {
+    const b = zoneBounds(z);
+    return Math.min((b.maxCol - b.minCol) * cellPx, (b.maxRow - b.minRow) * cellPx);
+  }));
+  const fSize = Math.round(Math.max(12, Math.min(minZoneDimPx * 0.18, 32)));
+  ctx.font = `600 ${fSize}px 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+  const text = '3Y Ent.';
+  const tw = ctx.measureText(text).width;
+  const stepX = Math.round(tw * 2.0);
+  const stepY = Math.round(fSize * 3.5);
+  const halfD = Math.ceil(Math.hypot(cv.width, cv.height) / 2) + Math.max(stepX, stepY);
+  const wm = { text, fSize, stepX, stepY, halfD };
+
+  zones.forEach((zone, zi) => { drawGuideZone(ctx, zone, zi, cellX, cellY, cellPx, cv, wm); });
+
+  return cv.toDataURL('image/png');
 }

@@ -45,7 +45,10 @@ function defaultConfig(type) {
     case 'input':
       return { sourceKind: 'vmix' };
     case 'console':
-      return { deviceId: null, outputKind: 'lan-ports', mode: null, cascade: 1, manualInputPorts: 2, manualOutputPorts: 2, dviLink: 'single' };
+      return {
+        deviceId: null, outputKind: 'lan-ports', mode: null, cascade: 1,
+        manualInputPorts: 2, manualOutputPorts: 2, dviLink: 'single', auxMode: 'switcher',
+      };
     case 'sending':
       return { deviceId: null, portCount: 8, perPortMaxPx: 655360, inputMaxPx: null };
     case 'led':

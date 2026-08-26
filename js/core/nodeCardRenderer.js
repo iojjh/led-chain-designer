@@ -4,20 +4,34 @@
 const CARD_WIDTH = 180;
 const CARD_MIN_HEIGHT = 64;
 const PORT_ROW_HEIGHT = 20;
+const PORTS_TOP_DEFAULT = 40; // 헤더 한 줄(아이콘+라벨) 높이 — 본문이 안 길어지면 이 값 그대로
+const PORTS_BOTTOM_PAD = CARD_MIN_HEIGHT - PORTS_TOP_DEFAULT; // 마지막 포트 아래 여백(기존 폭 유지)
 
 let _nodeLayerEl = null;
+
+// 노드별로 실제 렌더된 "헤더+본문" 높이 = 포트 영역이 시작되는 y 오프셋을
+// 기억해둔다. 본문 요약(cardSummary)이 줄바꿈으로 여러 줄이 되면 카드마다 이
+// 값이 달라지므로, DOM에 실제로 그려본 뒤(updateCardEl) 실측해 여기 저장한다
+// — 카드 전체 높이(cardHeightFor)와 포트 좌표(getPortWorldPos) 양쪽이 이
+// 캐시를 그대로 읽어야 포트 점과 실제로 그려지는 연결선이 어긋나지 않는다.
+// 아직 측정된 적 없는 노드는 기본값(PORTS_TOP_DEFAULT)을 쓴다.
+let _portsTopCache = new Map();
 
 function initNodeCardRenderer(nodeLayerEl) {
   _nodeLayerEl = nodeLayerEl;
 }
 
-// 카드 CSS 레이아웃(.node-ports: top 40px, 세로 gap 8px, 점 11px)에 맞춘 포트 월드 좌표.
+function portsTopFor(nodeId) {
+  return _portsTopCache.get(nodeId) || PORTS_TOP_DEFAULT;
+}
+
+// 카드 CSS 레이아웃(.node-ports: 세로 gap 8px, 점 11px)에 맞춘 포트 월드 좌표.
 // dir은 'in'(pwrIn 포함) 또는 'out'.
 function getPortWorldPos(node, dir, portId) {
   const ports = getPorts(node);
   const list = ports[dir] || [];
   const idx = Math.max(0, list.findIndex(p => p.id === portId));
-  const y = node.y + 40 + idx * 19 + 5.5;
+  const y = node.y + portsTopFor(node.id) + idx * 19 + 5.5;
   const x = dir === 'in' ? node.x : node.x + CARD_WIDTH;
   return { x, y };
 }
@@ -25,7 +39,7 @@ function getPortWorldPos(node, dir, portId) {
 function cardHeightFor(node) {
   const ports = getPorts(node);
   const rows = Math.max(ports.in.length, ports.out.length, 1);
-  return CARD_MIN_HEIGHT + Math.max(0, rows - 1) * PORT_ROW_HEIGHT;
+  return portsTopFor(node.id) + PORTS_BOTTOM_PAD + Math.max(0, rows - 1) * PORT_ROW_HEIGHT;
 }
 
 function renderNodeCards() {
@@ -41,6 +55,9 @@ function renderNodeCards() {
 
   _nodeLayerEl.querySelectorAll('.node-card').forEach(el => {
     if (!seen.has(el.dataset.nodeId)) { el.remove(); }
+  });
+  Array.from(_portsTopCache.keys()).forEach(id => {
+    if (!seen.has(id)) { _portsTopCache.delete(id); }
   });
 
   updatePaletteStartHint();
@@ -70,7 +87,6 @@ function buildCardEl(node) {
       <span class="node-card-badge"></span>
     </div>
     <div class="node-card-body"></div>
-    <div class="node-ports node-ports-in"></div>
     <div class="node-ports node-ports-out"></div>
   `;
   return el;
@@ -78,36 +94,35 @@ function buildCardEl(node) {
 
 function updateCardEl(el, node) {
   const meta = NODE_TYPES[node.type];
-  const h = cardHeightFor(node);
   el.style.left = `${node.x}px`;
   el.style.top = `${node.y}px`;
   el.style.width = `${CARD_WIDTH}px`;
-  el.style.height = `${h}px`;
   el.classList.toggle('selected', State.ui.selectedId === node.id);
   el.classList.toggle('category-power', meta.category === 'power');
   el.classList.toggle('is-led', node.type === 'led');
 
   el.querySelector('.node-card-icon').textContent = meta.icon;
   el.querySelector('.node-card-label').textContent = node.label;
-  el.querySelector('.node-card-body').textContent = cardSummary(node);
+  const bodyEl = el.querySelector('.node-card-body');
+  bodyEl.textContent = cardSummary(node);
   renderValidationBadge(el, node);
 
+  // 본문이 줄바꿈되면 헤더+본문 실제 높이가 노드마다 달라진다. 캔버스가 숨겨진
+  // 상태(예: LED 설계 세부 페이지가 열려 있을 때)면 offsetHeight가 0으로
+  // 나오므로, 그런 경우엔 이전에 측정해둔 캐시 값을 그대로 두고 건드리지 않는다.
+  const headEl = el.querySelector('.node-card-head');
+  const measured = headEl.offsetHeight + bodyEl.offsetHeight;
+  if (measured > 0) { _portsTopCache.set(node.id, measured); }
+
+  const h = cardHeightFor(node);
+  el.style.height = `${h}px`;
+
+  const portsTop = portsTopFor(node.id);
+  const outEl = el.querySelector('.node-ports-out');
+  outEl.style.top = `${portsTop}px`;
+
   const ports = getPorts(node);
-  renderPortDots(el.querySelector('.node-ports-in'), node, ports.in, 'in');
-  renderPortDots(el.querySelector('.node-ports-out'), node, ports.out, 'out');
-
-  if (node.type === 'console') { markConsoleInputFullness(el, node); }
-}
-
-// 콘솔 입력 도트는 하나로 통합돼 있으므로, 실제 물리 포트가 전부 찼는지를
-// 그 도트에 표시해 "포트 수 초과 시 불가"를 드래그해보기 전에 알 수 있게 한다.
-function markConsoleInputFullness(el, node) {
-  const dot = el.querySelector('.node-ports-in .port-dot');
-  if (!dot) { return; }
-  const total = getConsoleInputPorts(node).length;
-  const occupied = State.graph.edges.filter(e => e.to.nodeId === node.id).length;
-  dot.classList.toggle('port-full', occupied >= total);
-  dot.title = `입력 (${occupied}/${total} 연결됨)`;
+  renderPortDots(outEl, node, ports.out, 'out');
 }
 
 const VALIDATED_TYPES = new Set(['input', 'console', 'sending', 'led']);
@@ -151,7 +166,15 @@ function cardSummary(node) {
       // 듀얼링크가 켜져 있으면(현재 J6만 해당, 자동 판정) 카드에서 바로 보이게
       // — 속성 패널을 열지 않아도 "DVI2가 왜 안 보이는지" 알 수 있어야 한다.
       const dualLabel = node.config.dviLink === 'dual' ? ' · 듀얼링크(DVI2 사용불가)' : '';
-      return `${base} · 입력 ${occupied}/${total}${dualLabel}`;
+      // 콘솔→샌딩카드→LED가 실제로 연결돼 있으면 포트별로 내보내는 해상도·
+      // 최대 Hz도 함께 보여준다(사용자 요청, 2026-08-26 — 샌딩카드 카드와
+      // 대칭). 포트가 여럿이면 콤마로 이어 붙이고(긴 경우 카드 자체가
+      // 말줄임표로 잘림), 속성 패널 출력 포트 목록에 전체가 있다.
+      const outputInfo = resolveConsoleOutputInfo(State.graph, node);
+      const outputLabel = outputInfo.length
+        ? ' · ' + outputInfo.map(i => `${i.portLabel} ${i.w}×${i.h}${i.hz ? `·${i.hz}Hz` : ''}`).join(', ')
+        : '';
+      return `${base} · 입력 ${occupied}/${total}${dualLabel}${outputLabel}`;
     }
     case 'sending': {
       const d = node.config.deviceId ? getDevice('sending', node.config.deviceId) : null;

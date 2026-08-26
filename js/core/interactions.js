@@ -6,6 +6,7 @@
 
 let _dragNodeId = null;
 let _dragOffset = { x: 0, y: 0 };
+let _dragStartPos = { x: 0, y: 0 }; // 드래그 시작 시점의 노드 좌표 — 겹치면 여기로 되돌린다
 let _isPanning = false;
 let _panStart = { x: 0, y: 0 };
 let _panOrigin = { x: 0, y: 0 };
@@ -176,6 +177,7 @@ function handleNodeLayerDown(targetEl, x, y) {
   const world = screenToWorld(x, y);
   _dragNodeId = nodeId;
   _dragOffset = { x: world.x - node.x, y: world.y - node.y };
+  _dragStartPos = { x: node.x, y: node.y };
   _dragMoved = false;
   _dragStartScreen = { x, y };
 }
@@ -277,9 +279,49 @@ function handlePointerUp(x, y) {
     selectNode(_dragNodeId);
     renderNodeCards();
     renderPropertiesPanel();
+  } else if (_dragNodeId && _dragMoved && nodeOverlapsAny(_dragNodeId)) {
+    // 드래그해서 놓은 자리가 다른 카드와 겹치면 "항상 안 겹친다"를 지키기
+    // 위해 이동 자체를 취소한다 — 드래그 시작 위치로 부드럽게 튕겨 돌아간다.
+    snapNodeBack(_dragNodeId, _dragStartPos);
   }
   _dragNodeId = null;
   _isPanning = false;
+}
+
+// 노드 카드끼리 항상 겹치지 않게 한다: 드래그 중에는 자유롭게 움직이게
+// 두되(도중에 막으면 오히려 답답하다), 손을 뗀 최종 위치가 다른 카드와
+// 겹치면 여기서 드래그 시작 위치로 되돌린다.
+function rectsOverlap(a, b) {
+  const aH = cardHeightFor(a);
+  const bH = cardHeightFor(b);
+  return a.x < b.x + CARD_WIDTH && a.x + CARD_WIDTH > b.x
+    && a.y < b.y + bH && a.y + aH > b.y;
+}
+
+function nodeOverlapsAny(nodeId) {
+  const node = getNode(nodeId);
+  if (!node) { return false; }
+  return State.graph.nodes.some(other => other.id !== nodeId && rectsOverlap(node, other));
+}
+
+// 위치는 즉시 되돌리되(state), 화면은 .snap-back 클래스가 붙어있는 동안만
+// CSS 트랜지션으로 부드럽게 튕겨 보이게 한다 — 평소 드래그 중 매 프레임
+// style.left/top을 갱신할 때는 이 클래스가 없어 커서를 지연 없이 그대로
+// 따라간다. .shake는 "여기 놓을 수 없다"는 걸 즉각적으로 알리는 짧은
+// 부르르 떨림 애니메이션 — 위치가 되돌아가는 트랜지션과 동시에 재생된다.
+function snapNodeBack(nodeId, pos) {
+  moveNode(nodeId, pos.x, pos.y);
+  const el = document.querySelector(`.node-card[data-node-id="${nodeId}"]`);
+  if (!el) { renderNodeCards(); render(); return; }
+  el.classList.add('snap-back', 'shake');
+  renderNodeCards();
+  render();
+  const cleanupSnap = () => { el.classList.remove('snap-back'); el.removeEventListener('transitionend', cleanupSnap); };
+  el.addEventListener('transitionend', cleanupSnap);
+  setTimeout(cleanupSnap, 300); // transitionend가 안 오는 경우(예: 곧바로 재드래그) 대비
+  const cleanupShake = () => { el.classList.remove('shake'); el.removeEventListener('animationend', cleanupShake); };
+  el.addEventListener('animationend', cleanupShake);
+  setTimeout(cleanupShake, 400);
 }
 
 // 연결 드롭 지점을 정한다: 정확히 입력 포트 도트 위에 놓였으면 그 포트를 쓰고,
@@ -339,9 +381,18 @@ function resolveConsoleInputConnection(fromNode, fromPortId, toNode, clientX, cl
 // 아예 없거나 전부 찼으면 연결을 거부하고, 하나만 남았으면 바로 연결하고,
 // 여러 개 남았으면 사용자가 고르도록 피커를 띄운다.
 function resolveConsoleOutputConnection(fromNode, toNode, toPortId, clientX, clientY) {
-  const allPorts = getConsoleOutputPorts(fromNode).filter(p => isPairAllowed(fromNode, p.id, toNode, toPortId));
-  if (allPorts.length === 0) {
+  const compatible = getConsoleOutputPorts(fromNode).filter(p => isPairAllowed(fromNode, p.id, toNode, toPortId));
+  if (compatible.length === 0) {
     showToast('이 목적지로 연결할 수 있는 출력 포트가 없습니다');
+    return;
+  }
+  // 하나의 LED를 나눠 담당하는 샌딩카드 두 대에 같은 미러 쌍(예: 1a/1b)을
+  // 하나씩 물리면 둘 다 같은 신호를 받아 화면을 나눌 수 없다 — 그런 후보
+  // 포트는 애초에 자동 연결·피커 목록에서 빼서 선택할 수 없게 한다
+  // (graphOps.js의 mirrorPortConflict).
+  const allPorts = compatible.filter(p => !mirrorPortConflict(State.graph, fromNode, p.id, toNode));
+  if (allPorts.length === 0) {
+    showToast('같은 LED를 나눠 담당하는 다른 샌딩카드가 이미 이 콘솔의 같은 미러 포트 쌍을 쓰고 있어 연결할 수 없습니다');
     return;
   }
   const occupied = new Set(State.graph.edges.filter(e => e.from.nodeId === fromNode.id).map(e => e.from.portId));

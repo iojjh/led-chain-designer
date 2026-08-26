@@ -60,6 +60,19 @@ function zoneBounds(zone) {
   return { minRow: zone.startRow, minCol: zone.startCol, maxRow: zone.startRow + zone.rows, maxCol: zone.startCol + zone.cols };
 }
 
+// 구역이 실제로 차지하는 500mm 격자 칸을 {row,col} 낱개 목록으로 돌려준다 —
+// 사각형 구역(rows×cols)과 자유 구역(zone.cells)을 같은 모양(칸 단위 목록)
+// 으로 다뤄야, 가이드 이미지의 배경 채우기·테두리 그리기처럼 오목한 모양도
+// 실제 칸만 정확히(바운딩 박스가 아니라) 다룰 수 있다.
+function zoneGridCells(zone) {
+  if (zone.cells) { return zone.cells.map(c => ({ row: c.row, col: c.col })); }
+  const cells = [];
+  for (let r = 0; r < zone.rows; r++) {
+    for (let c = 0; c < zone.cols; c++) { cells.push({ row: zone.startRow + r, col: zone.startCol + c }); }
+  }
+  return cells;
+}
+
 // 여러 구역(사각형이든 자유 구역이든)을 함께 감싸는 최소 바운딩 박스(격자 칸
 // 좌표계). 자유 배치 캔버스가 격자를 얼마나 자동으로 넓혀야 하는지, 카드
 // 요약이 비정형 설치 전체를 "최소 직사각형" 하나로 어떻게 잡을지 계산하는 데
@@ -88,6 +101,34 @@ function boundingResolutionForZones(zones) {
   return resolutionForArea(w, h, zones[0].led);
 }
 
+// 구역 라벨(이름·피치 등)을 그릴 칸 하나를 고른다 — 결과는 격자 칸 좌표계의
+// "중심점"(row/col에 0.5를 더한 소수 좌표)이라 호출자가 그대로 셀 크기를
+// 곱해 픽셀 좌표로 바꾸면 된다. 사각형 구역은 바운딩 박스 중심이 항상 구역
+// 내부이므로 그대로 쓰면 되지만, 자유 구역(zone.cells)은 오목한/도넛형
+// 모양이면 바운딩 박스 중심이 실제로는 구역 밖(빈 칸)에 떨어질 수 있다 —
+// 그 중심에 가장 가까운 실제 칸을 대신 골라, 라벨이 항상 구역 내부에
+// 표시되게 한다(사용자 요청).
+function labelCellForZone(zone) {
+  const bounds = zoneBounds(zone);
+  const centerRow = (bounds.minRow + bounds.maxRow) / 2;
+  const centerCol = (bounds.minCol + bounds.maxCol) / 2;
+  if (!zone.cells) {
+    return { row: centerRow, col: centerCol };
+  }
+  let best = zone.cells[0];
+  let bestDist = Infinity;
+  zone.cells.forEach(c => {
+    const dr = (c.row + 0.5) - centerRow;
+    const dc = (c.col + 0.5) - centerCol;
+    const dist = dr * dr + dc * dc;
+    if (dist < bestDist) { bestDist = dist; best = c; }
+  });
+  return { row: best.row + 0.5, col: best.col + 0.5 };
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { snapAreaToGrid, resolutionForArea, planFullAreaLed, zoneBounds, boundingBoxOfZones, boundingResolutionForZones };
+  module.exports = {
+    snapAreaToGrid, resolutionForArea, planFullAreaLed, zoneBounds, zoneGridCells, boundingBoxOfZones, boundingResolutionForZones,
+    labelCellForZone,
+  };
 }

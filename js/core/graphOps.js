@@ -51,6 +51,31 @@ function isPairAllowed(fromNode, fromPortId, toNode, toPortId) {
   return false;
 }
 
+// 콘솔 출력 포트 중 mirror 필드가 같은 것끼리는 항상 같은 신호를 내보내는
+// "미러" 쌍이다(devices.js — 메인/백업 A·B, EC100 AUX 스위처 모드의 1/2·3/4
+// 등). 같은 화면을 두 군데로 "복제"해 내보내는 용도로는 미러 쌍을 각각 다른
+// 목적지에 연결해도 되지만, 샌딩카드 두 대가 하나의 LED를 나눠 담당하는
+// 상황(서로 다른 화면 조각을 받아야 함)에서 그 두 샌딩카드에 같은 미러 쌍을
+// 하나씩 물리면 둘 다 똑같은 신호를 받게 돼 화면을 나눌 수 없다 — 그런
+// 조합만 걸러낸다(사용자 확인, 2026-08-26).
+function mirrorPortConflict(graph, fromNode, fromPortId, toNode) {
+  if (toNode.type !== 'sending') { return false; }
+  const ports = getConsoleOutputPorts(fromNode);
+  const port = ports.find(p => p.id === fromPortId);
+  if (!port || !port.mirror) { return false; }
+  const siblingIds = new Set(ports.filter(p => p.mirror === port.mirror && p.id !== fromPortId).map(p => p.id));
+  if (!siblingIds.size) { return false; }
+  const ledIds = new Set(downstreamOf(graph, toNode.id).filter(n => n.type === 'led').map(n => n.id));
+  if (!ledIds.size) { return false; }
+  return graph.edges.some(e => {
+    if (e.from.nodeId !== fromNode.id || !siblingIds.has(e.from.portId)) { return false; }
+    const otherNode = graph.nodes.find(n => n.id === e.to.nodeId);
+    if (!otherNode || otherNode.type !== 'sending' || otherNode.id === toNode.id) { return false; }
+    const otherLedIds = downstreamOf(graph, otherNode.id).filter(n => n.type === 'led').map(n => n.id);
+    return otherLedIds.some(id => ledIds.has(id));
+  });
+}
+
 function edgeExists(edges, fromNodeId, fromPortId, toNodeId, toPortId) {
   return edges.some(e =>
     e.from.nodeId === fromNodeId && e.from.portId === fromPortId &&
@@ -88,6 +113,9 @@ function canConnect(graph, fromNodeId, fromPortId, toNodeId, toPortId) {
   if (!targetAllowsMultiple(toNode, toPortId) && targetPortOccupied(graph.edges, toNodeId, toPortId)) {
     return { ok: false, reason: 'target-port-occupied' };
   }
+  if (mirrorPortConflict(graph, fromNode, fromPortId, toNode)) {
+    return { ok: false, reason: 'mirror-port-conflict' };
+  }
   return { ok: true };
 }
 
@@ -112,7 +140,7 @@ function incomingEdge(graph, nodeId, portId) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    isPairAllowed, edgeExists, targetPortOccupied, canConnect,
+    isPairAllowed, edgeExists, targetPortOccupied, mirrorPortConflict, canConnect,
     upstreamOf, downstreamOf, incomingEdge,
   };
 }

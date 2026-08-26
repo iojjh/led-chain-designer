@@ -21,6 +21,13 @@
     <canvas id="graphCanvas"></canvas>
     <div id="nodeLayer"></div>
 
+    <!-- 연결선 라벨(포트 이름 등)은 캔버스가 아니라 여기에 DOM으로 띄운다 —
+         캔버스는 #nodeLayer(노드 카드, z-index 5)보다 아래 레이어라, 선이
+         짧아 라벨이 근처 카드와 겹치면 캔버스에 그린 텍스트는 카드에 가려진다.
+         이 레이어는 z-index를 카드보다 높여(canvasRenderer.js의
+         syncEdgeLabels) 항상 온전히 보이게 한다. -->
+    <div id="edgeLabelLayer" class="edge-label-layer"></div>
+
     <!-- 연결선(엣지) 삭제 버튼: 선을 클릭/탭해 선택하면 그 중간 지점에 뜬다
          (canvasRenderer.js의 updateEdgeDeleteBtn). #nodeLayer와 같은 좌표계
          (position:absolute, left/top:0, worldToScreen 그대로)를 쓰므로
@@ -271,6 +278,25 @@
         </div>
         <div class="led-side-section led-total">
           총 필요 픽셀: <b id="ledTotalPx">0</b>px
+        </div>
+      </div>
+    </div>
+
+    <!-- 가이드 이미지 미리보기: 구역 배치를 설치 기사·클라이언트에게 공유할 수
+         있는 워터마크 PNG로 내보낸다(led-calculator 혼합 시뮬레이터의 "가이드
+         이미지 저장" 기능 이식 — ledDesignView.js의 generateGuideImageDataUrl). -->
+    <div id="guideImageModal" class="modal-bg" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <span>가이드 이미지</span>
+          <button id="guideImageClose" class="props-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <img id="guideImagePreview" class="guide-image-preview" alt="가이드 이미지 미리보기">
+          <div class="guide-image-actions">
+            <button id="guideImageShareBtn" class="props-btn" hidden>공유</button>
+            <button id="guideImageDownloadBtn" class="props-btn props-btn-primary">다운로드</button>
+          </div>
         </div>
       </div>
     </div>

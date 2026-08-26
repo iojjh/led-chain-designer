@@ -7,15 +7,16 @@ test('getDevice returns null for unknown category/id', () => {
   expect(getDevice('nope', 'nope')).toBeNull();
 });
 
-test('console presets are limited to J6 and MIG-EC90 only', () => {
-  expect(Object.keys(DEVICES.console).sort()).toEqual(['magnimage-ec90', 'novastar-j6']);
+test('console presets are limited to J6, MIG-EC90 and MIG-EC100 only', () => {
+  expect(Object.keys(DEVICES.console).sort()).toEqual(['magnimage-ec100', 'magnimage-ec90', 'novastar-j6']);
   expect(getDevice('console', 'novastar-mctrl4k')).toBeNull();
   expect(getDevice('console', 'novastar-mctrl660pro')).toBeNull();
 });
 
-test('J6 and MIG-EC90 are video-signal consoles (cannot feed led directly)', () => {
+test('J6, MIG-EC90 and MIG-EC100 are all video-signal consoles (cannot feed led directly)', () => {
   expect(getDevice('console', 'novastar-j6').outputKind).toBe('video-signal');
   expect(getDevice('console', 'magnimage-ec90').outputKind).toBe('video-signal');
+  expect(getDevice('console', 'magnimage-ec100').outputKind).toBe('video-signal');
 });
 
 test('J6 splicer mode capacity matches the vendor spec', () => {
@@ -77,6 +78,19 @@ describe('getConsoleInputPorts', () => {
     expect(ports.find(p => p.id === 'dvi1-1').maxPx).toBe(1920 * 1080);
   });
 
+  test('EC100 exposes its 12 input slots in real physical order (1-4 & 9-12 HDMI/DP, 5 & 7 SDI, 6 & 8 HDMI1.4)', () => {
+    const ports = getConsoleInputPorts({ config: { deviceId: 'magnimage-ec100' } });
+    expect(ports.map(p => p.id)).toEqual([
+      'in1', 'in2', 'in3', 'in4', 'in5', 'in6', 'in7', 'in8', 'in9', 'in10', 'in11', 'in12',
+    ]);
+    expect(ports.find(p => p.id === 'in1').label).toBe('입력 1 (HDMI2.0/DP1.2)');
+    expect(ports.find(p => p.id === 'in5').label).toBe('입력 5 (12G-SDI)');
+    expect(ports.find(p => p.id === 'in6').label).toBe('입력 6 (HDMI1.4)');
+    expect(ports.find(p => p.id === 'in7').label).toBe('입력 7 (12G-SDI)');
+    expect(ports.find(p => p.id === 'in8').label).toBe('입력 8 (HDMI1.4)');
+    expect(ports.find(p => p.id === 'in9').label).toBe('입력 9 (HDMI2.0/DP1.2)');
+  });
+
   test('an unknown/removed deviceId falls back to manual mode ports', () => {
     const ports = getConsoleInputPorts({ config: { deviceId: 'novastar-mctrl4k' } });
     expect(ports.map(p => p.id)).toEqual(['in1', 'in2']);
@@ -96,50 +110,58 @@ describe('getConsoleInputPorts', () => {
 });
 
 describe('getConsoleOutputPorts', () => {
-  test('J6 splicer mode exposes its 4 real DVI output connectors (DVI1-DVI4)', () => {
+  test('J6 splicer mode exposes 8 real DVI output connectors (DVI1-4, each with a main + backup)', () => {
     const ports = getConsoleOutputPorts({ config: { deviceId: 'novastar-j6', mode: 'splicer' } });
-    expect(ports.map(p => p.id)).toEqual(['dvi1', 'dvi2', 'dvi3', 'dvi4']);
-    expect(ports.map(p => p.label)).toEqual(['DVI1', 'DVI2', 'DVI3', 'DVI4']);
+    expect(ports.map(p => p.id)).toEqual(['dvi1', 'dvi1b', 'dvi2', 'dvi2b', 'dvi3', 'dvi3b', 'dvi4', 'dvi4b']);
     expect(ports.every(p => p.maxPx === 1920 * 1200)).toBe(true);
   });
 
-  test('J6 switcher mode (single DVI, default) exposes PGM DVI1/DVI2 + AUX DVI3', () => {
+  test('J6 switcher mode (single DVI, default) exposes PGM DVI1/DVI2 (+backups) + AUX DVI3 (+backup)', () => {
     const ports = getConsoleOutputPorts({ config: { deviceId: 'novastar-j6', mode: 'switcher' } });
-    expect(ports.map(p => p.id)).toEqual(['dvi1', 'dvi2', 'dvi3']);
+    expect(ports.map(p => p.id)).toEqual(['dvi1', 'dvi1b', 'dvi2', 'dvi2b', 'dvi3', 'dvi3b']);
     expect(ports.find(p => p.id === 'dvi3').label).toBe('DVI3 (AUX)');
+    expect(ports.find(p => p.id === 'dvi3b').aux).toBe(true);
     expect(ports.every(p => p.maxPx === 1920 * 1200)).toBe(true);
   });
 
-  test('J6 switcher mode + dual-link drops DVI2, leaves DVI1 with an unconfirmed (null) cap', () => {
+  test('J6 switcher mode + dual-link drops DVI2 (both main+backup), leaves DVI1 (both) with an unconfirmed (null) cap', () => {
     const ports = getConsoleOutputPorts({ config: { deviceId: 'novastar-j6', mode: 'switcher', dviLink: 'dual' } });
-    expect(ports.map(p => p.id)).toEqual(['dvi1', 'dvi3']);
+    expect(ports.map(p => p.id)).toEqual(['dvi1', 'dvi1b', 'dvi3', 'dvi3b']);
     expect(ports.find(p => p.id === 'dvi1').maxPx).toBeNull();
+    expect(ports.find(p => p.id === 'dvi1b').maxPx).toBeNull();
   });
 
-  test('J6 with no mode set falls back to its defaultMode (now switcher, single DVI: 3 outputs)', () => {
+  test('J6 with no mode set falls back to its defaultMode (now switcher, single DVI: 6 outputs)', () => {
     const ports = getConsoleOutputPorts({ config: { deviceId: 'novastar-j6' } });
-    expect(ports).toHaveLength(3);
+    expect(ports).toHaveLength(6);
   });
 
-  test('only J6\'s AUX connector (DVI3) is flagged aux — PGM connectors are not', () => {
+  test('only J6\'s AUX connectors (DVI3 main+backup) are flagged aux — PGM connectors are not', () => {
     const ports = getConsoleOutputPorts({ config: { deviceId: 'novastar-j6', mode: 'switcher' } });
     expect(ports.find(p => p.id === 'dvi1').aux).toBe(false);
+    expect(ports.find(p => p.id === 'dvi1b').aux).toBe(false);
     expect(ports.find(p => p.id === 'dvi2').aux).toBe(false);
+    expect(ports.find(p => p.id === 'dvi2b').aux).toBe(false);
     expect(ports.find(p => p.id === 'dvi3').aux).toBe(true);
+    expect(ports.find(p => p.id === 'dvi3b').aux).toBe(true);
   });
 
-  test('EC90 exposes 4 logical output channels (PGM1/PGM2/AUX1/AUX2) — A/B are duplicate backups, not separate ports', () => {
+  test('EC90 exposes 8 output connectors (4 logical channels × main+backup) — A/B are independently connectable mirrors, not merged', () => {
     const ports = getConsoleOutputPorts({ config: { deviceId: 'magnimage-ec90' } });
-    expect(ports.map(p => p.id)).toEqual(['pgm1', 'pgm2', 'aux1', 'aux2']);
+    expect(ports.map(p => p.id)).toEqual(['pgm1', 'pgm1b', 'pgm2', 'pgm2b', 'aux1', 'aux1b', 'aux2', 'aux2b']);
     expect(ports.every(p => p.maxPx === 4352 * 2176)).toBe(true);
   });
 
-  test('EC90 labels use the real physical connector name (HDMI Na) and mark AUX channels only', () => {
+  test('EC90 labels use the real physical connector name (HDMI Na/Nb) and mark AUX channels only', () => {
     const ports = getConsoleOutputPorts({ config: { deviceId: 'magnimage-ec90' } });
     expect(ports.find(p => p.id === 'pgm1').label).toBe('HDMI 1a');
     expect(ports.find(p => p.id === 'pgm1').aux).toBe(false);
+    expect(ports.find(p => p.id === 'pgm1b').label).toBe('HDMI 1b');
+    expect(ports.find(p => p.id === 'pgm1b').aux).toBe(false);
     expect(ports.find(p => p.id === 'aux1').label).toBe('HDMI 3a (AUX)');
     expect(ports.find(p => p.id === 'aux1').aux).toBe(true);
+    expect(ports.find(p => p.id === 'aux1b').label).toBe('HDMI 3b (AUX)');
+    expect(ports.find(p => p.id === 'aux1b').aux).toBe(true);
   });
 
   test('manual mode defaults to 2 generic output ports matching outputKind', () => {
@@ -156,12 +178,57 @@ describe('getConsoleOutputPorts', () => {
     expect(getConsoleOutputPorts({ config: { manualOutputPorts: 0 } })).toHaveLength(1);
     expect(getConsoleOutputPorts({ config: { manualOutputPorts: 99 } })).toHaveLength(8);
   });
+
+  test('EC100 always exposes 8 MAIN connectors (4 channels × main+backup) regardless of auxMode', () => {
+    const switcher = getConsoleOutputPorts({ config: { deviceId: 'magnimage-ec100', auxMode: 'switcher' } });
+    expect(switcher.filter(p => p.id.startsWith('main')).map(p => p.id)).toEqual(
+      ['main1', 'main1b', 'main2', 'main2b', 'main3', 'main3b', 'main4', 'main4b']
+    );
+    expect(switcher.filter(p => p.id.startsWith('main')).every(p => !p.aux)).toBe(true);
+  });
+
+  test('EC100 output labels use the real connector names — MAIN as "HDMI Na"/"HDMI Nb", AUX plainly as "AUXn" (no a/b, no (AUX) suffix)', () => {
+    const switcher = getConsoleOutputPorts({ config: { deviceId: 'magnimage-ec100' } });
+    expect(switcher.map(p => p.label)).toEqual([
+      'HDMI 1a', 'HDMI 1b', 'HDMI 2a', 'HDMI 2b', 'HDMI 3a', 'HDMI 3b', 'HDMI 4a', 'HDMI 4b',
+      'AUX1', 'AUX2', 'AUX3', 'AUX4',
+    ]);
+
+    const mosaic = getConsoleOutputPorts({ config: { deviceId: 'magnimage-ec100', auxMode: 'mosaic' } });
+    expect(mosaic.filter(p => p.id.startsWith('aux')).map(p => p.label)).toEqual(['AUX1', 'AUX2', 'AUX3', 'AUX4']);
+  });
+
+  // 스위처 모드의 AUX1/AUX2(, AUX3/AUX4)는 벤더 매뉴얼상 "copy each other" —
+  // 항상 같은 신호의 미러라 EC90/EC100 MAIN의 메인·백업(a/b)과 같은 성격이다.
+  // 그래서 하나로 합친 채널(예전의 aux12)이 아니라 mosaic 모드와 똑같이 4개
+  // 전부 독립적으로 연결 가능한 포트이되, mirror 필드로 "같은 신호"임을
+  // 표시해 graphOps.js의 mirrorPortConflict가 오용을 막는다.
+  test('EC100 switcher AUX mode: 4 independently connectable ports, paired via mirror (aux1~aux2, aux3~aux4)', () => {
+    const ports = getConsoleOutputPorts({ config: { deviceId: 'magnimage-ec100' } });
+    expect(ports.map(p => p.id)).toEqual(
+      ['main1', 'main1b', 'main2', 'main2b', 'main3', 'main3b', 'main4', 'main4b', 'aux1', 'aux2', 'aux3', 'aux4']
+    );
+    expect(ports.find(p => p.id === 'aux1').aux).toBe(true);
+    expect(ports.find(p => p.id === 'aux1').mirror).toBe(ports.find(p => p.id === 'aux2').mirror);
+    expect(ports.find(p => p.id === 'aux3').mirror).toBe(ports.find(p => p.id === 'aux4').mirror);
+    expect(ports.find(p => p.id === 'aux1').mirror).not.toBe(ports.find(p => p.id === 'aux3').mirror);
+  });
+
+  test('EC100 mosaic AUX mode ports have no mirror (genuinely independent, per manual)', () => {
+    const ports = getConsoleOutputPorts({ config: { deviceId: 'magnimage-ec100', auxMode: 'mosaic' } });
+    expect(ports.filter(p => p.id.startsWith('aux')).every(p => !p.mirror)).toBe(true);
+  });
+
+  test('EC100 mosaic AUX mode exposes 4 independent AUX channels instead', () => {
+    const ports = getConsoleOutputPorts({ config: { deviceId: 'magnimage-ec100', auxMode: 'mosaic' } });
+    expect(ports.filter(p => p.id.startsWith('aux')).map(p => p.id)).toEqual(['aux1', 'aux2', 'aux3', 'aux4']);
+  });
 });
 
 describe('getConsoleDisabledOutputPorts', () => {
-  test('J6 switcher + dual-link reports DVI2 as explicitly unavailable', () => {
+  test('J6 switcher + dual-link reports DVI2 (both main+backup) as explicitly unavailable', () => {
     const disabled = getConsoleDisabledOutputPorts({ config: { deviceId: 'novastar-j6', mode: 'switcher', dviLink: 'dual' } });
-    expect(disabled.map(p => p.id)).toEqual(['dvi2']);
+    expect(disabled.map(p => p.id)).toEqual(['dvi2', 'dvi2b']);
   });
 
   test('J6 switcher in single-DVI mode has nothing disabled', () => {

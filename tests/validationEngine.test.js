@@ -1,4 +1,6 @@
-const { runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput } = require('../js/validation/validationEngine.js');
+const {
+  runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput, resolveConsoleOutputInfo,
+} = require('../js/validation/validationEngine.js');
 
 function node(id, type, config, y) {
   return { id, type, x: 0, y: y || 0, label: type, config: config || {} };
@@ -250,6 +252,60 @@ describe('resolveSendingCardOutput (resolution + max achievable Hz shown on the 
   test('a sending card not connected to any (zoned) LED returns null', () => {
     const graph = { nodes: [node('s1', 'sending', {}, 100)], edges: [] };
     expect(resolveSendingCardOutput(graph, graph.nodes[0])).toBeNull();
+  });
+});
+
+describe('resolveConsoleOutputInfo (per-port resolution + Hz shown on the console node itself)', () => {
+  test('reports one entry per output port that actually leads to a resolvable sending card', () => {
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'splicer' }, 0),
+        node('s1', 'sending', {}, 100),
+        ledNode('led1', 0, zoneLedDesign()),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    const info = resolveConsoleOutputInfo(graph, graph.nodes[0]);
+    expect(info).toEqual([{ portId: 'dvi1', portLabel: 'DVI1', w: 512, h: 512, hz: 85 }]);
+  });
+
+  test('one entry per connected sending card when the console drives two channels', () => {
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'splicer' }, 0),
+        node('s1', 'sending', {}, 100),
+        node('s2', 'sending', {}, 150),
+        ledNode('led1', 0, zoneLedDesign()),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e3', kind: 'video', from: { nodeId: 'c1', portId: 'dvi2' }, to: { nodeId: 's2', portId: 'in' } },
+        { id: 'e4', kind: 'lan', from: { nodeId: 's2', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    const info = resolveConsoleOutputInfo(graph, graph.nodes[0]);
+    expect(info.map(i => i.portId).sort()).toEqual(['dvi1', 'dvi2']);
+    expect(info.every(i => i.w === 256)).toBe(true); // LED 한 대를 카드 2대가 나눠 맡음
+  });
+
+  test('a port that goes to a prompter (no sending card) is skipped', () => {
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'switcher' }, 0),
+        node('p1', 'prompter', {}, 100),
+      ],
+      edges: [{ id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi3' }, to: { nodeId: 'p1', portId: 'in' } }],
+    };
+    expect(resolveConsoleOutputInfo(graph, graph.nodes[0])).toEqual([]);
+  });
+
+  test('no output edges at all reports no entries', () => {
+    const graph = { nodes: [node('c1', 'console', { deviceId: 'novastar-j6' }, 0)], edges: [] };
+    expect(resolveConsoleOutputInfo(graph, graph.nodes[0])).toEqual([]);
   });
 });
 

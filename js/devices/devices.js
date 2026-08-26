@@ -26,39 +26,55 @@ const DEVICES = {
         { id: 'dvi1', label: 'DVI', maxPx: 1920 * 1080, count: 4 },
       ],
       // 출력 커넥터 실 구성(벤더 문서 Output/Rear Panel 표 + 사용자 확인,
-      // 2026-08-26): 물리 커넥터는 총 8개(4그룹 × 메인+백업)지만 백업은 케이블
-      // 이중화용 미러라 별개 목적지로 못 쓴다 — 그룹당 메인 1개, DVI1~DVI4만
-      // 선택 가능한 포트로 모델링한다. splicer 모드는 이 4개를 모두 동시에
-      // 하나의 모자이크 화면 출력에 쓴다.
+      // 2026-08-26): 물리 커넥터는 총 8개(4그룹 × 메인+백업). 벤더 문서는
+      // 백업을 케이블 이중화 목적으로 설명하지만, EC90/EC100과 마찬가지로
+      // 같은 신호의 미러라 "같은 화면을 두 군데로 동시에" 내보내는 용도로도
+      // 그대로 쓸 수 있어(사용자 확인) 메인(dvi1~dvi4)과 백업(dvi1b~dvi4b)을
+      // 각각 독립 연결 가능한 포트로 둔다 — 벤더 문서엔 백업 커넥터의 공식
+      // 이름이 없어 라벨은 "DVI1 (백업)"처럼 설명적으로 붙인다. splicer
+      // 모드는 이 8개를 모두 동시에 하나의 모자이크 화면 출력에 쓴다.
       //
-      // switcher 모드(신규 노드 기본값)는 PGM 2개(DVI1/DVI2) + AUX 1개(DVI3) —
-      // 평소엔 단일 DVI로 DVI1·DVI2가 각각 독립 연결 가능하지만, 듀얼링크를
-      // 켜면 그 둘의 대역폭이 DVI1 하나로 합쳐져 더 높은 해상도를 낼 수 있는
-      // 대신 DVI2가 비활성화된다("dual-link 모드에선 DVI1만 남고 DVI2는
-      // 비활성"이라는 벤더 문서 문구와 일치). 어느 쪽을 쓸지는 사용자가 직접
-      // 고르지 않고, 콘솔에 샌딩카드가 정확히 하나만 연결돼 있을 때 그 카드가
-      // 실제로 내보내는 해상도가 DVI 1개 상한(perOutputMaxPx)을 넘는지 보고
+      // switcher 모드(신규 노드 기본값)는 PGM 2조(DVI1/DVI2, 각각 메인+백업)
+      // + AUX 1조(DVI3, 메인+백업) — 평소엔 단일 DVI로 DVI1·DVI2가 각각
+      // 독립 연결 가능하지만, 듀얼링크를 켜면 그 둘의 대역폭이 DVI1(메인+
+      // 백업) 하나로 합쳐져 더 높은 해상도를 낼 수 있는 대신 DVI2(메인+백업)가
+      // 비활성화된다("dual-link 모드에선 DVI1만 남고 DVI2는 비활성"이라는
+      // 벤더 문서 문구와 일치). 어느 쪽을 쓸지는 사용자가 직접 고르지 않고,
+      // 콘솔에 샌딩카드가 정확히 하나만 연결돼 있을 때 그 카드가 실제로
+      // 내보내는 해상도가 DVI 1개 상한(perOutputMaxPx)을 넘는지 보고
       // validationEngine.js의 resolveJ6DualLink가 자동으로 정한다
       // (node.config.dviLink: 'single'|'dual', 기본 'single').
       modes: {
         splicer: {
           totalMaxPx: 9200000, maxMosaicWidthPx: 15360,
           outputPorts: [
-            { id: 'dvi1', label: 'DVI1' },
-            { id: 'dvi2', label: 'DVI2' },
-            { id: 'dvi3', label: 'DVI3' },
-            { id: 'dvi4', label: 'DVI4' },
+            { id: 'dvi1', label: 'DVI1', mirror: 'dvi1' },
+            { id: 'dvi1b', label: 'DVI1 (백업)', mirror: 'dvi1' },
+            { id: 'dvi2', label: 'DVI2', mirror: 'dvi2' },
+            { id: 'dvi2b', label: 'DVI2 (백업)', mirror: 'dvi2' },
+            { id: 'dvi3', label: 'DVI3', mirror: 'dvi3' },
+            { id: 'dvi3b', label: 'DVI3 (백업)', mirror: 'dvi3' },
+            { id: 'dvi4', label: 'DVI4', mirror: 'dvi4' },
+            { id: 'dvi4b', label: 'DVI4 (백업)', mirror: 'dvi4' },
           ],
         },
         switcher: {
           totalMaxPx: 4600000, approx: true, // 벤더 문서 근사치("4KK")
           // aux: true인 포트만 프롬프터 노드(nodeTypes.js)에 직결할 수 있다
           // (graphOps.js의 isPairAllowed) — DVI3은 AUX 커넥터이므로 표시.
+          // mirror: 같은 값을 가진 포트끼리는 같은 신호의 미러(메인/백업)라는
+          // 뜻 — graphOps.js의 mirrorPortConflict가 "한 LED를 나눠 담당하는
+          // 샌딩카드 두 대가 같은 미러 쌍에서 나온 동일 신호를 받는" 잘못된
+          // 배선을 막는 데 쓴다(서로 다른 화면을 내야 하는데 미러는 항상
+          // 같은 신호이므로 — 사용자 확인, 2026-08-26).
           outputPortsByDviLink: {
             single: [
-              { id: 'dvi1', label: 'DVI1' },
-              { id: 'dvi2', label: 'DVI2' },
-              { id: 'dvi3', label: 'DVI3 (AUX)', aux: true },
+              { id: 'dvi1', label: 'DVI1', mirror: 'dvi1' },
+              { id: 'dvi1b', label: 'DVI1 (백업)', mirror: 'dvi1' },
+              { id: 'dvi2', label: 'DVI2', mirror: 'dvi2' },
+              { id: 'dvi2b', label: 'DVI2 (백업)', mirror: 'dvi2' },
+              { id: 'dvi3', label: 'DVI3 (AUX)', aux: true, mirror: 'dvi3' },
+              { id: 'dvi3b', label: 'DVI3 (백업, AUX)', aux: true, mirror: 'dvi3' },
             ],
             dual: [
               // 합쳐진 DVI1의 실제 상한 수치는 벤더 문서에 없어 단정하지 않고
@@ -66,8 +82,10 @@ const DEVICES = {
               // 선택된 것이므로, 같은 상한으로 재검증하면 항상 초과로 잘못
               // 표시된다(validationEngine.js에서도 이 케이스는 커넥터 1개당
               // 상한 검증을 보류한다).
-              { id: 'dvi1', label: 'DVI1', maxPx: null },
-              { id: 'dvi3', label: 'DVI3 (AUX)', aux: true },
+              { id: 'dvi1', label: 'DVI1', maxPx: null, mirror: 'dvi1' },
+              { id: 'dvi1b', label: 'DVI1 (백업)', maxPx: null, mirror: 'dvi1' },
+              { id: 'dvi3', label: 'DVI3 (AUX)', aux: true, mirror: 'dvi3' },
+              { id: 'dvi3b', label: 'DVI3 (백업, AUX)', aux: true, mirror: 'dvi3' },
             ],
           },
         },
@@ -119,14 +137,15 @@ const DEVICES = {
       ],
       // 실제 출력 채널 4개(벤더 매뉴얼 Output 표 + 기본 화면 예시, 2026-08-26
       // 재확인): PROGRAM 2채널(1/2) + AUX 2채널(3/4), 채널마다 물리 HDMI
-      // 커넥터가 A/B 한 쌍씩(총 8개) 있지만 매뉴얼 원문이 "2×2 indicates
+      // 커넥터가 A/B 한 쌍씩(총 8개) 있다. 매뉴얼 원문은 "2×2 indicates
       // 2 groups of output and 2 duplicate output ports in each group"라고
-      // 명시 — A/B는 같은 채널의 신호를 그대로 복제하는 케이블 이중화용이지
-      // 서로 다른 목적지로 나눠 쓰는 슬롯이 아니다. 그래서 연결 가능 여부·점유
-      // 판정은 채널 4개(id: pgm1/pgm2/aux1/aux2) 단위로 하되, 실제 배선 시
-      // 어느 물리 잭에 꽂아야 하는지 알 수 있도록 라벨은 A 커넥터 이름
-      // ("HDMI 1a" 등, 사용자 요청)으로 표기한다 — "PGM1" 같은 추상 채널명
-      // 대신 후면 패널에 적힌 그대로. AUX 채널만 "(AUX)"를 붙인다.
+      // 설명하지만(케이블 이중화 목적), 같은 신호를 그대로 복제하는 것이므로
+      // A·B 각각에 서로 다른 케이블을 꽂아 "같은 화면을 두 군데로 동시에
+      // 내보내는" 용도로도 그대로 쓸 수 있다(사용자 확인, 2026-08-26) — 그래서
+      // A(id 그대로: pgm1/pgm2/aux1/aux2)와 B(id에 'b' 접미사: pgm1b 등)를
+      // 각각 독립적으로 연결 가능한 포트로 둔다. 둘 다 같은 신호의 미러라
+      // maxPx·kind는 동일하고 라벨의 "1a"/"1b"만 실제 후면 패널 커넥터 이름과
+      // 맞춘다. AUX 채널만 "(AUX)"를 붙인다.
       // "모자이크"는 A·B끼리가 아니라 채널 1+채널 2(또는 3+4)를 좌우로
       // 이어붙이는 콘솔 쪽 기능이다(기본 화면 예시: "1A 1B 2A 2B →
       // 7680×2160 LR Mosaic" — 7680=3840×2, 즉 두 채널의 폭을 합친 값).
@@ -136,11 +155,20 @@ const DEVICES = {
       // validationEngine.js가 "2번째 채널+샌딩카드로 나눠 모자이크로 연결"
       // 안내를 얹는다.
       outputs: {
+        // mirror: 같은 값이면 같은 신호의 미러(메인/백업)라는 뜻 —
+        // graphOps.js의 mirrorPortConflict가 이걸로 "한 LED를 나눠 담당하는
+        // 샌딩카드 두 대가 같은 미러 쌍에서 나온 동일 신호를 받는" 잘못된
+        // 배선(서로 다른 화면을 내야 하는데 미러는 항상 같은 신호이므로)을
+        // 막는다.
         ports: [
-          { id: 'pgm1', label: 'HDMI 1a' },
-          { id: 'pgm2', label: 'HDMI 2a' },
-          { id: 'aux1', label: 'HDMI 3a (AUX)', aux: true },
-          { id: 'aux2', label: 'HDMI 4a (AUX)', aux: true },
+          { id: 'pgm1', label: 'HDMI 1a', mirror: 'pgm1' },
+          { id: 'pgm1b', label: 'HDMI 1b', mirror: 'pgm1' },
+          { id: 'pgm2', label: 'HDMI 2a', mirror: 'pgm2' },
+          { id: 'pgm2b', label: 'HDMI 2b', mirror: 'pgm2' },
+          { id: 'aux1', label: 'HDMI 3a (AUX)', aux: true, mirror: 'aux1' },
+          { id: 'aux1b', label: 'HDMI 3b (AUX)', aux: true, mirror: 'aux1' },
+          { id: 'aux2', label: 'HDMI 4a (AUX)', aux: true, mirror: 'aux2' },
+          { id: 'aux2b', label: 'HDMI 4b (AUX)', aux: true, mirror: 'aux2' },
         ],
         // 채널 1개(A/B 아무 쪽이든)가 "커스텀 해상도(대역폭 최적화)"로 낼 수
         // 있는 절대 상한 — 가로 최대 4352px × 세로 최대 2176px(매뉴얼
@@ -164,6 +192,109 @@ const DEVICES = {
       ],
       note: 'HDMI 영상 출력 — LED디스플레이 직결 불가, 샌딩카드 노드를 반드시 거쳐야 함',
       sourcePdf: 'MIG-EC90_User_Manual_1.0.pdf',
+    },
+    'magnimage-ec100': {
+      id: 'magnimage-ec100', vendor: 'Magnimage', name: 'MIG-EC100 Event Controller', shortName: 'EC100',
+      outputKind: 'video-signal',
+      // 입력 12개는 커넥터 타입별로 번호가 이어지지 않고 실제 후면 패널
+      // 순서대로 섞여 있다(벤더 매뉴얼 기본 화면/Input Ports List 스크린샷,
+      // 2026-08-26): 1~4·9~12는 HDMI2.0/DP1.2 겸용, 5·7은 12G-SDI, 6·8은
+      // HDMI1.4 — "입력 5"라고 하면 실제로 SDI 슬롯이라는 뜻이 되도록 물리
+      // 슬롯 번호 그대로 나열한다(device.inputs의 타입별 count 방식으로는
+      // 이 섞인 순서를 못 담아 inputSlots을 따로 씀 — getConsoleInputPorts
+      // 참고).
+      inputSlots: [
+        { id: 'in1', label: '입력 1 (HDMI2.0/DP1.2)', maxPx: 7680 * 3840 },
+        { id: 'in2', label: '입력 2 (HDMI2.0/DP1.2)', maxPx: 7680 * 3840 },
+        { id: 'in3', label: '입력 3 (HDMI2.0/DP1.2)', maxPx: 7680 * 3840 },
+        { id: 'in4', label: '입력 4 (HDMI2.0/DP1.2)', maxPx: 7680 * 3840 },
+        { id: 'in5', label: '입력 5 (12G-SDI)', maxPx: 3840 * 2160 },
+        { id: 'in6', label: '입력 6 (HDMI1.4)', maxPx: 4094 * 3840 },
+        { id: 'in7', label: '입력 7 (12G-SDI)', maxPx: 3840 * 2160 },
+        { id: 'in8', label: '입력 8 (HDMI1.4)', maxPx: 4094 * 3840 },
+        { id: 'in9', label: '입력 9 (HDMI2.0/DP1.2)', maxPx: 7680 * 3840 },
+        { id: 'in10', label: '입력 10 (HDMI2.0/DP1.2)', maxPx: 7680 * 3840 },
+        { id: 'in11', label: '입력 11 (HDMI2.0/DP1.2)', maxPx: 7680 * 3840 },
+        { id: 'in12', label: '입력 12 (HDMI2.0/DP1.2)', maxPx: 7680 * 3840 },
+      ],
+      // 출력은 서로 독립적인 두 그룹으로 나뉜다(EC100은 J6/EC90과 달리 콘솔
+      // 전체를 하나의 "모드"로 전환하는 게 아니라, MAIN은 항상 고정, AUX만
+      // 별도 모드가 있다) — getConsoleOutputPorts가 이 outputGroups 형태를
+      // 읽어 group마다 fixed 목록 또는 configKey로 고른 byValue 목록을 이어
+      // 붙인다.
+      // - MAIN: 항상 4채널(main1~4), 물리 커넥터 이름 그대로 "1a"~"4a"로
+      //   표기한다(사용자 요청) — 각 채널마다 실제로는 HDMI 메인(a)+백업(b)
+      //   커넥터 한 쌍(총 8개, "PGM HDMI 4조")과 대응하는 10G OPT 커넥터가
+      //   있다. EC90과 마찬가지로 b는 a와 같은 신호의 미러라 "같은 화면을
+      //   두 군데로 동시에" 내보내는 용도로 독립 연결 가능한 포트로 둔다
+      //   (id는 'b' 접미사: main1b 등, 사용자 확인 2026-08-26). OPT는 이
+      //   앱이 다루는 HDMI/DVI 계열 커넥터가 아니라 별도 모델링하지 않는다.
+      //   (참고: main1·main2는 해상도를 공유해야 하고 main3·main4도
+      //   마찬가지라는 하드웨어 제약이 있지만, 이 앱은 채널 간 해상도 일치
+      //   여부를 검증하지 않는다 — 연결 가능 여부만 다룬다.)
+      // - AUX: "AUX HDMI 4개"로, A/B 페어링 없이 커넥터 이름 그대로
+      //   AUX1~AUX4(사용자 요청 — PGM처럼 굳이 "a"를 붙이지 않음). 다만
+      //   config.auxMode(기본 'switcher')에 따라 실제 채널 구성 자체는
+      //   갈린다: switcher 모드는 AUX1↔AUX2가 한 쌍, AUX3↔AUX4가 다른 한
+      //   쌍으로 묶여 서로 "복제"한다(매뉴얼: "AUX Switcher Mode: Supports
+      //   2 independent ... AUX outputs. AUX1/AUX2 can copy each other").
+      //   "복제"는 EC90/J6의 메인/백업 A·B와 같은 성격 — 두 커넥터가 항상
+      //   같은 신호를 내보내므로, 각각 다른 목적지에 연결해 "같은 화면을
+      //   두 군데로 동시에" 내보낼 수 있다(사용자 확인, 2026-08-26). 그래서
+      //   aux1/aux2를 하나로 합친 채널(예전의 aux12)이 아니라 각각 독립
+      //   연결 가능한 포트로 두되, mirror 필드로 "같은 신호"임을 표시해
+      //   graphOps.js의 mirrorPortConflict가 오용(한 LED를 나눠 담당하는
+      //   샌딩카드 두 대에 이 둘을 각각 연결 — 서로 달라야 할 화면이 똑같이
+      //   나옴)을 막게 한다. mosaic 모드는 4개(aux1~aux4)가 전부 진짜
+      //   독립적(서로 다른 화면 가능)이라 mirror가 없다(매뉴얼: "AUX Mosaic
+      //   Mode: Supports 4 independent ... outputs").
+      outputGroups: [
+        {
+          fixed: [
+            { id: 'main1', label: 'HDMI 1a', maxPx: 7680 * 3840, mirror: 'main1' },
+            { id: 'main1b', label: 'HDMI 1b', maxPx: 7680 * 3840, mirror: 'main1' },
+            { id: 'main2', label: 'HDMI 2a', maxPx: 7680 * 3840, mirror: 'main2' },
+            { id: 'main2b', label: 'HDMI 2b', maxPx: 7680 * 3840, mirror: 'main2' },
+            { id: 'main3', label: 'HDMI 3a', maxPx: 7680 * 3840, mirror: 'main3' },
+            { id: 'main3b', label: 'HDMI 3b', maxPx: 7680 * 3840, mirror: 'main3' },
+            { id: 'main4', label: 'HDMI 4a', maxPx: 7680 * 3840, mirror: 'main4' },
+            { id: 'main4b', label: 'HDMI 4b', maxPx: 7680 * 3840, mirror: 'main4' },
+          ],
+        },
+        {
+          configKey: 'auxMode', default: 'switcher',
+          byValue: {
+            switcher: [
+              { id: 'aux1', label: 'AUX1', aux: true, maxPx: 1920 * 1080, mirror: 'aux1' },
+              { id: 'aux2', label: 'AUX2', aux: true, maxPx: 1920 * 1080, mirror: 'aux1' },
+              { id: 'aux3', label: 'AUX3', aux: true, maxPx: 1920 * 1080, mirror: 'aux3' },
+              { id: 'aux4', label: 'AUX4', aux: true, maxPx: 1920 * 1080, mirror: 'aux3' },
+            ],
+            mosaic: [
+              { id: 'aux1', label: 'AUX1', aux: true, maxPx: 1920 * 1080 },
+              { id: 'aux2', label: 'AUX2', aux: true, maxPx: 1920 * 1080 },
+              { id: 'aux3', label: 'AUX3', aux: true, maxPx: 1920 * 1080 },
+              { id: 'aux4', label: 'AUX4', aux: true, maxPx: 1920 * 1080 },
+            ],
+          },
+        },
+      ],
+      // capacityRules.js의 checkConsoleOutput/checkConsoleSingleOutput은
+      // (device.modes가 없는 장비 한정) 이 flat 값을 총 용량·커넥터 1개당
+      // 상한 양쪽에 그대로 쓴다 — EC90과 같은 근사(실제로는 채널이 여럿이라
+      // 총 용량이 더 크지만, 이 앱은 아직 그 정밀도까지 검증하지 않는다).
+      outputs: { perOutputMaxPx: 7680 * 3840 },
+      // MAIN 출력의 고정 해상도 2종(벤더 매뉴얼 Output 표, 2026-08-26) — 이
+      // 콘솔은 J6/EC90과 달리 H/V/FPS를 각각 자유롭게 입력하는 진짜 커스텀
+      // 타이밍(23~241Hz 범위)을 지원해 표로 딱 떨어지지 않지만, 정확한 대역폭
+      // 공식이 문서에 없어 문서에 명시된 두 해상도만 표로 남긴다 — 그 외
+      // 해상도의 Hz 판정은 이 표만으로는 보수적으로 나올 수 있다.
+      outputResolutionTable: [
+        { w: 3840, h: 2400, hz: [60] },
+        { w: 7680, h: 1200, hz: [60] },
+      ],
+      note: 'HDMI/OPT 영상 출력 — LED디스플레이 직결 불가, 샌딩카드 노드를 반드시 거쳐야 함',
+      sourcePdf: 'MIG-EC100 Event Controller User Manual V1.1.pdf',
     },
   },
   sending: {
@@ -201,15 +332,20 @@ function listDevices(category) {
 // 캔버스에는 입력 도트가 하나로 통합돼 있지만, 인풋소스를 그 도트에 드래그해
 // 연결하면 interactions.js가 이 목록에서 비어있는 포트를 찾아 선택하게 하거나
 // (자동/피커) 전부 찼으면 연결을 거부한다. 장비 프리셋이 있으면 그 장비의 실제
-// 입력 커넥터(DP/HDMI/DVI 등)를 그대로 포트로 쓰고, 같은 종류 커넥터가 여러 개면
-// (device.inputs[].count) 그 수만큼 개별 슬롯(hdmi1-1, hdmi1-2, …)으로 펼친다 —
-// "HDMI 포트가 4개면 인풋소스 4개가 동시에 HDMI로 연결될 수 있다"는 실제 배선과
-// 일치시키기 위함. 수동 모드(장비 미지정)는 사용자가 지정한 개수(manualInputPorts)
-// 만큼 이름 없는 범용 포트를 만든다.
+// 입력 커넥터 구성을 그대로 포트로 쓴다: 커넥터 타입별로 번호가 이어지는
+// 장비(device.inputs[].count — 예: HDMI×4가 전부 붙어 있음)는 그 수만큼 개별
+// 슬롯(hdmi1-1, hdmi1-2, …)으로 펼치고, EC100처럼 물리 슬롯 번호에 커넥터
+// 타입이 섞여 배치된 장비(device.inputSlots — 실제 후면 패널 번호 순서 그대로)는
+// 그 목록을 그대로 쓴다. 어느 쪽이든 "HDMI 포트가 4개면 인풋소스 4개가 동시에
+// HDMI로 연결될 수 있다"는 실제 배선과 일치시키기 위함. 수동 모드(장비 미지정)는
+// 사용자가 지정한 개수(manualInputPorts)만큼 이름 없는 범용 포트를 만든다.
 function getConsoleInputPorts(node) {
   const cfg = (node && node.config) || {};
   const device = cfg.deviceId ? getDevice('console', cfg.deviceId) : null;
   if (device) {
+    if (device.inputSlots) {
+      return device.inputSlots.map(p => ({ id: p.id, label: p.label, kind: 'video', maxPx: p.maxPx }));
+    }
     return device.inputs.flatMap(i => {
       const count = i.count || 1;
       if (count === 1) {
@@ -231,10 +367,12 @@ function getConsoleInputPorts(node) {
 // 포트와 대칭되는 규칙. 캔버스에는 출력 도트가 하나로 통합돼 있지만, 샌딩카드를
 // 그 도트에 연결하면 interactions.js가 이 목록에서 비어있는 포트를 찾아 빈 게
 // 하나면 자동으로, 여럿이면 #portPicker로 사용자가 고르게 한다. 장비 프리셋이
-// 있으면 실제 출력 구성을 그대로 반영한다: J6처럼 모드별로 실제 커넥터 목록이
-// 다른 장비(modes[mode].outputPorts)면 그 모드의 목록을, EC90처럼 물리 커넥터를
-// 하나하나 나열해둔 장비(outputs.ports)면 그 목록을 그대로 쓴다. 수동 모드
-// (장비 미지정)는 manualOutputPorts개의 범용 번호 포트를 만든다.
+// 있으면 실제 출력 구성을 그대로 반영한다: J6처럼 콘솔 전체가 모드 하나로
+// 전환되는 장비(modes[mode].outputPorts)면 그 모드의 목록을, EC100처럼 출력이
+// 서로 독립적인 그룹으로 나뉘는 장비(outputGroups — 그룹마다 고정 목록이거나
+// config 값에 따라 갈리는 목록)면 그룹들을 이어붙인 목록을, EC90처럼 물리
+// 커넥터를 하나하나 나열해둔 장비(outputs.ports)면 그 목록을 그대로 쓴다.
+// 수동 모드(장비 미지정)는 manualOutputPorts개의 범용 번호 포트를 만든다.
 function getConsoleOutputPorts(node) {
   const cfg = (node && node.config) || {};
   const device = cfg.deviceId ? getDevice('console', cfg.deviceId) : null;
@@ -249,13 +387,21 @@ function getConsoleOutputPorts(node) {
         ? modeSpec.outputPortsByDviLink[cfg.dviLink === 'dual' ? 'dual' : 'single']
         : modeSpec.outputPorts;
       return ports.map(p => (
-        { id: p.id, label: p.label, kind: 'video', maxPx: p.maxPx !== undefined ? p.maxPx : device.perOutputMaxPx, aux: !!p.aux }
+        { id: p.id, label: p.label, kind: 'video', maxPx: p.maxPx !== undefined ? p.maxPx : device.perOutputMaxPx, aux: !!p.aux, mirror: p.mirror || null }
       ));
+    }
+    if (device.outputGroups) {
+      return device.outputGroups.flatMap(group => {
+        const list = group.fixed || group.byValue[cfg[group.configKey] || group.default];
+        return list.map(p => (
+          { id: p.id, label: p.label, kind: 'video', maxPx: p.maxPx !== undefined ? p.maxPx : device.perOutputMaxPx, aux: !!p.aux, mirror: p.mirror || null }
+        ));
+      });
     }
     if (device.outputs && device.outputs.ports) {
       const kind = device.outputKind === 'video-signal' ? 'video' : 'lan';
       return device.outputs.ports.map(p => (
-        { id: p.id, label: p.label, kind, maxPx: p.maxPx || device.outputs.perOutputMaxPx || null, aux: !!p.aux }
+        { id: p.id, label: p.label, kind, maxPx: p.maxPx || device.outputs.perOutputMaxPx || null, aux: !!p.aux, mirror: p.mirror || null }
       ));
     }
     return [{ id: 'out1', label: '출력 1', kind: device.outputKind === 'video-signal' ? 'video' : 'lan', maxPx: null }];

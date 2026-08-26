@@ -120,6 +120,28 @@ function resolveSendingCardOutput(graph, sendingNode) {
   return { w, h, hz };
 }
 
+// 콘솔의 출력 포트별로, 그 포트가 실제로 물려 있는 샌딩카드가 내보내는
+// 해상도·최대 Hz를 계산한다(사용자 요청, 2026-08-26) — resolveSendingCardOutput을
+// 그대로 재사용하므로(그 함수가 이미 상류 콘솔의 outputResolutionTable로 Hz를
+// 정함) 샌딩카드 카드에 표시되는 값과 항상 일치한다. 프롬프터로 연결된 포트는
+// 샌딩카드가 없어 대상에서 빠지고, 아직 LED 해상도가 안 잡혔거나 샌딩카드가
+// 없는 포트도 결과에서 빠진다(콘솔 자체가 여러 포트를 동시에 쓸 수 있어 배열로
+// 반환 — 샌딩카드는 한 대만 연결되는 게 보통이라 배열이 아니었던 것과 다름).
+function resolveConsoleOutputInfo(graph, consoleNode) {
+  const ports = getConsoleOutputPorts(consoleNode);
+  return graph.edges
+    .filter(e => e.from.nodeId === consoleNode.id)
+    .map(e => {
+      const toNode = graph.nodes.find(n => n.id === e.to.nodeId);
+      if (!toNode || toNode.type !== 'sending') { return null; }
+      const out = resolveSendingCardOutput(graph, toNode);
+      if (!out) { return null; }
+      const port = ports.find(p => p.id === e.from.portId);
+      return { portId: e.from.portId, portLabel: port ? port.label : e.from.portId, w: out.w, h: out.h, hz: out.hz };
+    })
+    .filter(Boolean);
+}
+
 // 구역이 없는 LED는 totalRequiredPx가 0이라 위 checkConsoleOutput/checkSendingOutput이
 // "0 <= limit"로 트리비얼하게 통과한다 — 진짜 용량 확인이 아니라 LED 해상도가 아직
 // 없어서 나온 잠정 결과다. 상류(console/sending) 배지를 회색 "?"로 낮춰 표시하려면
@@ -271,5 +293,7 @@ function panToNode(nodeId) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput };
+  module.exports = {
+    runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput, resolveConsoleOutputInfo,
+  };
 }

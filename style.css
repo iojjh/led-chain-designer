@@ -19,6 +19,11 @@
   --radius: 10px;
   --radius-sm: 6px;
   --shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  /* 캔버스/노드카드보다 "한 층 위에 떠 있는" 느낌을 주는 UI 메뉴 전용
+     톤(팔레트·속성 패널·이슈 패널·저장/불러오기·포트 피커) — 그림자를
+     더 짙고 넓게, 테두리는 accent를 옅게 섞어 은은하게 도드라지게 한다. */
+  --shadow-float: 0 14px 34px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.32);
+  --border-float: #4a4990;
 }
 
 html, body {
@@ -99,11 +104,11 @@ button {
   padding: 9px 14px;
   border-radius: var(--radius);
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-float);
   color: var(--text-0);
   font-size: 13px;
   font-weight: 600;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-float);
 }
 .palette-toggle-btn:hover { background: var(--bg-2); }
 .palette-toggle-btn.open { border-color: var(--accent); }
@@ -118,10 +123,10 @@ button {
   top: calc(100% + 6px);
   min-width: 190px;
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-float);
   border-radius: var(--radius);
   padding: 8px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-float);
   opacity: 0;
   transform: translateY(-6px) scale(0.97);
   transform-origin: top left;
@@ -218,6 +223,27 @@ button {
   animation: node-card-in 0.18s ease;
 }
 
+/* 드래그로 옮긴 자리가 다른 카드와 겹쳐 원래 자리로 되돌아갈 때만 붙는다
+   (interactions.js의 snapNodeBack) — 평소 드래그 중엔 이 트랜지션이 없어야
+   커서를 프레임마다 지연 없이 그대로 따라간다. cubic-bezier로 살짝
+   오버슈트를 줘 "튕겨 나온다"는 느낌을 낸다. */
+.node-card.snap-back {
+  transition: left 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), top 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* "여기 놓을 수 없다"를 위치가 되돌아가는 동안 즉각적으로 알리는 부르르
+   떨림 — .snap-back과 동시에 잠깐(0.4s) 붙었다 떨어진다(snapNodeBack). */
+.node-card.shake {
+  animation: node-card-shake 0.4s ease;
+}
+@keyframes node-card-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
 /* 새 카드가 DOM에 처음 생성될 때만 재생된다(buildCardEl은 노드당 한 번만
    호출되고, 이후 위치·내용 갱신은 이미 있는 엘리먼트를 그대로 고쳐 쓰므로
    애니메이션이 다시 재생되지 않는다) */
@@ -303,9 +329,8 @@ button {
   font-size: 11px;
   color: var(--text-1);
   min-height: 16px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .node-card.is-led .node-card-body { cursor: pointer; }
@@ -313,13 +338,16 @@ button {
 
 .node-ports {
   position: absolute;
+  /* 본문(node-card-body)이 줄바꿈되면 카드마다 헤더+본문 높이가 달라져
+     포트 줄이 시작되는 위치도 달라진다 — nodeCardRenderer.js의 updateCardEl이
+     실측해 인라인 style.top으로 덮어쓴다. 이 40px는 아직 한 번도 렌더되지
+     않은 순간의 폴백일 뿐. */
   top: 40px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.node-ports-in { left: -6px; align-items: flex-start; }
 .node-ports-out { right: -6px; align-items: flex-end; }
 
 .port-dot {
@@ -337,9 +365,7 @@ button {
 
 /* 출력 포트 "자석 효과" — 실제 눈에 보이는 점보다 훨씬 넓은 투명 히트 영역을
    붙여서 드래그 시작을 더 쉽게 잡을 수 있게 한다. 의사 요소를 눌러도
-   event.target은 실제 .port-dot이 되므로 인터랙션 로직은 그대로 동작한다.
-   입력 포트에는 적용하지 않는다 — LED 노드처럼 in/pwrIn이 촘촘히 붙어있는
-   경우 히트 영역이 겹쳐 어느 포트인지 모호해지기 때문. */
+   event.target은 실제 .port-dot이 되므로 인터랙션 로직은 그대로 동작한다. */
 .port-dot.port-out::after {
   content: '';
   position: absolute;
@@ -349,9 +375,6 @@ button {
 .port-dot.port-kind-video { background: #4d8ff0; }
 .port-dot.port-kind-lan { background: #3ecf8e; }
 .port-dot.port-kind-power { background: #e7b549; }
-
-.port-dot.port-full { background: var(--err); cursor: not-allowed; }
-.port-dot.port-full:hover { transform: none; }
 
 /* ── 연결선(엣지) 삭제 버튼 ─────────────────────────────
    #nodeLayer와 같은 좌표계를 쓰는 #graphView의 형제 요소라, JS는
@@ -387,6 +410,31 @@ button {
 .edge-delete-btn:hover { background: #ff6b7d; }
 .edge-delete-btn[hidden] { display: none; }
 
+/* ── 연결선 라벨 (canvasRenderer.js의 syncEdgeLabels) ────
+   #edgeDeleteBtn과 같은 이유로 z-index를 .node-card(5)보다 높여, 선이 짧아
+   라벨이 근처 카드와 겹쳐도 항상 텍스트 전체가 보이게 한다. left/top:0 +
+   transform: translate()로 위치를 잡는 것도 동일한 좌표계 규칙. */
+.edge-label-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.edge-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 16px;
+  line-height: 14px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--bg-0);
+  border: 1px solid;
+  font: 600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+  white-space: nowrap;
+}
+
 /* ── 포트 피커 (인풋소스→콘솔 연결 시 물리 포트 선택) ──── */
 .port-picker {
   position: fixed;
@@ -395,9 +443,9 @@ button {
   flex-direction: column;
   gap: 4px;
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-float);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-float);
   padding: 6px;
   min-width: 160px;
 }
@@ -426,9 +474,9 @@ button {
   max-height: calc(100% - 32px);
   z-index: 11;
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-float);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-float);
   display: flex;
   flex-direction: column;
   opacity: 0;
@@ -555,6 +603,41 @@ button {
 .props-port-status { color: var(--text-2); text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .props-port-status.linked { color: var(--ok); }
 
+/* 콘솔 입력/출력 포트 목록처럼 길어질 수 있는 섹션 — 기본은 접혀 있고
+   헤더를 누르면 펼쳐진다(propertiesPanel.js의 portListSection). 이슈
+   패널(.issues-panel.collapsed)과 같은 max-height/opacity 트랜지션 방식. */
+.props-collapsible-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-1);
+  cursor: pointer;
+  text-align: left;
+}
+.props-collapsible-chevron { display: inline-block; font-size: 9px; transition: transform 0.15s ease; }
+.props-collapsible.collapsed .props-collapsible-chevron { transform: rotate(-90deg); }
+.props-collapsible-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  opacity: 1;
+  overflow-y: auto;
+  transition: max-height 0.15s ease, opacity 0.15s ease;
+}
+.props-collapsible.collapsed .props-collapsible-body {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+
 /* 지금 설정(예: 듀얼링크)에서 못 쓰게 된 포트 — 목록에서 빼는 대신 흐리게
    표시해 "왜 안 보이는지" 명시한다(propertiesPanel.js의 outputPortListHtml). */
 .props-port-disabled { opacity: 0.5; border-style: dashed; }
@@ -569,9 +652,9 @@ button {
   max-height: 260px;
   z-index: 10;
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-float);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-float);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1022,6 +1105,10 @@ button {
 .led-side-title-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
 .led-overall-res {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 12px;
   color: var(--ok);
   background: rgba(62, 207, 142, 0.1);
@@ -1031,6 +1118,7 @@ button {
   margin-bottom: 8px;
 }
 .led-overall-res[hidden] { display: none; }
+.led-overall-res .zone-btn { flex-shrink: 0; }
 
 .led-zone-list { display: flex; flex-direction: column; gap: 6px; }
 .led-zone-empty { font-size: 12px; color: var(--text-2); padding: 6px 0; }
@@ -1232,8 +1320,8 @@ button {
   padding: 9px 14px;
   border-radius: var(--radius);
   background: var(--bg-1);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border-float);
+  box-shadow: var(--shadow-float);
   font-size: 13px;
 }
 .save-load-btn:hover { background: var(--bg-2); }
@@ -1255,9 +1343,9 @@ button {
   display: flex;
   flex-direction: column;
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-float);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-float);
   overflow: hidden;
 }
 
@@ -1278,6 +1366,17 @@ button {
 #ledAddModal .modal-head span { flex: 1; min-width: 0; }
 
 .modal-body { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+
+/* ── 가이드 이미지 미리보기 ────────────────────────────── */
+.guide-image-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  background: var(--bg-0);
+}
+.guide-image-actions { display: flex; gap: 8px; }
+.guide-image-actions .props-btn { flex: 1; }
 
 .save-new-row { display: flex; gap: 8px; }
 .save-new-row input {

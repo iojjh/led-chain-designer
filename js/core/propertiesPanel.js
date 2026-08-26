@@ -8,6 +8,25 @@ let _panelEl = null;
 let _titleEl = null;
 let _bodyEl = null;
 
+// 콘솔 입력/출력 포트 목록처럼 길어질 수 있는 섹션을 접어서 보여주고, 클릭하면
+// 펼친다(사용자 요청 — 기본으로 다 펼쳐지면 포트 수가 많은 장비에서 지저분해
+// 보임). 펼침 상태는 이 Set에 키(예: 'console-input-ports')로 기억해뒀다가
+// 다음 렌더(필드 변경 등으로 패널이 통째로 다시 그려질 때)에도 유지한다.
+let _expandedPortSections = new Set();
+
+function portListSection(key, headerLabel, bodyHtml) {
+  const expanded = _expandedPortSections.has(key);
+  return `
+    <div class="props-collapsible ${expanded ? '' : 'collapsed'}">
+      <button type="button" class="props-collapsible-head" data-collapse-key="${key}">
+        <span class="props-collapsible-chevron">▾</span>
+        <span>${headerLabel}</span>
+      </button>
+      <div class="props-collapsible-body">${bodyHtml}</div>
+    </div>
+  `;
+}
+
 // ── 팔레트 "초안(draft)" 추가 흐름 ─────────────────────
 // 인풋소스 / 콘솔·샌딩카드의 "수동 입력"은 이 패널에서 설정을 다 채운 뒤
 // "확인"을 눌러야 비로소 캔버스에 노드가 생긴다 — 그 전까진 State.graph에
@@ -34,6 +53,13 @@ function initPropertiesPanel(panelEl) {
   });
   _bodyEl.addEventListener('change', onFieldChange);
   _bodyEl.addEventListener('click', e => {
+    const collapseToggle = e.target.closest('[data-collapse-key]');
+    if (collapseToggle) {
+      const key = collapseToggle.dataset.collapseKey;
+      if (_expandedPortSections.has(key)) { _expandedPortSections.delete(key); } else { _expandedPortSections.add(key); }
+      renderPropertiesPanel();
+      return;
+    }
     if (!e.target.closest('#propsOpenLedDesignBtn')) { return; }
     openLedDesignView(State.ui.selectedId);
   });
@@ -181,6 +207,11 @@ function consoleFields(node) {
       if (c.dviLink === 'dual') {
         summary += '<br><b>듀얼링크 활성화됨</b> — DVI2가 DVI1에 합쳐져 비활성 (연결된 샌딩카드 해상도가 커넥터 1개 상한을 넘어 자동 전환됨)';
       }
+    } else if (device.outputGroups) {
+      // EC100은 콘솔 전체가 아니라 AUX만 별도 모드가 있다(MAIN은 항상 4채널
+      // 고정) — 아래 auxModeField에서 직접 고른다.
+      const mainMaxPx = device.outputGroups[0].fixed[0].maxPx;
+      summary = `MAIN 4채널(채널당 최대 ${mainMaxPx.toLocaleString()}px) · AUX 4채널(${c.auxMode === 'mosaic' ? '모자이크 — 4개 모두 독립' : '스위처 — 1/2, 3/4끼리 같은 신호(미러)'})`;
     } else {
       summary = `출력당 최대 ${device.outputs.perOutputMaxPx.toLocaleString()}px`;
     }
@@ -201,6 +232,14 @@ function consoleFields(node) {
     <label class="props-field">모드
       <select data-field="mode">
         ${Object.keys(device.modes).map(m => `<option value="${m}" ${c.mode === m ? 'selected' : ''}>${m}</option>`).join('')}
+      </select>
+    </label>` : '';
+
+  const auxModeField = (device && device.outputGroups) ? `
+    <label class="props-field">AUX 모드
+      <select data-field="auxMode">
+        <option value="switcher" ${(c.auxMode || 'switcher') === 'switcher' ? 'selected' : ''}>switcher (4채널, 1/2·3/4끼리 같은 신호)</option>
+        <option value="mosaic" ${c.auxMode === 'mosaic' ? 'selected' : ''}>mosaic (4채널 독립)</option>
       </select>
     </label>` : '';
 
@@ -226,13 +265,12 @@ function consoleFields(node) {
     </label>
     ${modeField}
     ${outputKindField}
+    ${auxModeField}
     ${manualInputField}
     ${manualOutputField}
     <div class="props-hint">${summary}</div>
-    <div class="props-field-label">입력 포트 (${inputPortsHtml.connected}/${inputPortsHtml.total} 연결됨)</div>
-    ${inputPortsHtml.html}
-    <div class="props-field-label">출력 포트 (${outputPortsHtml.connected}/${outputPortsHtml.total} 연결됨)</div>
-    ${outputPortsHtml.html}
+    ${portListSection('console-input-ports', `입력 포트 (${inputPortsHtml.connected}/${inputPortsHtml.total} 연결됨)`, inputPortsHtml.html)}
+    ${portListSection('console-output-ports', `출력 포트 (${outputPortsHtml.connected}/${outputPortsHtml.total} 연결됨)`, outputPortsHtml.html)}
   `;
 }
 
@@ -263,15 +301,21 @@ function inputPortListHtml(node) {
 function outputPortListHtml(node) {
   const ports = getConsoleOutputPorts(node);
   const edgesOut = State.graph.edges.filter(e => e.from.nodeId === node.id);
+  // 포트별로 실제 내보내는 해상도·Hz(사용자 요청, 2026-08-26) — 샌딩카드
+  // 카드에 표시되는 것과 같은 계산(resolveConsoleOutputInfo가
+  // resolveSendingCardOutput을 재사용).
+  const outputInfoByPort = new Map(resolveConsoleOutputInfo(State.graph, node).map(i => [i.portId, i]));
   let connected = 0;
   const rows = ports.map(p => {
     const edge = edgesOut.find(e => e.from.portId === p.id);
     const toNode = edge ? getNode(edge.to.nodeId) : null;
     if (toNode) { connected += 1; }
     const capLabel = p.maxPx ? ` (최대 ${p.maxPx.toLocaleString()}px)` : '';
+    const info = outputInfoByPort.get(p.id);
+    const resLabel = info ? ` — ${info.w}×${info.h}${info.hz ? ` · 최대 ${info.hz}Hz` : ''}` : '';
     return `<div class="props-port-row">
       <span class="props-port-name">${escapeHtml(p.label)}${capLabel}</span>
-      <span class="props-port-status ${toNode ? 'linked' : ''}">${toNode ? escapeHtml(toNode.label) : '비어있음'}</span>
+      <span class="props-port-status ${toNode ? 'linked' : ''}">${toNode ? escapeHtml(toNode.label) + resLabel : '비어있음'}</span>
     </div>`;
   }).join('');
   // 지금 설정(예: J6 듀얼링크)에서 못 쓰게 된 포트도 그냥 목록에서 빼버리면
@@ -379,7 +423,7 @@ function ledFields(node) {
 // 하위 필드가 보이는지(파생 필드) 또는 포트 구성 자체를 바꾸므로 패널을 다시
 // 그려야 한다. 나머지 단순 값 필드는 상태만 갱신하고 패널 HTML은 그대로 둔다 —
 // 연속 입력 시 다른 필드가 리셋되는 레이스를 피한다.
-const STRUCTURAL_FIELDS = new Set(['deviceId', 'mode', 'outputKind', 'manualInputPorts', 'manualOutputPorts', 'sourceKind',
+const STRUCTURAL_FIELDS = new Set(['deviceId', 'mode', 'outputKind', 'auxMode', 'manualInputPorts', 'manualOutputPorts', 'sourceKind',
   'ledAreaWm', 'ledAreaHm', 'ledPitch', 'ledPanelSize']);
 const NUMERIC_FIELDS = ['portCount', 'perPortMaxPx', 'inputMaxPx', 'manualInputPorts', 'manualOutputPorts'];
 const LED_QUICK_FIELDS = new Set(['ledAreaWm', 'ledAreaHm', 'ledPitch', 'ledPanelSize']);
@@ -441,9 +485,10 @@ function applyFieldValue(node, field, el) {
     applyLedQuickFields(node);
   } else {
     node.config[field] = el.value;
-    // J6 splicer↔switcher처럼 모드에 따라 출력 포트 수 자체가 달라지므로,
-    // 모드를 바꾸면 이제 존재하지 않는 출력 포트를 가리키던 엣지를 정리한다.
-    if (field === 'mode' && node.type === 'console') { pruneOrphanConsoleEdges(node); }
+    // J6 splicer↔switcher, EC100 switcher↔mosaic처럼 모드에 따라 출력 포트
+    // 구성 자체가 달라지므로, 바꾸면 이제 존재하지 않는 출력 포트를 가리키던
+    // 엣지를 정리한다.
+    if ((field === 'mode' || field === 'auxMode') && node.type === 'console') { pruneOrphanConsoleEdges(node); }
   }
 }
 
@@ -463,6 +508,15 @@ function applyLedQuickFields(node) {
   const pitch = _bodyEl.querySelector('[data-field="ledPitch"]').value;
   const [panelW, panelH] = _bodyEl.querySelector('[data-field="ledPanelSize"]').value.split('x').map(Number);
   const plan = planFullAreaLed({ areaW, areaH, panelW, panelH, pitch });
+  // planFullAreaLed는 호출할 때마다 새 zone id를 발급한다(LED 추가 팝업처럼
+  // 구역이 원래 없던 경우엔 맞는 동작). 하지만 여기서는 이미 단순 구역(자유
+  // 구역이 아닌, 빠른 설정으로 만든 구역 하나) 하나가 있는 상태에서 값이
+  // 실제로는 안 바뀌었어도(예: "확인" 버튼 재클릭) 매번 호출될 수 있는데,
+  // betaPanels()의 패널 key가 zone.id를 포함해서 새 id로 통째로 교체하면
+  // 이미 LAN/PWR에 배정해둔 포트의 key가 전부 고아가 되어(포트 목록엔 개수가
+  // 그대로 보이지만 캔버스엔 색이 하나도 안 칠해짐) 버린다 — 기존 zone id를
+  // 그대로 재사용해 이 문제를 막는다.
+  if (cfg.zones.length === 1 && !cfg.zones[0].cells) { plan.zone.id = cfg.zones[0].id; }
   cfg.areaW = plan.areaW;
   cfg.areaH = plan.areaH;
   cfg.zones = [plan.zone];

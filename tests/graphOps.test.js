@@ -1,4 +1,6 @@
-const { isPairAllowed, canConnect, upstreamOf, downstreamOf, incomingEdge } = require('../js/core/graphOps.js');
+const {
+  isPairAllowed, canConnect, mirrorPortConflict, upstreamOf, downstreamOf, incomingEdge,
+} = require('../js/core/graphOps.js');
 
 function node(id, type, config) {
   return { id, type, x: 0, y: 0, label: type, config: config || {} };
@@ -81,6 +83,13 @@ describe('isPairAllowed', () => {
     const ec90 = node('a', 'console', { deviceId: 'magnimage-ec90' });
     expect(isPairAllowed(ec90, 'aux1', node('b', 'prompter'), 'in')).toBe(true);
     expect(isPairAllowed(ec90, 'pgm1', node('b', 'prompter'), 'in')).toBe(false);
+
+    // EC100: switcher/mosaic 둘 다 aux1~4 — MAIN 채널은 항상 불가.
+    const ec100Switcher = node('a', 'console', { deviceId: 'magnimage-ec100' });
+    expect(isPairAllowed(ec100Switcher, 'aux1', node('b', 'prompter'), 'in')).toBe(true);
+    expect(isPairAllowed(ec100Switcher, 'main1', node('b', 'prompter'), 'in')).toBe(false);
+    const ec100Mosaic = node('a', 'console', { deviceId: 'magnimage-ec100', auxMode: 'mosaic' });
+    expect(isPairAllowed(ec100Mosaic, 'aux1', node('b', 'prompter'), 'in')).toBe(true);
   });
 
   test('sending.out -> led.in is allowed', () => {
@@ -146,6 +155,78 @@ describe('canConnect', () => {
       edges: [{ id: 'e1', kind: 'lan', from: { nodeId: 'a', portId: 'out' }, to: { nodeId: 'b', portId: 'in' } }],
     };
     expect(canConnect(graph, 'a', 'out', 'b', 'in').ok).toBe(false);
+  });
+});
+
+// pgm1/pgm1b(EC90)는 같은 신호의 미러 쌍 — 같은 LED를 나눠 담당하는 샌딩카드
+// 두 대에 하나씩 물리면 둘 다 똑같은 신호를 받아 화면을 나눌 수 없다. 반대로
+// 서로 다른(관계없는) LED로 가면 "같은 화면을 두 군데로 복제"하는 정당한
+// 용도이므로 막지 않는다.
+describe('mirrorPortConflict', () => {
+  function splitLedGraph(portA, portB) {
+    return {
+      nodes: [
+        node('console', 'console', { deviceId: 'magnimage-ec90' }),
+        node('sendA', 'sending'), node('sendB', 'sending'),
+        node('led', 'led'),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'console', portId: portA }, to: { nodeId: 'sendA', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 'sendA', portId: 'out' }, to: { nodeId: 'led', portId: 'in' } },
+        { id: 'e3', kind: 'lan', from: { nodeId: 'sendB', portId: 'out' }, to: { nodeId: 'led', portId: 'in' } },
+      ],
+    };
+  }
+
+  test('blocks connecting the mirror sibling (pgm1b) to a second sending card that feeds the SAME led as pgm1', () => {
+    const graph = splitLedGraph('pgm1', 'pgm1b');
+    const consoleNode = graph.nodes[0];
+    const sendB = graph.nodes[2];
+    expect(mirrorPortConflict(graph, consoleNode, 'pgm1b', sendB)).toBe(true);
+    expect(canConnect(graph, 'console', 'pgm1b', 'sendB', 'in').ok).toBe(false);
+  });
+
+  test('does not block a DIFFERENT (non-mirror) channel feeding the same led — the normal split-screen wiring', () => {
+    const graph = splitLedGraph('pgm1', 'pgm2');
+    const consoleNode = graph.nodes[0];
+    const sendB = graph.nodes[2];
+    expect(mirrorPortConflict(graph, consoleNode, 'pgm2', sendB)).toBe(false);
+    expect(canConnect(graph, 'console', 'pgm2', 'sendB', 'in').ok).toBe(true);
+  });
+
+  test('does not block the mirror sibling when the two sending cards feed DIFFERENT leds (legitimate "duplicate the screen" use)', () => {
+    const graph = {
+      nodes: [
+        node('console', 'console', { deviceId: 'magnimage-ec90' }),
+        node('sendA', 'sending'), node('sendB', 'sending'),
+        node('ledA', 'led'), node('ledB', 'led'),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'console', portId: 'pgm1' }, to: { nodeId: 'sendA', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 'sendA', portId: 'out' }, to: { nodeId: 'ledA', portId: 'in' } },
+        { id: 'e3', kind: 'lan', from: { nodeId: 'sendB', portId: 'out' }, to: { nodeId: 'ledB', portId: 'in' } },
+      ],
+    };
+    const consoleNode = graph.nodes[0];
+    const sendB = graph.nodes[2];
+    expect(mirrorPortConflict(graph, consoleNode, 'pgm1b', sendB)).toBe(false);
+    expect(canConnect(graph, 'console', 'pgm1b', 'sendB', 'in').ok).toBe(true);
+  });
+
+  test('non-mirror ports (manual mode) never conflict', () => {
+    const graph = splitLedGraph('out1', 'out2');
+    graph.nodes[0].config = {}; // 수동 모드 — mirror 필드 자체가 없음
+    const consoleNode = graph.nodes[0];
+    const sendB = graph.nodes[2];
+    expect(mirrorPortConflict(graph, consoleNode, 'out2', sendB)).toBe(false);
+  });
+
+  test('destinations other than a sending card are never flagged', () => {
+    const graph = {
+      nodes: [node('console', 'console', { deviceId: 'magnimage-ec90' }), node('prompter', 'prompter')],
+      edges: [],
+    };
+    expect(mirrorPortConflict(graph, graph.nodes[0], 'aux1', graph.nodes[1])).toBe(false);
   });
 });
 
