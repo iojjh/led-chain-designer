@@ -228,6 +228,50 @@ describe('mirrorPortConflict', () => {
     };
     expect(mirrorPortConflict(graph, graph.nodes[0], 'aux1', graph.nodes[1])).toBe(false);
   });
+
+  // 순서를 뒤집은 경우: 콘솔→샌딩카드 미러 포트 연결을 먼저 다 해두고, 두
+  // 샌딩카드를 "나중에" 같은 LED에 연결하려는 시도(sending -> led 엣지 쪽에서
+  // 걸려야 한다) — 이걸 놓치면 "반쪽짜리 검증"이라는 지적사항.
+  describe('reverse order — console↔sending wired first, then both sending cards target the same led', () => {
+    function wiredConsoleGraph(portA, portB) {
+      return {
+        nodes: [
+          node('console', 'console', { deviceId: 'magnimage-ec90' }),
+          node('sendA', 'sending'), node('sendB', 'sending'),
+          node('led', 'led'),
+        ],
+        edges: [
+          { id: 'e1', kind: 'video', from: { nodeId: 'console', portId: portA }, to: { nodeId: 'sendA', portId: 'in' } },
+          { id: 'e2', kind: 'video', from: { nodeId: 'console', portId: portB }, to: { nodeId: 'sendB', portId: 'in' } },
+          { id: 'e3', kind: 'lan', from: { nodeId: 'sendA', portId: 'out' }, to: { nodeId: 'led', portId: 'in' } },
+        ],
+      };
+    }
+
+    test('blocks the second sending card (mirror-fed) from joining the led its mirror sibling already feeds', () => {
+      const graph = wiredConsoleGraph('pgm1', 'pgm1b');
+      const sendB = graph.nodes[2];
+      const led = graph.nodes[3];
+      expect(mirrorPortConflict(graph, sendB, null, led)).toBe(true);
+      expect(canConnect(graph, 'sendB', 'out', 'led', 'in').ok).toBe(false);
+    });
+
+    test('allows it when the two sending cards are fed by different (non-mirror) console channels — normal split-screen', () => {
+      const graph = wiredConsoleGraph('pgm1', 'pgm2');
+      const sendB = graph.nodes[2];
+      const led = graph.nodes[3];
+      expect(mirrorPortConflict(graph, sendB, null, led)).toBe(false);
+      expect(canConnect(graph, 'sendB', 'out', 'led', 'in').ok).toBe(true);
+    });
+
+    test('a sending card with no upstream console connection never conflicts', () => {
+      const graph = {
+        nodes: [node('sendB', 'sending'), node('led', 'led')],
+        edges: [],
+      };
+      expect(mirrorPortConflict(graph, graph.nodes[0], null, graph.nodes[1])).toBe(false);
+    });
+  });
 });
 
 describe('graph traversal', () => {

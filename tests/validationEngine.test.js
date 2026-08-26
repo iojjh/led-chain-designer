@@ -289,7 +289,15 @@ describe('resolveConsoleOutputInfo (per-port resolution + Hz shown on the consol
     };
     const info = resolveConsoleOutputInfo(graph, graph.nodes[0]);
     expect(info.map(i => i.portId).sort()).toEqual(['dvi1', 'dvi2']);
-    expect(info.every(i => i.w === 256)).toBe(true); // LED 한 대를 카드 2대가 나눠 맡음
+    // 표시 해상도는 각 포트의 몫(256)이 아니라 최종 LED 전체 해상도(512) —
+    // 콘솔 입력 쪽에서 실제로 맞춰 보내야 하는 합쳐진 캔버스 크기(사용자 확인,
+    // 2026-08-26). Hz는 여전히 각 포트가 실제로 내보내는 몫값(256×512) 기준이라
+    // resolveSendingCardOutput(그 포트에 물린 샌딩카드 자신의 몫 계산)의 hz와
+    // 그대로 일치해야 한다 — 표시 해상도와 Hz 계산 기준이 다른 게 의도된 동작.
+    expect(info.every(i => i.w === 512 && i.h === 512)).toBe(true);
+    const s1Out = resolveSendingCardOutput(graph, graph.nodes[1]);
+    expect(s1Out.w).toBe(256);
+    expect(info.find(i => i.portId === 'dvi1').hz).toBe(s1Out.hz);
   });
 
   test('a port that goes to a prompter (no sending card) is skipped', () => {

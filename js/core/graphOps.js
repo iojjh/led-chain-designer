@@ -57,22 +57,65 @@ function isPairAllowed(fromNode, fromPortId, toNode, toPortId) {
 // 목적지에 연결해도 되지만, 샌딩카드 두 대가 하나의 LED를 나눠 담당하는
 // 상황(서로 다른 화면 조각을 받아야 함)에서 그 두 샌딩카드에 같은 미러 쌍을
 // 하나씩 물리면 둘 다 똑같은 신호를 받게 돼 화면을 나눌 수 없다 — 그런
-// 조합만 걸러낸다(사용자 확인, 2026-08-26).
+// 조합만 걸러낸다(사용자 확인, 2026-08-26). 이 잘못된 조합은 어느 쪽 엣지를
+// 나중에 잇느냐에 따라 두 가지 순서로 만들어질 수 있어 둘 다 막아야 한다:
+// (1) 두 샌딩카드가 이미 같은 LED에 연결된 상태에서 콘솔→샌딩카드 미러 포트를
+//     나중에 잇는 경우, (2) 콘솔→샌딩카드 미러 포트를 먼저 다 이어둔 뒤 두
+//     샌딩카드를 나중에 같은 LED에 연결하는 경우 — (2)를 놓치면 "반쪽짜리
+//     검증"이 된다(사용자 지적, 2026-08-26).
 function mirrorPortConflict(graph, fromNode, fromPortId, toNode) {
-  if (toNode.type !== 'sending') { return false; }
-  const ports = getConsoleOutputPorts(fromNode);
-  const port = ports.find(p => p.id === fromPortId);
+  if (fromNode.type === 'console' && toNode.type === 'sending') {
+    return consoleToSendingMirrorConflict(graph, fromNode, fromPortId, toNode);
+  }
+  if (fromNode.type === 'sending' && toNode.type === 'led') {
+    return sendingToLedMirrorConflict(graph, fromNode, toNode);
+  }
+  return false;
+}
+
+// 순서 (1): 콘솔의 미러 포트(fromPortId)를 지금 이으려는 샌딩카드(toNode)가
+// 이미 어떤 LED로 연결돼 있고, 그 LED에 같은 콘솔의 미러 형제 포트로 연결된
+// 다른 샌딩카드가 이미 있으면 막는다.
+function consoleToSendingMirrorConflict(graph, consoleNode, portId, sendingNode) {
+  const ports = getConsoleOutputPorts(consoleNode);
+  const port = ports.find(p => p.id === portId);
   if (!port || !port.mirror) { return false; }
-  const siblingIds = new Set(ports.filter(p => p.mirror === port.mirror && p.id !== fromPortId).map(p => p.id));
+  const siblingIds = new Set(ports.filter(p => p.mirror === port.mirror && p.id !== portId).map(p => p.id));
   if (!siblingIds.size) { return false; }
-  const ledIds = new Set(downstreamOf(graph, toNode.id).filter(n => n.type === 'led').map(n => n.id));
+  const ledIds = new Set(downstreamOf(graph, sendingNode.id).filter(n => n.type === 'led').map(n => n.id));
   if (!ledIds.size) { return false; }
   return graph.edges.some(e => {
-    if (e.from.nodeId !== fromNode.id || !siblingIds.has(e.from.portId)) { return false; }
+    if (e.from.nodeId !== consoleNode.id || !siblingIds.has(e.from.portId)) { return false; }
     const otherNode = graph.nodes.find(n => n.id === e.to.nodeId);
-    if (!otherNode || otherNode.type !== 'sending' || otherNode.id === toNode.id) { return false; }
+    if (!otherNode || otherNode.type !== 'sending' || otherNode.id === sendingNode.id) { return false; }
     const otherLedIds = downstreamOf(graph, otherNode.id).filter(n => n.type === 'led').map(n => n.id);
     return otherLedIds.some(id => ledIds.has(id));
+  });
+}
+
+// 순서 (2): 지금 이으려는 샌딩카드(sendingNode)가 이미 어떤 콘솔 출력 포트에
+// 물려 있고, 그 포트의 미러 형제 포트로 연결된 다른 샌딩카드가 이미 같은
+// LED(ledNode)에 연결돼 있으면 막는다 — consoleToSendingMirrorConflict와
+// 정확히 대칭(어느 엣지가 먼저 생겼는지만 다름)이지만, 이번엔 "콘솔→샌딩"이
+// 아니라 "샌딩→LED" 엣지를 이으려는 시점에 판정해야 하므로 콘솔 포트 정보를
+// 샌딩카드의 기존 상류 엣지에서 거꾸로 찾는다.
+function sendingToLedMirrorConflict(graph, sendingNode, ledNode) {
+  const upstream = incomingEdge(graph, sendingNode.id, 'in');
+  if (!upstream) { return false; }
+  const consoleNode = graph.nodes.find(n => n.id === upstream.from.nodeId);
+  if (!consoleNode || consoleNode.type !== 'console') { return false; }
+  const ports = getConsoleOutputPorts(consoleNode);
+  const port = ports.find(p => p.id === upstream.from.portId);
+  if (!port || !port.mirror) { return false; }
+
+  const otherSendingIds = graph.edges
+    .filter(e => e.to.nodeId === ledNode.id && e.from.nodeId !== sendingNode.id)
+    .map(e => e.from.nodeId);
+  return otherSendingIds.some(otherId => {
+    const otherUpstream = incomingEdge(graph, otherId, 'in');
+    if (!otherUpstream || otherUpstream.from.nodeId !== consoleNode.id) { return false; }
+    const otherPort = ports.find(p => p.id === otherUpstream.from.portId);
+    return !!otherPort && otherPort.mirror === port.mirror;
   });
 }
 

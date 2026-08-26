@@ -120,13 +120,20 @@ function resolveSendingCardOutput(graph, sendingNode) {
   return { w, h, hz };
 }
 
-// 콘솔의 출력 포트별로, 그 포트가 실제로 물려 있는 샌딩카드가 내보내는
-// 해상도·최대 Hz를 계산한다(사용자 요청, 2026-08-26) — resolveSendingCardOutput을
-// 그대로 재사용하므로(그 함수가 이미 상류 콘솔의 outputResolutionTable로 Hz를
-// 정함) 샌딩카드 카드에 표시되는 값과 항상 일치한다. 프롬프터로 연결된 포트는
-// 샌딩카드가 없어 대상에서 빠지고, 아직 LED 해상도가 안 잡혔거나 샌딩카드가
-// 없는 포트도 결과에서 빠진다(콘솔 자체가 여러 포트를 동시에 쓸 수 있어 배열로
-// 반환 — 샌딩카드는 한 대만 연결되는 게 보통이라 배열이 아니었던 것과 다름).
+// 콘솔의 출력 포트별로, 그 포트가 실제로 물려 있는 샌딩카드 방향의 최대
+// Hz를 계산한다(사용자 요청, 2026-08-26) — resolveSendingCardOutput을 그대로
+// 재사용하므로(그 함수가 이미 상류 콘솔의 outputResolutionTable로 Hz를 정함)
+// 샌딩카드 카드에 표시되는 Hz와 항상 일치한다. 다만 표시하는 해상도(w/h)는
+// 그 포트 하나의 몫(예: 모자이크로 2대가 나눠 맡을 때의 절반)이 아니라
+// **최종 LED 전체 해상도**로 보여준다 — 콘솔 입력 쪽에서 실제로 맞춰 보내야
+// 하는 "합쳐진 캔버스" 크기가 바로 이 값이라서다(사용자 확인, 2026-08-26).
+// Hz는 그대로 그 포트가 실제로 내보내는 몫값 기준을 쓴다 — 한 포트가 실제로
+// 낼 수 있는 최대 주사율은 전체가 아니라 그 몫값의 대역폭에 달려 있으므로,
+// 표시 해상도(전체)와 Hz 계산 기준(포트 몫)이 서로 다른 게 의도된 동작이다.
+// 프롬프터로 연결된 포트는 샌딩카드가 없어 대상에서 빠지고, 아직 LED
+// 해상도가 안 잡혔거나 샌딩카드가 없는 포트도 결과에서 빠진다(콘솔 자체가
+// 여러 포트를 동시에 쓸 수 있어 배열로 반환 — 샌딩카드는 한 대만 연결되는 게
+// 보통이라 배열이 아니었던 것과 다름).
 function resolveConsoleOutputInfo(graph, consoleNode) {
   const ports = getConsoleOutputPorts(consoleNode);
   return graph.edges
@@ -136,8 +143,16 @@ function resolveConsoleOutputInfo(graph, consoleNode) {
       if (!toNode || toNode.type !== 'sending') { return null; }
       const out = resolveSendingCardOutput(graph, toNode);
       if (!out) { return null; }
+      const ledNode = downstreamOf(graph, toNode.id).find(n => n.type === 'led' && hasZones(n));
+      const full = ledNode ? boundingResolutionForZones(ledNode.config.ledDesign.zones) : null;
       const port = ports.find(p => p.id === e.from.portId);
-      return { portId: e.from.portId, portLabel: port ? port.label : e.from.portId, w: out.w, h: out.h, hz: out.hz };
+      return {
+        portId: e.from.portId,
+        portLabel: port ? port.label : e.from.portId,
+        w: full ? full.w : out.w,
+        h: full ? full.h : out.h,
+        hz: out.hz,
+      };
     })
     .filter(Boolean);
 }

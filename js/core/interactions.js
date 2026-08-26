@@ -279,10 +279,18 @@ function handlePointerUp(x, y) {
     selectNode(_dragNodeId);
     renderNodeCards();
     renderPropertiesPanel();
-  } else if (_dragNodeId && _dragMoved && nodeOverlapsAny(_dragNodeId)) {
+  } else if (_dragNodeId && _dragMoved) {
     // 드래그해서 놓은 자리가 다른 카드와 겹치면 "항상 안 겹친다"를 지키기
     // 위해 이동 자체를 취소한다 — 드래그 시작 위치로 부드럽게 튕겨 돌아간다.
-    snapNodeBack(_dragNodeId, _dragStartPos);
+    // 겹침 대상 목록은 되돌리기 전(아직 겹친 상태) 위치 기준으로 구해야 한다.
+    const overlapping = overlappingNodes(_dragNodeId);
+    if (overlapping.length) {
+      snapNodeBack(_dragNodeId, _dragStartPos);
+      // 원래 그 자리에 있던 노드도 "여기 이미 자리가 있다"는 걸 알 수 있게
+      // 같이 떨어준다(사용자 요청) — 위치는 그대로라 흔들림만, 튕겨 돌아가는
+      // 트랜지션은 필요 없다.
+      overlapping.forEach(n => shakeNode(n.id));
+    }
   }
   _dragNodeId = null;
   _isPanning = false;
@@ -298,30 +306,39 @@ function rectsOverlap(a, b) {
     && a.y < b.y + bH && a.y + aH > b.y;
 }
 
-function nodeOverlapsAny(nodeId) {
+function overlappingNodes(nodeId) {
   const node = getNode(nodeId);
-  if (!node) { return false; }
-  return State.graph.nodes.some(other => other.id !== nodeId && rectsOverlap(node, other));
+  if (!node) { return []; }
+  return State.graph.nodes.filter(other => other.id !== nodeId && rectsOverlap(node, other));
+}
+
+// "여기 놓을 수 없다"를 즉각적으로 알리는 짧은 부르르 떨림 애니메이션 —
+// 드래그로 튕겨 돌아가는 노드뿐 아니라, 그 자리에 원래 있던(그래서 겹치게
+// 만든 상대) 노드에도 같이 걸어 "이미 자리가 있다"는 걸 알려준다(사용자 요청).
+function shakeNode(nodeId) {
+  const el = document.querySelector(`.node-card[data-node-id="${nodeId}"]`);
+  if (!el) { return; }
+  el.classList.add('shake');
+  const cleanup = () => { el.classList.remove('shake'); el.removeEventListener('animationend', cleanup); };
+  el.addEventListener('animationend', cleanup);
+  setTimeout(cleanup, 400); // animationend가 안 오는 경우(예: 곧바로 재드래그) 대비
 }
 
 // 위치는 즉시 되돌리되(state), 화면은 .snap-back 클래스가 붙어있는 동안만
 // CSS 트랜지션으로 부드럽게 튕겨 보이게 한다 — 평소 드래그 중 매 프레임
 // style.left/top을 갱신할 때는 이 클래스가 없어 커서를 지연 없이 그대로
-// 따라간다. .shake는 "여기 놓을 수 없다"는 걸 즉각적으로 알리는 짧은
-// 부르르 떨림 애니메이션 — 위치가 되돌아가는 트랜지션과 동시에 재생된다.
+// 따라간다.
 function snapNodeBack(nodeId, pos) {
   moveNode(nodeId, pos.x, pos.y);
   const el = document.querySelector(`.node-card[data-node-id="${nodeId}"]`);
   if (!el) { renderNodeCards(); render(); return; }
-  el.classList.add('snap-back', 'shake');
+  el.classList.add('snap-back');
   renderNodeCards();
   render();
   const cleanupSnap = () => { el.classList.remove('snap-back'); el.removeEventListener('transitionend', cleanupSnap); };
   el.addEventListener('transitionend', cleanupSnap);
   setTimeout(cleanupSnap, 300); // transitionend가 안 오는 경우(예: 곧바로 재드래그) 대비
-  const cleanupShake = () => { el.classList.remove('shake'); el.removeEventListener('animationend', cleanupShake); };
-  el.addEventListener('animationend', cleanupShake);
-  setTimeout(cleanupShake, 400);
+  shakeNode(nodeId);
 }
 
 // 연결 드롭 지점을 정한다: 정확히 입력 포트 도트 위에 놓였으면 그 포트를 쓰고,

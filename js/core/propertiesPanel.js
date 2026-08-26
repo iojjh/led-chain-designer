@@ -441,6 +441,25 @@ function pruneOrphanConsoleEdges(node) {
   });
 }
 
+// mode(J6 splicer↔switcher)/auxMode(EC100 switcher↔mosaic) 전환은 포트 id가
+// 그대로 유지돼도 그 포트의 "의미"가 통째로 바뀔 수 있다 — 예를 들어 EC100
+// mosaic에서 독립적으로 쓰던 aux1/aux2가 switcher로 바꾸면 미러 쌍(항상 같은
+// 신호)이 된다(devices.js의 mirror 필드). id 존재 여부만 보는
+// pruneOrphanConsoleEdges로는 이런 "의미만 바뀐" 경우를 못 잡아서(포트가
+// 사라진 게 아니므로), 이미 연결된 두 샌딩카드가 한 LED를 나눠 담당하는데
+// 갑자기 미러 쌍이 되는 등 조용히 잘못된 조합이 남을 수 있다 — 부분적으로
+// 골라 정리하는 대신 이 콘솔에 물린 연결선을 전부 지워 사용자가 새 모드
+// 기준으로 처음부터 다시 잇게 한다(사용자 확인, 2026-08-26).
+function resetConsoleEdges(node) {
+  const before = State.graph.edges.length;
+  State.graph.edges = State.graph.edges.filter(ed => ed.to.nodeId !== node.id && ed.from.nodeId !== node.id);
+  // 값을 바꾼 순간(라이브 적용, 확인 버튼 없이) 바로 다 지워지므로, 왜
+  // 연결선이 사라졌는지 알 수 있게 알려준다 — 실제로 뭔가 지워졌을 때만.
+  if (State.graph.edges.length < before) {
+    showToast('모드를 바꿔 이 콘솔의 연결선이 모두 초기화되었습니다');
+  }
+}
+
 // deviceId를 노드에 적용하고 그에 딸린 파생 필드(콘솔의 outputKind/mode)를
 // 함께 갱신한다. 속성 패널의 "장비 프리셋" select 변경과, 팔레트 드롭다운에서
 // 장비를 바로 골라 추가하는 경우(interactions.js) 양쪽이 공유한다.
@@ -485,10 +504,10 @@ function applyFieldValue(node, field, el) {
     applyLedQuickFields(node);
   } else {
     node.config[field] = el.value;
-    // J6 splicer↔switcher, EC100 switcher↔mosaic처럼 모드에 따라 출력 포트
-    // 구성 자체가 달라지므로, 바꾸면 이제 존재하지 않는 출력 포트를 가리키던
-    // 엣지를 정리한다.
-    if ((field === 'mode' || field === 'auxMode') && node.type === 'console') { pruneOrphanConsoleEdges(node); }
+    // J6 splicer↔switcher, EC100 switcher↔mosaic 전환은 포트 구성 자체가
+    // 달라지거나(포트가 사라짐) 같은 id라도 의미가 바뀔 수 있어(resetConsoleEdges
+    // 참고), 이 콘솔에 물린 연결선을 전부 지운다.
+    if ((field === 'mode' || field === 'auxMode') && node.type === 'console') { resetConsoleEdges(node); }
   }
 }
 
