@@ -85,6 +85,7 @@ function renderSaveList() {
   el.querySelectorAll('.save-load-row-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       loadProject(Number(btn.dataset.idx));
+      relayoutGraphForViewport();
       renderNodeCards();
       renderPropertiesPanel();
       renderValidation();
@@ -154,6 +155,7 @@ async function onCloudLoadClick(btn, preset) {
     State.graph = await loadCloudPresetGraph(preset.data);
     State.ui.selectedId = null;
     State.ui.selectedEdgeId = null;
+    relayoutGraphForViewport();
     renderNodeCards();
     renderPropertiesPanel();
     renderValidation();
@@ -166,18 +168,15 @@ async function onCloudLoadClick(btn, preset) {
   }
 }
 
-async function onCloudDeleteClick(btn, preset) {
+function onCloudDeleteClick(btn, preset) {
   if (!preset) { return; }
   if (!window.confirm(`"${preset.name || '(이름 없음)'}"을(를) 커뮤니티에서 삭제할까요?`)) { return; }
-  btn.disabled = true;
-  btn.textContent = '삭제 중…';
-  try {
-    await deleteCloudPreset(preset.data);
-    showToast('커뮤니티에서 삭제했습니다');
-    btn.closest('.save-row').remove(); // 게시된 CSV 캐시 반영엔 지연이 있어, 목록 재조회 대신 그 자리에서 바로 지움
-  } catch (e) {
-    showToast('삭제 실패: ' + e.message);
-    btn.disabled = false;
-    btn.textContent = '삭제';
-  }
+  // 실제 삭제 요청(Apps Script 왕복)은 수 초 걸릴 수 있어, 사용자를 기다리게 하지
+  // 않고 화면에서 바로 지운 뒤 요청은 백그라운드로 보낸다 — deleteCloudPreset이
+  // keepalive:true라 이 시점에 앱을 꺼도 요청은 살아남는다.
+  btn.closest('.save-row').remove();
+  showToast('커뮤니티에서 삭제했습니다');
+  deleteCloudPreset(preset.data).catch(e => {
+    showToast('삭제 요청 실패: ' + e.message);
+  });
 }

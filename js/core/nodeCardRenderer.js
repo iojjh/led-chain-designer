@@ -148,11 +148,21 @@ function cardSummary(node) {
       const total = getConsoleInputPorts(node).length;
       const occupied = State.graph.edges.filter(e => e.to.nodeId === node.id).length;
       const base = d ? d.shortName : '수동 설정';
-      return `${base} · 입력 ${occupied}/${total}`;
+      // 듀얼링크가 켜져 있으면(현재 J6만 해당, 자동 판정) 카드에서 바로 보이게
+      // — 속성 패널을 열지 않아도 "DVI2가 왜 안 보이는지" 알 수 있어야 한다.
+      const dualLabel = node.config.dviLink === 'dual' ? ' · 듀얼링크(DVI2 사용불가)' : '';
+      return `${base} · 입력 ${occupied}/${total}${dualLabel}`;
     }
     case 'sending': {
       const d = node.config.deviceId ? getDevice('sending', node.config.deviceId) : null;
-      return d ? `${d.shortName} · ${d.portCount}포트` : `${node.config.portCount}포트 (수동)`;
+      const base = d ? `${d.shortName} · ${d.portCount}포트` : `${node.config.portCount}포트 (수동)`;
+      // 연결된 LED의 해상도(2대 이상이 나눠 맡으면 가로로 균등 분할해 표시,
+      // 사용자 요청)와, 상류 콘솔의 실제 출력 해상도 표에서 그 해상도가 낼 수
+      // 있는 최대 주사율(validationEngine.js의 resolveSendingCardOutput).
+      const out = resolveSendingCardOutput(State.graph, node);
+      if (!out) { return base; }
+      const hzLabel = out.hz ? ` · 최대 ${out.hz}Hz` : '';
+      return `${base} · ${out.w}×${out.h}${hzLabel}`;
     }
     case 'led': {
       const cfg = node.config.ledDesign;

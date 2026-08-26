@@ -128,9 +128,31 @@ function checkLedLanPortCount(ledDesign, availablePorts) {
   };
 }
 
+// 해상도별 지원 Hz 표(device.outputResolutionTable: [{w,h,hz:[...]}])에서,
+// 주어진 픽셀수를 감당할 수 있는 가장 높은 Hz를 찾는다(사용자 지정 방식,
+// 2026-08-26): Hz마다 그 Hz를 지원하는 표준 해상도 중 픽셀수가 가장 큰 것을
+// 그 Hz의 "예산"으로 보고, 필요 픽셀수가 예산 이내인 Hz 중 최댓값을 채택한다.
+// 표에 정확히 없는(커스텀) 해상도도 이 방식으로 판정한다 — 벤더 문서가 커스텀
+// 해상도별 정확한 Hz를 안 주므로, 표준 해상도 픽셀수를 기준 삼는 근사다.
+// 어떤 Hz로도 못 감당하면 null.
+function maxHzForPx(resolutionTable, requiredPx) {
+  const budgetByHz = new Map();
+  resolutionTable.forEach(entry => {
+    const px = entry.w * entry.h;
+    entry.hz.forEach(hz => {
+      budgetByHz.set(hz, Math.max(budgetByHz.get(hz) || 0, px));
+    });
+  });
+  let best = null;
+  budgetByHz.forEach((budgetPx, hz) => {
+    if (requiredPx <= budgetPx && (best === null || hz > best)) { best = hz; }
+  });
+  return best;
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     checkConsoleOutput, checkSendingOutput, checkSendingInput, checkConsoleSingleOutput,
-    checkLedLanPortCount, FALLBACK_PER_PORT_MAX_PX,
+    checkLedLanPortCount, maxHzForPx, FALLBACK_PER_PORT_MAX_PX,
   };
 }

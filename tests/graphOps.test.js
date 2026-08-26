@@ -27,19 +27,60 @@ describe('isPairAllowed', () => {
     expect(isPairAllowed(node('a', 'input'), 'out', node('b', 'sending'), 'in')).toBe(false);
   });
 
-  test('lan-ports console can connect directly to led', () => {
+  test('lan-ports console can connect directly to led, via one of its real output ports', () => {
     const c = node('a', 'console', { outputKind: 'lan-ports' });
-    expect(isPairAllowed(c, 'out', node('b', 'led'), 'in')).toBe(true);
+    expect(isPairAllowed(c, 'out1', node('b', 'led'), 'in')).toBe(true);
   });
 
   test('video-signal console cannot connect directly to led', () => {
     const c = node('a', 'console', { outputKind: 'video-signal' });
-    expect(isPairAllowed(c, 'out', node('b', 'led'), 'in')).toBe(false);
+    expect(isPairAllowed(c, 'out1', node('b', 'led'), 'in')).toBe(false);
   });
 
   test('video-signal console can still connect to sending', () => {
     const c = node('a', 'console', { outputKind: 'video-signal' });
-    expect(isPairAllowed(c, 'out', node('b', 'sending'), 'in')).toBe(true);
+    expect(isPairAllowed(c, 'out1', node('b', 'sending'), 'in')).toBe(true);
+  });
+
+  test('console -> sending with an unknown output portId is not allowed', () => {
+    const c = node('a', 'console', {});
+    expect(isPairAllowed(c, 'nope', node('b', 'sending'), 'in')).toBe(false);
+  });
+
+  test('a device-preset console\'s real output port ids are allowed, others are not', () => {
+    // J6 splicer 모드는 실제 DVI1~DVI4만 허용, switcher 모드는 dvi2/dvi4가 없음.
+    const j6Splicer = node('a', 'console', { deviceId: 'novastar-j6', mode: 'splicer' });
+    expect(isPairAllowed(j6Splicer, 'dvi4', node('b', 'sending'), 'in')).toBe(true);
+    expect(isPairAllowed(j6Splicer, 'dvi5', node('b', 'sending'), 'in')).toBe(false);
+
+    // switcher 모드(단일 DVI, 기본값)는 dvi1/dvi2/dvi3 모두 허용, dvi4는 없음.
+    const j6Switcher = node('a', 'console', { deviceId: 'novastar-j6', mode: 'switcher' });
+    expect(isPairAllowed(j6Switcher, 'dvi2', node('b', 'sending'), 'in')).toBe(true);
+    expect(isPairAllowed(j6Switcher, 'dvi4', node('b', 'sending'), 'in')).toBe(false);
+
+    // 듀얼링크가 켜지면 dvi2는 dvi1에 합쳐져 사라진다.
+    const j6SwitcherDual = node('a', 'console', { deviceId: 'novastar-j6', mode: 'switcher', dviLink: 'dual' });
+    expect(isPairAllowed(j6SwitcherDual, 'dvi1', node('b', 'sending'), 'in')).toBe(true);
+    expect(isPairAllowed(j6SwitcherDual, 'dvi2', node('b', 'sending'), 'in')).toBe(false);
+
+    // EC90은 실제 출력 채널 4개(pgm1/pgm2/aux1/aux2)만 허용 — A/B는 별개 포트가 아니다.
+    const ec90 = node('a', 'console', { deviceId: 'magnimage-ec90' });
+    expect(isPairAllowed(ec90, 'aux1', node('b', 'sending'), 'in')).toBe(true);
+    expect(isPairAllowed(ec90, '1a', node('b', 'sending'), 'in')).toBe(false);
+  });
+
+  test('console -> prompter.in is allowed only via an AUX-flagged output port', () => {
+    const j6Switcher = node('a', 'console', { deviceId: 'novastar-j6', mode: 'switcher' });
+    expect(isPairAllowed(j6Switcher, 'dvi3', node('b', 'prompter'), 'in')).toBe(true); // DVI3 = AUX
+    expect(isPairAllowed(j6Switcher, 'dvi1', node('b', 'prompter'), 'in')).toBe(false); // DVI1 = PGM
+    expect(isPairAllowed(j6Switcher, 'dvi2', node('b', 'prompter'), 'in')).toBe(false); // DVI2 = PGM
+
+    const j6Splicer = node('a', 'console', { deviceId: 'novastar-j6', mode: 'splicer' });
+    expect(isPairAllowed(j6Splicer, 'dvi1', node('b', 'prompter'), 'in')).toBe(false); // splicer엔 AUX 개념이 없음
+
+    const ec90 = node('a', 'console', { deviceId: 'magnimage-ec90' });
+    expect(isPairAllowed(ec90, 'aux1', node('b', 'prompter'), 'in')).toBe(true);
+    expect(isPairAllowed(ec90, 'pgm1', node('b', 'prompter'), 'in')).toBe(false);
   });
 
   test('sending.out -> led.in is allowed', () => {

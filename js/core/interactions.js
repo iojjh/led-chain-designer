@@ -248,6 +248,10 @@ function handlePointerUp(x, y) {
         // 콘솔 입력은 도트 하나로 통합돼 있으므로, 실제로 어느 물리 포트에
         // 연결할지는 여기서 빈 포트를 찾아 자동/피커로 정한다.
         resolveConsoleInputConnection(fromNode, _connectFrom.portId, toNode, x, y);
+      } else if (fromNode && fromNode.type === 'console' && toNode && target.portId) {
+        // 콘솔 출력도 입력과 대칭 — 도트 하나로 통합돼 있으므로 실제로 어느
+        // 물리 출력 포트로 나갈지는 여기서 빈 포트를 찾아 자동/피커로 정한다.
+        resolveConsoleOutputConnection(fromNode, toNode, target.portId, x, y);
       } else if (toNode && target.portId) {
         const edge = addEdge(_connectFrom.nodeId, _connectFrom.portId, toNode.id, target.portId);
         if (edge) {
@@ -319,6 +323,37 @@ function resolveConsoleInputConnection(fromNode, fromPortId, toNode, clientX, cl
 
   const connect = portId => {
     const edge = addEdge(fromNode.id, fromPortId, toNode.id, portId);
+    if (edge) { renderValidation(); renderPropertiesPanel(); }
+  };
+
+  if (free.length === 1) {
+    connect(free[0].id);
+    return;
+  }
+  openPortPicker(clientX, clientY, free, connect);
+}
+
+// 콘솔 → 샌딩카드/LED/프롬프터 연결: 입력 쪽과 대칭 — 콘솔의 실제 물리 출력
+// 포트(devices.js) 중 이 목적지에 실제로 연결 가능한 것(예: 프롬프터는 AUX
+// 포트만 — graphOps.js의 isPairAllowed)만 추려 빈 것을 찾는다. 그런 포트가
+// 아예 없거나 전부 찼으면 연결을 거부하고, 하나만 남았으면 바로 연결하고,
+// 여러 개 남았으면 사용자가 고르도록 피커를 띄운다.
+function resolveConsoleOutputConnection(fromNode, toNode, toPortId, clientX, clientY) {
+  const allPorts = getConsoleOutputPorts(fromNode).filter(p => isPairAllowed(fromNode, p.id, toNode, toPortId));
+  if (allPorts.length === 0) {
+    showToast('이 목적지로 연결할 수 있는 출력 포트가 없습니다');
+    return;
+  }
+  const occupied = new Set(State.graph.edges.filter(e => e.from.nodeId === fromNode.id).map(e => e.from.portId));
+  const free = allPorts.filter(p => !occupied.has(p.id));
+
+  if (free.length === 0) {
+    showToast(`출력 포트가 모두 사용 중입니다 (${allPorts.length}/${allPorts.length})`);
+    return;
+  }
+
+  const connect = portId => {
+    const edge = addEdge(fromNode.id, portId, toNode.id, toPortId);
     if (edge) { renderValidation(); renderPropertiesPanel(); }
   };
 
@@ -574,6 +609,31 @@ function pickMobileSpot(type, rect) {
   const topOffset = 90;
   const world = screenToWorld(rect.left + rect.width / 2, rect.top + topOffset);
   return { x: world.x - CARD_WIDTH / 2, y: world.y };
+}
+
+// 저장된 현장을 불러오면 저장 당시 좌표가 그대로 들어오는데, 그게 지금
+// 사용자의 화면 크기·팬 위치와 안 맞으면 캔버스 밖에 놓일 수 있다 — 팔레트로
+// 장비를 하나씩 추가할 때와 똑같은 배치 규칙(pickSwimlaneSpot/pickMobileSpot +
+// ensureNodeVisible)을 저장된 순서대로 다시 적용해, 지금 보이는 화면을
+// 기준으로 새로 쌓이게 한다. 위치 계산만이 아니라 ensureNodeVisible까지 매
+// 노드마다 반복해야 실제로 "추가하면 바로 보인다"가 재현된다 — 격자 전체
+// 폭(타입 6개면 gapX*6)이 화면보다 넓을 수 있어서, 위치만 화면 중앙 기준으로
+// 계산하는 것만으론 양 끝 열이 화면 밖에 남는다.
+// 좌표만 다시 계산할 뿐 노드 객체와 그걸 참조하는 edges는 그대로 유지된다.
+function relayoutGraphForViewport() {
+  const canvasEl = document.getElementById('graphCanvas');
+  const rect = canvasEl.getBoundingClientRect();
+  const isMobile = window.matchMedia('(max-width: 640px)').matches;
+  const nodes = State.graph.nodes;
+  State.graph.nodes = [];
+  nodes.forEach(node => {
+    const spot = isMobile ? pickMobileSpot(node.type, rect) : pickSwimlaneSpot(node.type, rect);
+    node.x = spot.x;
+    node.y = spot.y;
+    State.graph.nodes.push(node);
+    ensureNodeVisible(node, rect);
+  });
+  render();
 }
 
 // 열 배치(swimlane)가 화면 폭을 넘어가면(특히 좁은 모바일 화면) 새로 추가된

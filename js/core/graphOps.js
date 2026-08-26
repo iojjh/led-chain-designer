@@ -8,11 +8,15 @@
 if (typeof module !== 'undefined' && typeof getConsoleInputPorts === 'undefined') {
   global.getConsoleInputPorts = require('../devices/devices.js').getConsoleInputPorts;
 }
+if (typeof module !== 'undefined' && typeof getConsoleOutputPorts === 'undefined') {
+  global.getConsoleOutputPorts = require('../devices/devices.js').getConsoleOutputPorts;
+}
 
 // 타입쌍 허용 규칙 (fromNode.out[fromPortId] → toNode.in[toPortId]):
-// - input.out            → console.in* (콘솔의 실제 입력 포트 중 하나 — 장비 스펙에서 파생)
-// - console.out          → sending.in  (항상 허용)
-//                        → led.in      (콘솔 outputKind가 'lan-ports'일 때만 — 샌딩카드 내장형 콘솔)
+// - input.out            → console.in*  (콘솔의 실제 입력 포트 중 하나 — 장비 스펙에서 파생)
+// - console.out*         → sending.in   (콘솔의 실제 출력 포트 중 하나면 항상 허용)
+//                        → led.in       (콘솔 outputKind가 'lan-ports'일 때만 — 샌딩카드 내장형 콘솔)
+//                        → prompter.in  (그 출력 포트가 AUX일 때만 — devices.js의 aux 플래그)
 // - sending.out          → led.in
 // - power.out            → distro.in
 // - distro.out           → led.pwrIn
@@ -24,12 +28,15 @@ function isPairAllowed(fromNode, fromPortId, toNode, toPortId) {
     if (toType !== 'console') { return false; }
     return getConsoleInputPorts(toNode).some(p => p.id === toPortId);
   }
-  if (fromType === 'console' && fromPortId === 'out') {
+  if (fromType === 'console') {
+    const port = getConsoleOutputPorts(fromNode).find(p => p.id === fromPortId);
+    if (!port) { return false; }
     if (toType === 'sending' && toPortId === 'in') { return true; }
     if (toType === 'led' && toPortId === 'in') {
       const outputKind = (fromNode.config && fromNode.config.outputKind) || 'lan-ports';
       return outputKind === 'lan-ports';
     }
+    if (toType === 'prompter' && toPortId === 'in') { return !!port.aux; }
     return false;
   }
   if (fromType === 'sending' && fromPortId === 'out') {

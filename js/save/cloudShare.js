@@ -152,10 +152,14 @@ async function loadCloudPresetGraph(dataStr) {
 // 보내는 "단순 요청"으로 만든다 — Apps Script 웹 앱은 OPTIONS를 처리하지 않아
 // application/json으로 보내면 CORS 프리플라이트에서 막힌다.
 async function deleteCloudPreset(dataStr) {
+  // keepalive: true — 화면에서는 삭제 버튼을 누르는 즉시 목록에서 지우고 이 요청은
+  // 기다리지 않고 백그라운드로 보낸다(saveStore.js의 onCloudDeleteClick). keepalive가
+  // 없으면 요청이 끝나기 전에 앱(탭)이 닫힐 때 브라우저가 요청 자체를 중단시킨다.
   const res = await fetch(CLOUD_DELETE_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: 'delete', key: dataStr }),
+    keepalive: true,
   });
   if (!res.ok) { throw new Error('HTTP ' + res.status); }
   const result = await res.json();

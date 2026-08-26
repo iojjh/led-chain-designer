@@ -57,7 +57,11 @@ function addEdge(fromNodeId, fromPortId, toNodeId, toPortId) {
   const check = canConnect(State.graph, fromNodeId, fromPortId, toNodeId, toPortId);
   if (!check.ok) { return null; }
   const fromNode = getNode(fromNodeId);
-  const outPort = getPorts(fromNode).out.find(p => p.id === fromPortId);
+  // 콘솔의 출력은 캔버스엔 도트 하나(getPorts)로 통합돼 있지만 실제 물리
+  // 포트는 여러 개라(devices.js) 엣지 kind는 그 실제 포트 목록에서 찾는다.
+  const outPort = fromNode.type === 'console'
+    ? getConsoleOutputPorts(fromNode).find(p => p.id === fromPortId)
+    : getPorts(fromNode).out.find(p => p.id === fromPortId);
   const edge = {
     id: makeId('e'),
     kind: outPort ? outPort.kind : 'video',

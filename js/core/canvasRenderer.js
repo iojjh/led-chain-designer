@@ -108,13 +108,26 @@ function strokeEdgePath(ctx, p0, dir0, p1, dir1, color, width, dashed) {
   return points;
 }
 
-// 인풋소스→콘솔 엣지는 어떤 커넥터(DP/HDMI/DVI 등)로 연결됐는지 알기 쉽도록
-// 라인 중간에 라벨을 붙인다. 다른 경로(콘솔 이후)는 논리 포트가 하나뿐이라
-// 굳이 라벨을 붙이지 않는다.
+// 인풋소스→콘솔, 콘솔→샌딩카드/LED 엣지는 실제 어느 물리 포트로 연결됐는지
+// 알기 쉽도록 라인 중간에 라벨을 붙인다(입력은 DP/HDMI/DVI 등 커넥터, 출력은
+// 콘솔의 출력 커넥터/그룹). 그 외 경로는 논리 포트가 하나뿐이라 굳이 라벨을
+// 붙이지 않는다.
 function edgeLabelFor(edge, fromNode, toNode) {
-  if (fromNode.type !== 'input' || toNode.type !== 'console') { return null; }
-  const port = getConsoleInputPorts(toNode).find(p => p.id === edge.to.portId);
-  return port ? port.label : null;
+  if (fromNode.type === 'input' && toNode.type === 'console') {
+    const port = getConsoleInputPorts(toNode).find(p => p.id === edge.to.portId);
+    return port ? port.label : null;
+  }
+  if (fromNode.type === 'console') {
+    const port = getConsoleOutputPorts(fromNode).find(p => p.id === edge.from.portId);
+    if (!port) { return null; }
+    // 듀얼링크로 합쳐진 DVI1(devices.js에서 dviLink:'dual'일 때만 남는 PGM
+    // 포트)에서 나가는 선에는 "(듀얼링크)"를 덧붙여, 이 연결이 DVI1+DVI2
+    // 대역폭을 합쳐 쓰고 있다는 걸 선만 보고도 알 수 있게 한다. AUX(dvi3)는
+    // 듀얼링크와 무관해 대상이 아니다.
+    const isDualMergedPort = fromNode.config.dviLink === 'dual' && edge.from.portId === 'dvi1';
+    return isDualMergedPort ? `${port.label} (듀얼링크)` : port.label;
+  }
+  return null;
 }
 
 function drawEdgeLabel(ctx, midPoint, text, color) {

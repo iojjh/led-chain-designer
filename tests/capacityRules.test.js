@@ -1,6 +1,6 @@
 const {
   checkConsoleOutput, checkSendingOutput, checkSendingInput, checkConsoleSingleOutput,
-  checkLedLanPortCount, FALLBACK_PER_PORT_MAX_PX,
+  checkLedLanPortCount, maxHzForPx, FALLBACK_PER_PORT_MAX_PX,
 } = require('../js/validation/capacityRules.js');
 const { getDevice } = require('../js/devices/devices.js');
 
@@ -148,5 +148,45 @@ describe('checkLedLanPortCount', () => {
     expect(res.ok).toBe(false);
     expect(res.actual).toBe(10);
     expect(res.limit).toBe(sendingMctrl660pro.portCount);
+  });
+});
+
+describe('maxHzForPx', () => {
+  const table = [
+    { w: 1920, h: 1080, hz: [30, 60] }, // 2,073,600px
+    { w: 1280, h: 720, hz: [30, 60, 120] }, // 921,600px
+    { w: 3840, h: 2160, hz: [30] }, // 8,294,400px
+  ];
+
+  test('picks the highest Hz whose budget covers the required pixels', () => {
+    // 921,600px 이하만 필요하면 120Hz(1280x720의 Hz)까지 가능
+    expect(maxHzForPx(table, 900000)).toBe(120);
+  });
+
+  test('a bigger requirement drops to a lower Hz tier', () => {
+    // 2,073,600px 이하는 120Hz 예산(921,600px)을 넘으므로 60Hz(1920x1080 기준)로 내려감
+    expect(maxHzForPx(table, 2000000)).toBe(60);
+  });
+
+  test('requirement exceeding every tier\'s budget still finds the highest tier that fits', () => {
+    // 8,294,400px 이하는 30Hz(3840x2160)만 커버 — 60Hz 예산(2,073,600px)은 초과
+    expect(maxHzForPx(table, 8000000)).toBe(30);
+  });
+
+  test('requirement exceeding even the largest tier returns null (not achievable at any Hz)', () => {
+    expect(maxHzForPx(table, 9000000)).toBeNull();
+  });
+
+  test('an unusual/custom pixel count is judged the same way (no exact-resolution match needed)', () => {
+    expect(maxHzForPx(table, 921600)).toBe(120); // 정확히 경계값
+    expect(maxHzForPx(table, 921601)).toBe(60); // 1px만 넘어도 120Hz 예산 초과
+  });
+
+  test('J6\'s real output resolution table: a 1920x1200 requirement tops out at 60Hz', () => {
+    expect(maxHzForPx(j6.outputResolutionTable, 1920 * 1200)).toBe(60);
+  });
+
+  test('EC90\'s real output resolution table: a 3840x2400 requirement only fits the 60Hz tier', () => {
+    expect(maxHzForPx(ec90.outputResolutionTable, 3840 * 2400)).toBe(60);
   });
 });

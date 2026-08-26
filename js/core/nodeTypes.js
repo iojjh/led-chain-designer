@@ -1,5 +1,5 @@
 // ── nodeTypes ───────────────────────────────────────
-// 6개 노드 타입의 표시 정보(아이콘/라벨)와 기본 config, 포트 정의.
+// 7개 노드 타입의 표시 정보(아이콘/라벨)와 기본 config, 포트 정의.
 // 콘솔의 입력은 캔버스에서 도트 하나로 통합해 보여준다 — 실제 몇 번 커넥터로
 // 연결됐는지는 엣지의 portId(예: 'dp')에 저장되고 devices.js의
 // getConsoleInputPorts로 조회한다(연결 인터랙션은 interactions.js, 포트 목록
@@ -12,15 +12,19 @@ if (typeof module !== 'undefined' && typeof PWR_PORT_COUNT === 'undefined') {
 }
 
 const NODE_TYPES = {
-  input:   { label: '인풋소스', icon: '💻', category: 'video' },
-  console: { label: '콘솔',     icon: '🖥️', category: 'video' },
-  sending: { label: '샌딩카드', icon: '📡', category: 'video' },
-  led:     { label: 'LED디스플레이', icon: '🟩', category: 'video' },
-  power:   { label: '메인전원',      icon: '🔌', category: 'power' },
-  distro:  { label: '분전함',        icon: '⚡', category: 'power' },
+  input:    { label: '인풋소스', icon: '💻', category: 'video' },
+  console:  { label: '콘솔',     icon: '🖥️', category: 'video' },
+  sending:  { label: '샌딩카드', icon: '📡', category: 'video' },
+  led:      { label: 'LED디스플레이', icon: '🟩', category: 'video' },
+  power:    { label: '메인전원',      icon: '🔌', category: 'power' },
+  distro:   { label: '분전함',        icon: '⚡', category: 'power' },
+  // 콘솔의 AUX 출력(모니터링용)을 샌딩카드/LED 없이 바로 받는 단순 종착점 —
+  // PGM 경로(샌딩카드→LED)와 달리 설정할 게 없어 defaultConfig도 빈 객체다.
+  // graphOps.js의 isPairAllowed가 AUX로 표시된 출력 포트에서만 연결을 허용한다.
+  prompter: { label: '프롬프터', icon: '📺', category: 'video' },
 };
 
-const NODE_ORDER = ['input', 'console', 'sending', 'led', 'power', 'distro'];
+const NODE_ORDER = ['input', 'console', 'sending', 'led', 'power', 'distro', 'prompter'];
 
 // 인풋소스 종류 — 카드/속성패널 드롭다운에서 공유하는 표시 라벨 테이블.
 const INPUT_KINDS = [
@@ -41,7 +45,7 @@ function defaultConfig(type) {
     case 'input':
       return { sourceKind: 'vmix' };
     case 'console':
-      return { deviceId: null, outputKind: 'lan-ports', mode: null, cascade: 1, manualInputPorts: 2 };
+      return { deviceId: null, outputKind: 'lan-ports', mode: null, cascade: 1, manualInputPorts: 2, manualOutputPorts: 2, dviLink: 'single' };
     case 'sending':
       return { deviceId: null, portCount: 8, perPortMaxPx: 655360, inputMaxPx: null };
     case 'led':
@@ -103,6 +107,8 @@ function getPorts(node) {
       return { in: [], out: [{ id: 'out', kind: 'power' }] };
     case 'distro':
       return { in: [{ id: 'in', kind: 'power' }], out: [{ id: 'out', kind: 'power' }] };
+    case 'prompter':
+      return { in: [{ id: 'in', kind: 'video' }], out: [] };
     default:
       return { in: [], out: [] };
   }

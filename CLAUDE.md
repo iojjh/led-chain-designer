@@ -44,18 +44,26 @@ tests/         (각 순수 모듈당 *.test.js)
 ```js
 GraphState = {
   version: 1,
-  nodes: [{ id, type: 'input'|'console'|'sending'|'led'|'power'|'distro', x, y, label, config }],
+  nodes: [{ id, type: 'input'|'console'|'sending'|'led'|'power'|'distro'|'prompter', x, y, label, config }],
   edges: [{ id, kind: 'video'|'lan'|'power', from:{nodeId,portId}, to:{nodeId,portId} }],
 }
 ```
 
 포트 호환 규칙(`graphOps.js`):
 - `input.out` → `console.in`(캔버스에는 도트 하나로 통합돼 있음). `isPairAllowed`는 여전히 엣지에 실제로 저장된 물리 포트 id(예: `hdmi1-2`)가 `devices.js`의 `getConsoleInputPorts(node)` 목록에 있는지로 판정한다. 장비 프리셋의 `inputs[]` 항목은 커넥터 종류당 실제 개수를 `count`로 갖고(`{id:'hdmi1', count:4}` = HDMI 4개), `getConsoleInputPorts`가 이를 `hdmi1-1..hdmi1-4`처럼 개별 슬롯으로 펼친다 — "HDMI 포트가 4개면 인풋소스 4개가 동시에 HDMI로 연결될 수 있다"는 실제 배선을 그대로 반영하기 위함(`count` 생략 시 1개). 장비 미지정(수동 모드)이면 `config.manualInputPorts`개의 범용 포트(in1, in2, …)를 반환한다. **어느 물리 슬롯을 쓸지는 캔버스 드래그가 아니라 연결 시점에 `interactions.js`의 `resolveConsoleInputConnection`이 정한다** — 빈 슬롯이 없으면 거부(토스트), 하나만 남았으면 자동 연결, 여럿이면 `#portPicker` 팝업으로 사용자가 고른다. 슬롯 하나에는 엣지가 하나만 연결될 수 있으므로(`targetPortOccupied`) "콘솔이 몇 개의 인풋소스를 받을 수 있는지"가 장비 스펙에서 자연히 정해진다.
-- `console.out[*]`: `outputKind==='lan-ports'`면 `sending.in` 또는 `led.in`에 직접 연결 가능. `outputKind==='video-signal'`이면 `sending.in`에만 연결 가능.
+- `console.out[*]` → 입력 쪽과 완전히 대칭 구조다. `devices.js`의 `getConsoleOutputPorts(node)`가 그 콘솔의 실제 물리 출력 포트 목록(장비별로 다름 — 아래 "콘솔 출력 포트 모델" 참고)을 돌려주고, `isPairAllowed`는 엣지의 `from.portId`가 그 목록에 있는지로 판정한다. 어느 물리 포트를 쓸지는 연결 시점에 `interactions.js`의 `resolveConsoleOutputConnection`이 정한다(빈 포트 없으면 거부, 하나면 자동, 여럿이면 `#portPicker`) — 다만 목적지 타입에 따라 후보 포트를 먼저 걸러낸다(`isPairAllowed`로 사전 필터링): `outputKind==='lan-ports'`면 `sending.in` 또는 `led.in`에, `outputKind==='video-signal'`이면 `sending.in`에만 연결 가능. 포트에 `aux:true`가 있으면(콘솔의 모니터링/프리뷰용 AUX 출력) `prompter.in`에도 직결 가능 — PGM 계열 포트는 프롬프터에 연결할 수 없다.
 - `sending.out` → `led.in`만. **`led.in`은 예외적으로 여러 상류 연결을 동시에 받을 수 있다**(`graphOps.js`의 `targetAllowsMultiple` — 캔버스에는 도트 하나로 통합 표시되지만 `targetPortOccupied` 점유 검사를 건너뜀). 큰 화면 하나를 샌딩카드 여러 대가 나눠 담당하는 실제 구성을 반영하기 위함. LED 설계 세부 페이지의 LAN 배선 탭은 이때 연결된 샌딩카드마다(캔버스 세로 위치 순) 포트를 그룹으로 나눠 표시한다(`ledDesignView.js`/`ledPortGroups.js`의 `resolveLedPortGroups`/`resolveLedPortLayout`). 검증(`validationEngine.js`)도 샌딩카드별로 LAN 포트 배정에서 실제 그 카드 소속 포트에 배정된 패널의 픽셀만 합산해 판정한다(`pxAssignedToSendingCard`) — 배정이 현재 그래프 구성과 안 맞으면(연결 직후 등) 보수적으로 LED 전체 요구량으로 폴백.
 - `power.out` → `distro.in`만, `distro.out` → `led.pwrIn`만 (v1은 연결만, 용량 계산 없음).
+- `console.out[aux]` → `prompter.in`만. `prompter`는 콘솔의 AUX 출력(모니터링/프리뷰)을 샌딩카드·LED 없이 바로 받는 단순 종착점(`in` 포트 하나, `out` 없음, `config` 없음) — 무대 프롬프터·컨피던스 모니터처럼 PGM 경로(→샌딩카드→LED)와 무관하게 콘솔 화면을 그대로 보여주는 용도.
 
-인풋소스→콘솔 엣지는 캔버스에서 연결된 포트의 라벨(예: "HDMI2.0")을 라인 중간에 표시한다(`canvasRenderer.js`의 `edgeLabelFor`/`drawEdgeLabel`). **인풋소스는 해상도를 입력받지 않으므로**(사용자 요청) 이 구간의 픽셀 용량 검증은 없다 — "몇 개까지 연결 가능한지"는 포트 개수만으로 구조적으로 강제된다.
+인풋소스→콘솔, 콘솔→샌딩카드/LED/프롬프터 엣지는 캔버스에서 연결된 실제 물리 포트의 라벨(예: "HDMI2.0", "DVI1")을 라인 중간에 표시한다(`canvasRenderer.js`의 `edgeLabelFor`/`drawEdgeLabel`). J6가 듀얼링크 중이면(아래 참고) DVI1에서 나가는 선에 "(듀얼링크)"가 덧붙는다. **인풋소스는 해상도를 입력받지 않으므로**(사용자 요청) 그 구간의 픽셀 용량 검증은 없다 — "몇 개까지 연결 가능한지"는 포트 개수만으로 구조적으로 강제된다.
+
+### 콘솔 출력 포트 모델 (`devices.js`)
+
+콘솔마다 실제 출력 커넥터 구성이 다르고(벤더 매뉴얼 기준), `getConsoleOutputPorts`가 이를 하나의 포트 목록으로 정규화한다:
+- **NovaStar J6**: splicer 모드는 `DVI1~DVI4` 4개(모두 대등, AUX 없음). switcher 모드(신규 노드 기본값)는 `DVI1`·`DVI2`(PGM, 단일 DVI에서 각각 독립 연결 가능) + `DVI3`(`aux:true`). 콘솔에 샌딩카드가 **정확히 하나만** 연결돼 있고 그 카드가 실제로 내보내는 해상도가 DVI 1개 상한(`perOutputMaxPx`)을 넘으면, `validationEngine.js`의 `resolveJ6DualLink`가 `node.config.dviLink`를 `'dual'`로 자동 전환한다 — 이때 `DVI1`·`DVI2`의 대역폭이 `DVI1` 하나로 합쳐져 `DVI2`는 더 이상 연결 가능한 포트가 아니다(`applyAutoJ6DualLink`가 `renderValidation()`마다 재판정하고, 사라진 포트를 가리키던 엣지는 정리한다). 속성 패널은 `getConsoleDisabledOutputPorts`로 이렇게 사라진 포트를 "사용불가"로 명시하고, 콘솔 카드 요약과 그 포트에서 나가는 엣지 라벨에도 듀얼링크 상태를 표시한다.
+- **Magnimage EC90**: 실제로는 물리 커넥터가 8개(PGM1/PGM2/AUX1/AUX2 채널마다 A/B 한 쌍)지만, 매뉴얼상 A/B는 케이블 이중화용 완전 복제(같은 신호)라 별개 목적지로 못 쓴다 — 그래서 채널 4개(`pgm1`/`pgm2`/`aux1`/`aux2`, `aux1`·`aux2`만 `aux:true`)로만 모델링하되, 라벨은 실제 배선 시 참고할 물리 커넥터 이름("HDMI 1a" 등)을 쓴다. "모자이크"(PGM1+PGM2를 이어붙여 더 넓은 화면 하나로 출력)는 두 채널을 각각 다른 샌딩카드에 연결하는 것만으로 이미 가능해 별도 설정이 없고, 샌딩카드 하나가 채널 하나의 상한을 넘는 해상도를 요구하면 검증 이슈에 "2번째 채널+샌딩카드로 나눠 모자이크로 연결"하라는 안내만 붙는다(경고만, 자동 전환 없음 — J6 듀얼링크와의 차이).
+- 두 콘솔 다 `outputResolutionTable`(벤더 매뉴얼의 해상도별 지원 Hz 표)을 갖고, `capacityRules.js`의 `maxHzForPx(table, requiredPx)`가 "Hz별로 그 Hz를 지원하는 최대 해상도의 픽셀수"를 예산 삼아 필요 픽셀수를 감당하는 최고 Hz를 찾는다. 샌딩카드 노드 카드 본문에 표시되는 "해상도 · 최대 NHz"가 이 계산 결과다(`validationEngine.js`의 `resolveSendingCardOutput` — LED 전체 해상도는 `ledAreaSetup.js`의 `boundingResolutionForZones` 재사용, 같은 LED에 카드가 여러 대면 가로로 균등 분할해 근사).
 
 인풋소스 노드의 `config.sourceKind`는 `nodeTypes.js`의 `INPUT_KINDS`(vmix/resolume/ppt/relay/etc) 중 하나다. 새 인풋소스는 생성 시점에 바로 그 종류의 라벨(예: "vMix")로 시작한다(`state.js`의 `addNode`) — 드롭다운 기본값이 이미 vmix라 사용자가 다시 vmix를 선택해도 change 이벤트가 안 일어나는 문제를 회피하기 위함.
 
@@ -63,7 +71,7 @@ GraphState = {
 
 ## v1 범위
 
-- 6개 노드 타입 모두 배치·연결 가능. **용량 검증은 영상/랜 경로(콘솔→샌딩카드→LED)만.** 전원 경로(메인전원/분전함)는 구조만 존재, 검증 로직은 이후 버전.
+- 7개 노드 타입 모두 배치·연결 가능(`prompter`는 콘솔 AUX 출력 전용 종착점, 위 "콘솔 출력 포트 모델" 참고). **용량 검증은 영상/랜 경로(콘솔→샌딩카드→LED)만.** 전원 경로(메인전원/분전함)와 프롬프터 경로는 구조만 존재, 검증 로직은 이후 버전.
 - 콘솔 장비 프리셋(`js/devices/devices.js`의 `DEVICES.console`)은 **NovaStar J6, Magnimage MIG-EC90 두 개만** 유지한다(사용자 요청으로 축소). NovaStar MCTRL4K/MCTRL660PRO는 `DEVICES.sending`에만 남아 있다 — 콘솔로 쓰고 싶으면 수동 모드로 직접 구성.
 - LED디스플레이 노드 클릭 → LED 설계 세부 페이지(`ledDesignView.js`)로 전환. 포트당 픽셀 상한은 그래프 상류에 연결된 장비의 스펙에서 가져오고, 미연결 시에만 `MAX_PX`(655,360) 기본값 사용.
 

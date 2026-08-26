@@ -174,6 +174,13 @@ function consoleFields(node) {
     } else if (device.modes) {
       summary = Object.entries(device.modes).map(([m, spec]) => `${m}: ${spec.totalMaxPx.toLocaleString()}px`).join(' · ');
       if (device.perOutputMaxPx) { summary += `<br>커넥터 1개당 상한 ${device.perOutputMaxPx.toLocaleString()}px`; }
+      // 듀얼링크는 사용자가 고르는 게 아니라 연결된 샌딩카드의 요구 해상도를
+      // 보고 자동으로 정해지므로(resolveJ6DualLink), 지금 그게 켜져 있다는
+      // 사실 자체를 알려준다 — 안 그러면 DVI2가 왜 출력 포트 목록에서
+      // 사라졌는지 알기 어렵다.
+      if (c.dviLink === 'dual') {
+        summary += '<br><b>듀얼링크 활성화됨</b> — DVI2가 DVI1에 합쳐져 비활성 (연결된 샌딩카드 해상도가 커넥터 1개 상한을 넘어 자동 전환됨)';
+      }
     } else {
       summary = `출력당 최대 ${device.outputs.perOutputMaxPx.toLocaleString()}px`;
     }
@@ -202,7 +209,13 @@ function consoleFields(node) {
       <input type="number" min="1" max="8" data-field="manualInputPorts" value="${c.manualInputPorts || 2}">
     </label>` : '';
 
+  const manualOutputField = !device ? `
+    <label class="props-field">출력 포트 수
+      <input type="number" min="1" max="8" data-field="manualOutputPorts" value="${c.manualOutputPorts || 2}">
+    </label>` : '';
+
   const inputPortsHtml = inputPortListHtml(node);
+  const outputPortsHtml = outputPortListHtml(node);
 
   return `
     <label class="props-field">장비 프리셋
@@ -214,9 +227,12 @@ function consoleFields(node) {
     ${modeField}
     ${outputKindField}
     ${manualInputField}
+    ${manualOutputField}
     <div class="props-hint">${summary}</div>
     <div class="props-field-label">입력 포트 (${inputPortsHtml.connected}/${inputPortsHtml.total} 연결됨)</div>
     ${inputPortsHtml.html}
+    <div class="props-field-label">출력 포트 (${outputPortsHtml.connected}/${outputPortsHtml.total} 연결됨)</div>
+    ${outputPortsHtml.html}
   `;
 }
 
@@ -238,6 +254,33 @@ function inputPortListHtml(node) {
     </div>`;
   }).join('');
   return { html: rows, total: ports.length, connected };
+}
+
+// 콘솔의 실제 출력 포트 목록 + 각 포트가 어느 샌딩카드/LED로 나가는지 표시.
+// 입력 포트 목록(inputPortListHtml)과 대칭 — 캔버스에서는 출력 도트도 하나로
+// 통합돼 있어서, 이 목록이 "몇 번 출력이 어디로 나가는지" 확인할 수 있는
+// 유일한 곳이다.
+function outputPortListHtml(node) {
+  const ports = getConsoleOutputPorts(node);
+  const edgesOut = State.graph.edges.filter(e => e.from.nodeId === node.id);
+  let connected = 0;
+  const rows = ports.map(p => {
+    const edge = edgesOut.find(e => e.from.portId === p.id);
+    const toNode = edge ? getNode(edge.to.nodeId) : null;
+    if (toNode) { connected += 1; }
+    const capLabel = p.maxPx ? ` (최대 ${p.maxPx.toLocaleString()}px)` : '';
+    return `<div class="props-port-row">
+      <span class="props-port-name">${escapeHtml(p.label)}${capLabel}</span>
+      <span class="props-port-status ${toNode ? 'linked' : ''}">${toNode ? escapeHtml(toNode.label) : '비어있음'}</span>
+    </div>`;
+  }).join('');
+  // 지금 설정(예: J6 듀얼링크)에서 못 쓰게 된 포트도 그냥 목록에서 빼버리면
+  // "DVI2가 왜 없지?"라는 의문만 남는다 — 사용불가 상태로 명시해서 보여준다.
+  const disabledRows = getConsoleDisabledOutputPorts(node).map(p => `<div class="props-port-row props-port-disabled">
+      <span class="props-port-name">${escapeHtml(p.label)}</span>
+      <span class="props-port-status">사용불가 (듀얼링크로 DVI1에 병합됨)</span>
+    </div>`).join('');
+  return { html: rows + disabledRows, total: ports.length, connected };
 }
 
 function sendingFields(node) {
@@ -332,22 +375,26 @@ function ledFields(node) {
   `;
 }
 
-// deviceId/mode/outputKind/manualInputPorts/sourceKind는 어떤 하위 필드가
-// 보이는지(파생 필드) 또는 포트 구성 자체를 바꾸므로 패널을 다시 그려야 한다.
-// 나머지 단순 값 필드는 상태만 갱신하고 패널 HTML은 그대로 둔다 — 연속 입력
-// 시 다른 필드가 리셋되는 레이스를 피한다.
-const STRUCTURAL_FIELDS = new Set(['deviceId', 'mode', 'outputKind', 'manualInputPorts', 'sourceKind',
+// deviceId/mode/outputKind/manualInputPorts/manualOutputPorts/sourceKind는 어떤
+// 하위 필드가 보이는지(파생 필드) 또는 포트 구성 자체를 바꾸므로 패널을 다시
+// 그려야 한다. 나머지 단순 값 필드는 상태만 갱신하고 패널 HTML은 그대로 둔다 —
+// 연속 입력 시 다른 필드가 리셋되는 레이스를 피한다.
+const STRUCTURAL_FIELDS = new Set(['deviceId', 'mode', 'outputKind', 'manualInputPorts', 'manualOutputPorts', 'sourceKind',
   'ledAreaWm', 'ledAreaHm', 'ledPitch', 'ledPanelSize']);
-const NUMERIC_FIELDS = ['portCount', 'perPortMaxPx', 'inputMaxPx', 'manualInputPorts'];
+const NUMERIC_FIELDS = ['portCount', 'perPortMaxPx', 'inputMaxPx', 'manualInputPorts', 'manualOutputPorts'];
 const LED_QUICK_FIELDS = new Set(['ledAreaWm', 'ledAreaHm', 'ledPitch', 'ledPanelSize']);
 
-// deviceId가 바뀌면(장비 변경/수동 전환) 콘솔의 물리 포트 구성이 달라지므로
-// 더 이상 존재하지 않는 포트를 가리키던 엣지를 정리한다.
+// deviceId/mode가 바뀌면(장비 변경/수동 전환, 또는 J6 splicer↔switcher처럼
+// 모드별 출력 포트 수 자체가 달라지는 경우) 콘솔의 물리 포트 구성이 달라지므로
+// 더 이상 존재하지 않는 포트를 가리키던 엣지(입력·출력 양쪽)를 정리한다.
 function pruneOrphanConsoleEdges(node) {
-  const validIds = new Set(getConsoleInputPorts(node).map(p => p.id));
-  State.graph.edges = State.graph.edges.filter(ed =>
-    !(ed.to.nodeId === node.id && !validIds.has(ed.to.portId))
-  );
+  const validInIds = new Set(getConsoleInputPorts(node).map(p => p.id));
+  const validOutIds = new Set(getConsoleOutputPorts(node).map(p => p.id));
+  State.graph.edges = State.graph.edges.filter(ed => {
+    if (ed.to.nodeId === node.id && !validInIds.has(ed.to.portId)) { return false; }
+    if (ed.from.nodeId === node.id && !validOutIds.has(ed.from.portId)) { return false; }
+    return true;
+  });
 }
 
 // deviceId를 노드에 적용하고 그에 딸린 파생 필드(콘솔의 outputKind/mode)를
@@ -360,6 +407,10 @@ function applyDevicePreset(node, deviceId) {
     const device = value ? getDevice('console', value) : null;
     node.config.outputKind = device ? device.outputKind : (node.config.outputKind || 'lan-ports');
     node.config.mode = device && device.modes ? device.defaultMode : null;
+    // 듀얼링크 여부는 사용자가 고르는 값이 아니라 연결 상태를 보고 자동으로
+    // 정해진다(validationEngine.js의 resolveJ6DualLink) — 장비를 새로 고르면
+    // 일단 기본값(단일 DVI)에서 다시 시작한다.
+    node.config.dviLink = 'single';
     pruneOrphanConsoleEdges(node);
   }
 }
@@ -383,11 +434,16 @@ function applyFieldValue(node, field, el) {
     node.config[field] = el.value === '' ? null : (Number(el.value) || null);
   } else if (NUMERIC_FIELDS.includes(field)) {
     node.config[field] = Number(el.value) || 0;
-    if (field === 'manualInputPorts' && node.type === 'console') { pruneOrphanConsoleEdges(node); }
+    if ((field === 'manualInputPorts' || field === 'manualOutputPorts') && node.type === 'console') {
+      pruneOrphanConsoleEdges(node);
+    }
   } else if (LED_QUICK_FIELDS.has(field)) {
     applyLedQuickFields(node);
   } else {
     node.config[field] = el.value;
+    // J6 splicer↔switcher처럼 모드에 따라 출력 포트 수 자체가 달라지므로,
+    // 모드를 바꾸면 이제 존재하지 않는 출력 포트를 가리키던 엣지를 정리한다.
+    if (field === 'mode' && node.type === 'console') { pruneOrphanConsoleEdges(node); }
   }
 }
 

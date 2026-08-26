@@ -1,4 +1,4 @@
-const { runValidation } = require('../js/validation/validationEngine.js');
+const { runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput } = require('../js/validation/validationEngine.js');
 
 function node(id, type, config, y) {
   return { id, type, x: 0, y: y || 0, label: type, config: config || {} };
@@ -9,6 +9,16 @@ function ledNode(id, totalRequiredPx, ledDesign) {
     totalRequiredPx,
     ledDesign: ledDesign || { areaW: 0, areaH: 0, zones: [], lanPorts: [], pwrPorts: [] },
   });
+}
+
+// betaPanels.test.js와 같은 모양 — 3mm 피치, 4×4(2000×2000mm) 구역 → 512×512px.
+function zoneLedDesign(overrides) {
+  const zone = {
+    id: 'z1', led: '3mm', startRow: 0, startCol: 0,
+    rows: 4, cols: 4, panelW: 1000, panelH: 1000,
+    ...overrides,
+  };
+  return { areaW: 2000, areaH: 2000, zones: [zone], lanPorts: [], pwrPorts: [] };
 }
 
 describe('sending card own input cap + console per-connector cap (real scenario found in conversation: J6 + a single MCTRL660PRO)', () => {
@@ -53,6 +63,193 @@ describe('sending card own input cap + console per-connector cap (real scenario 
     const result = runValidation(graph);
     expect(result.nodeIssues.has('s1')).toBe(false);
     expect(result.nodeIssues.has('c1')).toBe(false);
+  });
+});
+
+describe('EC90 single-channel overflow gets a mosaic hint (warning only — no auto-reconfiguration)', () => {
+  test('one sending card asking for more than one PGM channel can deliver gets a mosaic suggestion', () => {
+    const overCapPx = 4352 * 2176 + 1; // 채널 1개(PGM1) 상한을 1px 초과
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'magnimage-ec90' }, 0),
+        node('s1', 'sending', { deviceId: 'novastar-mctrl4k' }, 100),
+        ledNode('led1', overCapPx),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'pgm1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    const result = runValidation(graph);
+    expect(result.nodeIssues.has('c1')).toBe(true);
+    const messages = result.nodeIssues.get('c1').map(i => i.message);
+    expect(messages.some(m => m.includes('모자이크 모드'))).toBe(true);
+  });
+
+  test('a non-EC90 console (J6) gets no mosaic hint when it overflows a single connector', () => {
+    const overCapPx = 1920 * 1200 + 1;
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'splicer' }, 0),
+        node('s1', 'sending', { deviceId: 'novastar-mctrl4k' }, 100),
+        ledNode('led1', overCapPx),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    const result = runValidation(graph);
+    const messages = result.nodeIssues.get('c1').map(i => i.message);
+    expect(messages.some(m => m.includes('모자이크 모드'))).toBe(false);
+  });
+});
+
+describe('resolveJ6DualLink (J6 switcher mode: single DVI vs dual-link, decided automatically)', () => {
+  const underCapPx = 1920 * 1080; // < perOutputMaxPx(1920*1200)
+  const overCapPx = 2500000; // > perOutputMaxPx(1920*1200 = 2,304,000)
+
+  function graphWithConsole(consoleConfig, sendingEdges) {
+    const nodes = [node('c1', 'console', consoleConfig, 0)];
+    const edges = [];
+    sendingEdges.forEach(({ sendingId, portId, requiredPx }) => {
+      nodes.push(node(sendingId, 'sending', {}, 100));
+      nodes.push(ledNode(`${sendingId}-led`, requiredPx));
+      edges.push({ id: `e-${sendingId}-in`, kind: 'video', from: { nodeId: 'c1', portId }, to: { nodeId: sendingId, portId: 'in' } });
+      edges.push({ id: `e-${sendingId}-out`, kind: 'lan', from: { nodeId: sendingId, portId: 'out' }, to: { nodeId: `${sendingId}-led`, portId: 'in' } });
+    });
+    return { nodes, edges };
+  }
+
+  test('a single sending card within the single-DVI cap stays single', () => {
+    const graph = graphWithConsole({ deviceId: 'novastar-j6', mode: 'switcher' }, [
+      { sendingId: 's1', portId: 'dvi1', requiredPx: underCapPx },
+    ]);
+    expect(resolveJ6DualLink(graph, graph.nodes[0])).toBe('single');
+  });
+
+  test('a single sending card exceeding the single-DVI cap needs dual-link', () => {
+    const graph = graphWithConsole({ deviceId: 'novastar-j6', mode: 'switcher' }, [
+      { sendingId: 's1', portId: 'dvi1', requiredPx: overCapPx },
+    ]);
+    expect(resolveJ6DualLink(graph, graph.nodes[0])).toBe('dual');
+  });
+
+  test('no sending card connected stays single (nothing to decide from)', () => {
+    const graph = graphWithConsole({ deviceId: 'novastar-j6', mode: 'switcher' }, []);
+    expect(resolveJ6DualLink(graph, graph.nodes[0])).toBe('single');
+  });
+
+  test('two sending cards connected (independent DVI1/DVI2 use) stays single even if one alone would exceed the cap', () => {
+    const graph = graphWithConsole({ deviceId: 'novastar-j6', mode: 'switcher' }, [
+      { sendingId: 's1', portId: 'dvi1', requiredPx: overCapPx },
+      { sendingId: 's2', portId: 'dvi2', requiredPx: underCapPx },
+    ]);
+    expect(resolveJ6DualLink(graph, graph.nodes[0])).toBe('single');
+  });
+
+  test('splicer mode never engages dual-link (only modeled for switcher)', () => {
+    const graph = graphWithConsole({ deviceId: 'novastar-j6', mode: 'splicer' }, [
+      { sendingId: 's1', portId: 'dvi1', requiredPx: overCapPx },
+    ]);
+    expect(resolveJ6DualLink(graph, graph.nodes[0])).toBe('single');
+  });
+
+  test('a non-J6 console never engages dual-link', () => {
+    const graph = graphWithConsole({ deviceId: 'magnimage-ec90' }, [
+      { sendingId: 's1', portId: '1a', requiredPx: overCapPx },
+    ]);
+    expect(resolveJ6DualLink(graph, graph.nodes[0])).toBe('single');
+  });
+});
+
+describe('applyAutoJ6DualLink (mutates config.dviLink and prunes edges DVI2 no longer supports)', () => {
+  test('switching to dual-link prunes an existing edge parked on DVI2', () => {
+    const overCapPx = 2500000;
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'switcher' }, 0),
+        node('s1', 'sending', {}, 100),
+        ledNode('led1', overCapPx),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi2' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    applyAutoJ6DualLink(graph);
+    expect(graph.nodes[0].config.dviLink).toBe('dual');
+    expect(graph.edges.some(e => e.id === 'e1')).toBe(false); // dvi2 더 이상 유효 포트가 아니라 정리됨
+    expect(graph.edges.some(e => e.id === 'e2')).toBe(true); // 무관한 엣지는 그대로
+  });
+
+  test('the same connection parked on DVI1 survives the switch to dual-link', () => {
+    const overCapPx = 2500000;
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'switcher' }, 0),
+        node('s1', 'sending', {}, 100),
+        ledNode('led1', overCapPx),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    applyAutoJ6DualLink(graph);
+    expect(graph.nodes[0].config.dviLink).toBe('dual');
+    expect(graph.edges.some(e => e.id === 'e1')).toBe(true);
+  });
+});
+
+describe('resolveSendingCardOutput (resolution + max achievable Hz shown on the sending card node)', () => {
+  function graphWithOneCard(consoleConfig) {
+    return {
+      nodes: [
+        node('c1', 'console', consoleConfig, 0),
+        node('s1', 'sending', {}, 100),
+        ledNode('led1', 0, zoneLedDesign()),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+  }
+
+  test('single sending card gets the LED\'s full resolution, and the console\'s table decides max Hz', () => {
+    const graph = graphWithOneCard({ deviceId: 'novastar-j6', mode: 'splicer' });
+    const res = resolveSendingCardOutput(graph, graph.nodes[1]);
+    // 3mm 피치 4×4(2000×2000mm) 구역 = 512×512px(betaPanels.test.js와 동일 계산)
+    expect(res).toEqual({ w: 512, h: 512, hz: 85 }); // 262,144px는 J6 표의 85Hz 예산(1,396,736px) 이내
+  });
+
+  test('two sending cards sharing one LED each get half the width (simple even split, per user request)', () => {
+    const graph = graphWithOneCard({ deviceId: 'novastar-j6', mode: 'splicer' });
+    graph.nodes.push(node('s2', 'sending', {}, 150));
+    graph.edges.push(
+      { id: 'e3', kind: 'video', from: { nodeId: 'c1', portId: 'dvi2' }, to: { nodeId: 's2', portId: 'in' } },
+      { id: 'e4', kind: 'lan', from: { nodeId: 's2', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+    );
+    const res1 = resolveSendingCardOutput(graph, graph.nodes.find(n => n.id === 's1'));
+    const res2 = resolveSendingCardOutput(graph, graph.nodes.find(n => n.id === 's2'));
+    expect(res1.w).toBe(256); // 512 / 2장
+    expect(res2.w).toBe(256);
+    expect(res1.h).toBe(512);
+  });
+
+  test('no upstream console (or no device preset) still reports resolution, but Hz is unknown (null)', () => {
+    const graph = {
+      nodes: [node('s1', 'sending', {}, 100), ledNode('led1', 0, zoneLedDesign())],
+      edges: [{ id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } }],
+    };
+    const res = resolveSendingCardOutput(graph, graph.nodes[0]);
+    expect(res).toEqual({ w: 512, h: 512, hz: null });
+  });
+
+  test('a sending card not connected to any (zoned) LED returns null', () => {
+    const graph = { nodes: [node('s1', 'sending', {}, 100)], edges: [] };
+    expect(resolveSendingCardOutput(graph, graph.nodes[0])).toBeNull();
   });
 });
 

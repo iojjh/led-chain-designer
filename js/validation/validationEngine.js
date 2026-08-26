@@ -6,14 +6,18 @@
 if (typeof module !== 'undefined' && typeof resolveLedPortLayout === 'undefined') {
   global.resolveLedPortLayout = require('../leddesign/ledPortGroups.js').resolveLedPortLayout;
   global.betaPanels = require('../leddesign/betaPanels.js').betaPanels;
+  global.boundingResolutionForZones = require('../leddesign/ledAreaSetup.js').boundingResolutionForZones;
   global.panelPx = require('../leddesign/portAssignment.js').panelPx;
   global.downstreamOf = require('../core/graphOps.js').downstreamOf;
+  global.upstreamOf = require('../core/graphOps.js').upstreamOf;
   global.getDevice = require('../devices/devices.js').getDevice;
+  global.getConsoleOutputPorts = require('../devices/devices.js').getConsoleOutputPorts;
   global.checkConsoleOutput = require('./capacityRules.js').checkConsoleOutput;
   global.checkSendingOutput = require('./capacityRules.js').checkSendingOutput;
   global.checkSendingInput = require('./capacityRules.js').checkSendingInput;
   global.checkConsoleSingleOutput = require('./capacityRules.js').checkConsoleSingleOutput;
   global.checkLedLanPortCount = require('./capacityRules.js').checkLedLanPortCount;
+  global.maxHzForPx = require('./capacityRules.js').maxHzForPx;
 }
 
 function ledRequiredPx(ledNode) {
@@ -55,8 +59,65 @@ function requiredPxOfDownstreamNode(graph, node) {
   return 0;
 }
 
+// J6가 switcher 모드일 때 PGM 출력을 단일 DVI(DVI1+DVI2 각각 독립 연결)로
+// 쓸지, 듀얼링크(DVI1 하나로 합쳐 더 높은 해상도, DVI2 비활성)로 쓸지는
+// 사용자가 고르지 않고 실제 연결 상태를 보고 자동으로 정한다(사용자 요청,
+// 2026-08-26) — 콘솔에 샌딩카드가 정확히 하나만 연결돼 있을 때 그 카드가
+// 실제로 내보내는 해상도가 DVI 1개 상한(device.perOutputMaxPx)을 넘으면
+// 듀얼링크가 필요하다고 판단한다. 그 외(샌딩카드가 0개거나 2개 이상 —
+// DVI1/DVI2를 독립적으로 나눠 쓰는 정상적인 구성)에는 굳이 합칠 이유가
+// 없으니 기본값(단일)을 쓴다.
+function resolveJ6DualLink(graph, consoleNode) {
+  const device = consoleNode.config.deviceId ? getDevice('console', consoleNode.config.deviceId) : null;
+  if (!device || device.id !== 'novastar-j6') { return 'single'; }
+  const mode = consoleNode.config.mode || device.defaultMode;
+  if (mode !== 'switcher') { return 'single'; }
+  const sendingNodes = downstreamOf(graph, consoleNode.id).filter(n => n.type === 'sending');
+  if (sendingNodes.length !== 1) { return 'single'; }
+  const requiredPx = requiredPxOfDownstreamNode(graph, sendingNodes[0]);
+  return requiredPx > device.perOutputMaxPx ? 'dual' : 'single';
+}
+
+// 그래프의 모든 콘솔 노드에 resolveJ6DualLink 결과를 반영하고(node.config.dviLink),
+// 듀얼링크로 전환되며 사라진 DVI2 같은 포트를 가리키던 엣지는 정리한다 — 그래프를
+// 그리기 직전(renderValidation)에 한 번씩 돌려 항상 최신 연결 상태를 반영한다.
+function applyAutoJ6DualLink(graph) {
+  graph.nodes.forEach(node => {
+    if (node.type !== 'console') { return; }
+    node.config.dviLink = resolveJ6DualLink(graph, node);
+    const validOutIds = new Set(getConsoleOutputPorts(node).map(p => p.id));
+    graph.edges = graph.edges.filter(e => !(e.from.nodeId === node.id && !validOutIds.has(e.from.portId)));
+  });
+}
+
 function hasZones(ledNode) {
   return !!(ledNode.config.ledDesign.zones && ledNode.config.ledDesign.zones.length);
+}
+
+// 샌딩카드가 실제로 내보내는 해상도(가로×세로)와, 그 해상도로 낼 수 있는 최대
+// 주사율(사용자 요청, 2026-08-26). LED 전체 픽셀 해상도는 LED 카드 요약에도
+// 쓰는 boundingResolutionForZones(ledAreaSetup.js)를 그대로 재사용한다(구역
+// 바운딩 박스 기준 — 피치가 섞여 있으면 null). 같은 LED에 샌딩카드가 여러 대
+// 연결돼 있으면 가로로 균등 분할한 걸로 근사한다(정확한 열 배정 비율이 아니라
+// "카드 수만큼 반으로/N등분" — 사용자가 명시적으로 요청한 단순화). 주사율은
+// 상류 콘솔의 실제 출력 해상도 표(device.outputResolutionTable)에서 이
+// 픽셀수를 감당하는 최대 Hz를 찾아 정한다 — 콘솔이 없거나 장비 프리셋이
+// 없으면(수동 모드) 주사율은 판단 불가.
+function resolveSendingCardOutput(graph, sendingNode) {
+  const ledNode = downstreamOf(graph, sendingNode.id).find(n => n.type === 'led' && hasZones(n));
+  if (!ledNode) { return null; }
+
+  const full = boundingResolutionForZones(ledNode.config.ledDesign.zones);
+  if (!full || full.w === 0 || full.h === 0) { return null; }
+  const cardCount = upstreamOf(graph, ledNode.id).filter(n => n.type === 'sending').length || 1;
+  const w = Math.floor(full.w / cardCount);
+  const h = full.h;
+
+  const consoleNode = upstreamOf(graph, sendingNode.id).find(n => n.type === 'console');
+  const device = consoleNode && consoleNode.config.deviceId ? getDevice('console', consoleNode.config.deviceId) : null;
+  const hz = (device && device.outputResolutionTable) ? maxHzForPx(device.outputResolutionTable, w * h) : null;
+
+  return { w, h, hz };
 }
 
 // 구역이 없는 LED는 totalRequiredPx가 0이라 위 checkConsoleOutput/checkSendingOutput이
@@ -111,10 +172,26 @@ function runValidation(graph) {
 
         // 합산 용량은 남아돌아도 특정 연결 하나가 커넥터 1개의 상한을 넘을 수
         // 있으므로, 하류 장비별로 개별 확인한다(checkConsoleOutput과 별개).
+        // 다만 이미 듀얼링크로 전환된 J6는(resolveJ6DualLink) 애초에 단일 DVI
+        // 상한을 넘어서 전환된 것이므로, 같은 상한으로 또 검사하면 항상
+        // "초과"로 잘못 표시된다 — 합쳐진 DVI1의 실제 상한은 문서에 없으니
+        // perOutputMaxPx를 비워 이 검사만 보류한다.
+        const singleOutputDevice = (device && node.config.dviLink === 'dual')
+          ? { ...device, perOutputMaxPx: null }
+          : device;
         downstream.forEach(n => {
           const singlePx = requiredPxOfDownstreamNode(graph, n);
-          const singleRes = checkConsoleSingleOutput(device, singlePx);
-          if (!singleRes.ok) { addNodeIssue(node.id, { ...singleRes, message: `${n.label} 방향: ${singleRes.message}` }); }
+          const singleRes = checkConsoleSingleOutput(singleOutputDevice, singlePx);
+          if (!singleRes.ok) {
+            // EC90은 PGM1+PGM2(또는 AUX1+AUX2) 두 채널을 모자이크로 합치면
+            // 채널 하나의 상한보다 큰 해상도를 낼 수 있다(devices.js 주석 참고)
+            // — 경고만 띄우고 자동으로 채널을 나누거나 설정을 바꾸지는 않는다
+            // (사용자 요청, 2026-08-26).
+            const mosaicHint = device && device.id === 'magnimage-ec90'
+              ? ' — 2번째 채널(PGM2/AUX2)에 샌딩카드를 하나 더 연결하고 콘솔에서 모자이크 모드를 켜면 나눠서 낼 수 있습니다'
+              : '';
+            addNodeIssue(node.id, { ...singleRes, message: `${n.label} 방향: ${singleRes.message}${mosaicHint}` });
+          }
         });
 
         if (downstream.some(n => hasUnconfirmedLedDownstream(graph, n))) { nodeProvisional.add(node.id); }
@@ -153,6 +230,7 @@ function initValidationUi(issuesListEl, issuesCountEl) {
 }
 
 function renderValidation() {
+  applyAutoJ6DualLink(State.graph);
   const result = runValidation(State.graph);
   State.ui.validation = result;
   renderNodeCards();
@@ -193,5 +271,5 @@ function panToNode(nodeId) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { runValidation };
+  module.exports = { runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput };
 }

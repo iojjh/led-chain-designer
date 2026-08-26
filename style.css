@@ -555,6 +555,11 @@ button {
 .props-port-status { color: var(--text-2); text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .props-port-status.linked { color: var(--ok); }
 
+/* 지금 설정(예: 듀얼링크)에서 못 쓰게 된 포트 — 목록에서 빼는 대신 흐리게
+   표시해 "왜 안 보이는지" 명시한다(propertiesPanel.js의 outputPortListHtml). */
+.props-port-disabled { opacity: 0.5; border-style: dashed; }
+.props-port-disabled .props-port-name { text-decoration: line-through; }
+
 /* ── 이슈 패널 ──────────────────────────────────────── */
 .issues-panel {
   position: absolute;
@@ -642,11 +647,13 @@ button {
    재배치는 더 이상 필요 없다 — 오히려 팔레트에서 고른 위치와 동떨어진
    화면 하단에서 불쑥 튀어나오는 문제만 만들었었다. */
 @media (max-width: 640px) {
+  /* 저장/불러오기 버튼은 원래 자리(우하단)·원래 문구 그대로 두고, 이슈
+     패널 쪽을 그 버튼 폭(약 130px)만큼 더 좁혀 겹치지 않게 한다 — PC의
+     min(300px, ...) 규칙과 같은 형태를 쓰되 오른쪽 여유분만 늘렸다. */
   .issues-panel {
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
-    width: auto;
+    left: 16px;
+    bottom: 16px;
+    width: min(300px, calc(100vw - 182px));
     max-height: 40vh;
   }
 }
