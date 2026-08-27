@@ -7,6 +7,7 @@ if (typeof module !== 'undefined' && typeof resolveLedPortLayout === 'undefined'
   global.resolveLedPortLayout = require('../leddesign/ledPortGroups.js').resolveLedPortLayout;
   global.betaPanels = require('../leddesign/betaPanels.js').betaPanels;
   global.boundingResolutionForZones = require('../leddesign/ledAreaSetup.js').boundingResolutionForZones;
+  global.boundingResolutionForPanels = require('../leddesign/ledAreaSetup.js').boundingResolutionForPanels;
   global.panelPx = require('../leddesign/portAssignment.js').panelPx;
   global.downstreamOf = require('../core/graphOps.js').downstreamOf;
   global.upstreamOf = require('../core/graphOps.js').upstreamOf;
@@ -24,28 +25,39 @@ function ledRequiredPx(ledNode) {
   return ledNode.config.totalRequiredPx || 0;
 }
 
-// 샌딩카드 하나가 LED 하나에 대해 실제로 담당하는 픽셀 — LED의 LAN 포트 배정에서
-// 그 카드 소속 포트(ledPortGroups.js 그룹 순서)에 배정된 패널만 합산한다. 샌딩카드
-// 여러 대가 LED 하나를 나눠 담당할 수 있으므로(graphOps.js targetAllowsMultiple),
-// 카드별 실제 부담을 반영해야 불필요한 초과 경고를 피할 수 있다. 아직 포트 배정
-// 배열이 현재 그래프 구성(연결/해제 직후 등)과 맞지 않으면 배정 전이라 판단 불가 —
-// 이때는 보수적으로 LED 전체 요구량을 반환한다.
-function pxAssignedToSendingCard(graph, ledNode, sendingNodeId) {
+// 샌딩카드 하나가 LED 하나에 대해 실제로 담당하는 패널 목록 — LED의 LAN 포트
+// 배정에서 그 카드 소속 포트(ledPortGroups.js 그룹 순서)에 배정된 패널만 골라낸다.
+// 아직 포트 배정 배열이 현재 그래프 구성(연결/해제 직후 등)과 맞지 않으면
+// 배정 전이라 판단 불가 — 이때는 null(호출자가 각자의 보수적 폴백을 쓴다).
+// 배정 자체는 유효하지만 이 카드 몫이 아직 비어 있으면 빈 배열([])을 반환해
+// "배정 불가(null)"와 "배정됐지만 0개(empty)"를 구분한다.
+function panelsAssignedToSendingCard(graph, ledNode, sendingNodeId) {
   const cfg = ledNode.config.ledDesign;
   const layout = resolveLedPortLayout(graph, ledNode.id);
   const lanPorts = cfg.lanPorts;
-  if (!lanPorts || lanPorts.length !== layout.ports.length) { return ledRequiredPx(ledNode); }
+  if (!lanPorts || lanPorts.length !== layout.ports.length) { return null; }
 
   const panels = cfg.zones.flatMap(z => betaPanels(z));
-  let total = 0;
+  const assigned = [];
   layout.ports.forEach((group, idx) => {
     if (group.nodeId !== sendingNodeId) { return; }
     (lanPorts[idx] || []).forEach(key => {
       const panel = panels.find(p => p.key === key);
-      if (panel) { total += panelPx(panel); }
+      if (panel) { assigned.push(panel); }
     });
   });
-  return total;
+  return assigned;
+}
+
+// 샌딩카드 하나가 LED 하나에 대해 실제로 담당하는 픽셀 총량. 샌딩카드 여러
+// 대가 LED 하나를 나눠 담당할 수 있으므로(graphOps.js targetAllowsMultiple),
+// 카드별 실제 부담을 반영해야 불필요한 초과 경고를 피할 수 있다. 배정 정보를
+// 신뢰할 수 없으면(panelsAssignedToSendingCard가 null) 보수적으로 LED 전체
+// 요구량을 반환한다.
+function pxAssignedToSendingCard(graph, ledNode, sendingNodeId) {
+  const panels = panelsAssignedToSendingCard(graph, ledNode, sendingNodeId);
+  if (!panels) { return ledRequiredPx(ledNode); }
+  return panels.reduce((sum, p) => sum + panelPx(p), 0);
 }
 
 // sending 또는 led 노드가 실제로 요구하는 픽셀 총량(콘솔 출력 검증에 사용).
@@ -95,23 +107,34 @@ function hasZones(ledNode) {
 }
 
 // 샌딩카드가 실제로 내보내는 해상도(가로×세로)와, 그 해상도로 낼 수 있는 최대
-// 주사율(사용자 요청, 2026-08-26). LED 전체 픽셀 해상도는 LED 카드 요약에도
-// 쓰는 boundingResolutionForZones(ledAreaSetup.js)를 그대로 재사용한다(구역
-// 바운딩 박스 기준 — 피치가 섞여 있으면 null). 같은 LED에 샌딩카드가 여러 대
-// 연결돼 있으면 가로로 균등 분할한 걸로 근사한다(정확한 열 배정 비율이 아니라
-// "카드 수만큼 반으로/N등분" — 사용자가 명시적으로 요청한 단순화). 주사율은
-// 상류 콘솔의 실제 출력 해상도 표(device.outputResolutionTable)에서 이
-// 픽셀수를 감당하는 최대 Hz를 찾아 정한다 — 콘솔이 없거나 장비 프리셋이
-// 없으면(수동 모드) 주사율은 판단 불가.
+// 주사율(사용자 요청, 2026-08-26). 이 카드에 실제로 배정된 LAN 포트가 있으면
+// (panelsAssignedToSendingCard) 그 패널들만 감싸는 최소 사각형을 실제 해상도로
+// 쓴다(boundingResolutionForPanels — 배정이 비직사각형·불연속이어도 그 전체를
+// 담는 bbox로 근사, 사용자 요청 2026-08-27). 아직 배정이 없거나(연결 직후
+// 자동/수동 배정을 한 번도 안 한 상태) 배정 정보를 신뢰할 수 없으면(연결 직후
+// 등) LED 전체 픽셀 해상도(boundingResolutionForZones)를 카드 수만큼 가로로
+// 균등 분할한 걸로 근사한다(정확한 열 배정 비율이 아니라 "카드 수만큼 반으로/
+// N등분" — 사용자가 명시적으로 요청한 단순화). 주사율은 상류 콘솔의 실제 출력
+// 해상도 표(device.outputResolutionTable)에서 이 픽셀수를 감당하는 최대 Hz를
+// 찾아 정한다 — 콘솔이 없거나 장비 프리셋이 없으면(수동 모드) 주사율은 판단 불가.
 function resolveSendingCardOutput(graph, sendingNode) {
   const ledNode = downstreamOf(graph, sendingNode.id).find(n => n.type === 'led' && hasZones(n));
   if (!ledNode) { return null; }
 
-  const full = boundingResolutionForZones(ledNode.config.ledDesign.zones);
-  if (!full || full.w === 0 || full.h === 0) { return null; }
-  const cardCount = upstreamOf(graph, ledNode.id).filter(n => n.type === 'sending').length || 1;
-  const w = Math.floor(full.w / cardCount);
-  const h = full.h;
+  const assignedPanels = panelsAssignedToSendingCard(graph, ledNode, sendingNode.id);
+  const actual = assignedPanels && assignedPanels.length ? boundingResolutionForPanels(assignedPanels) : null;
+
+  let w;
+  let h;
+  if (actual) {
+    ({ w, h } = actual);
+  } else {
+    const full = boundingResolutionForZones(ledNode.config.ledDesign.zones);
+    if (!full || full.w === 0 || full.h === 0) { return null; }
+    const cardCount = upstreamOf(graph, ledNode.id).filter(n => n.type === 'sending').length || 1;
+    w = Math.floor(full.w / cardCount);
+    h = full.h;
+  }
 
   const consoleNode = upstreamOf(graph, sendingNode.id).find(n => n.type === 'console');
   const device = consoleNode && consoleNode.config.deviceId ? getDevice('console', consoleNode.config.deviceId) : null;

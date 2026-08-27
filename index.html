@@ -273,7 +273,16 @@
         <div id="ledPortSection" class="led-side-section" hidden>
           <div class="led-port-source-row">
             <div class="led-port-source" id="ledPortSource"></div>
-            <!-- PWR 배선에서만 보이는 포트 수 조절(LAN은 상류 장비 스펙으로 고정) -->
+            <!-- LAN 배선에서만 보이는, 활성 포트가 속한 카드 기준 포트 수 조절 +
+                 카드 순서 교환(실제 장비 프리셋은 포트 수 조절 버튼이 비활성화됨,
+                 카드가 1대뿐이면 순서 교환 버튼이 비활성화됨). -->
+            <div id="ledLanPortControls" class="led-pwr-port-controls" hidden>
+              <button id="ledLanGroupMoveLeftBtn" class="pwr-port-count-btn" title="이 카드 순서를 앞으로">◀</button>
+              <button id="ledLanGroupMoveRightBtn" class="pwr-port-count-btn" title="이 카드 순서를 뒤로">▶</button>
+              <button id="ledLanPortRemoveBtn" class="pwr-port-count-btn" title="포트 제거">−</button>
+              <button id="ledLanPortAddBtn" class="pwr-port-count-btn" title="포트 추가">+</button>
+            </div>
+            <!-- PWR 배선에서만 보이는 포트 수 조절(LAN은 위 ledLanPortControls) -->
             <div id="ledPwrPortControls" class="led-pwr-port-controls" hidden>
               <button id="ledPwrPortRemoveBtn" class="pwr-port-count-btn" title="포트 제거">−</button>
               <button id="ledPwrPortAddBtn" class="pwr-port-count-btn" title="포트 추가">+</button>

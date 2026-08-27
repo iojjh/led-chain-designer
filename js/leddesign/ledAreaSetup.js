@@ -101,6 +101,21 @@ function boundingResolutionForZones(zones) {
   return resolutionForArea(w, h, zones[0].led);
 }
 
+// betaPanels() 결과의 임의 부분집합(예: 샌딩카드 하나에 실제 배정된 패널만)을
+// 감싸는 최소 사각형의 해상도 — 배정이 비직사각형·불연속이어도 그 전체를
+// 담는 bounding box 기준으로 근사한다(사용자 요청, 2026-08-27). 피치가
+// 섞여 있거나 패널이 없으면 boundingResolutionForZones와 동일하게 null.
+function boundingResolutionForPanels(panels) {
+  if (!panels.length) { return null; }
+  const pitches = new Set(panels.map(p => p.led));
+  if (pitches.size !== 1) { return null; }
+  const minX = Math.min(...panels.map(p => p.x));
+  const minY = Math.min(...panels.map(p => p.y));
+  const maxX = Math.max(...panels.map(p => p.x + p.w));
+  const maxY = Math.max(...panels.map(p => p.y + p.h));
+  return resolutionForArea(maxX - minX, maxY - minY, panels[0].led);
+}
+
 // 구역 라벨(이름·피치 등)을 그릴 칸 하나를 고른다 — 결과는 격자 칸 좌표계의
 // "중심점"(row/col에 0.5를 더한 소수 좌표)이라 호출자가 그대로 셀 크기를
 // 곱해 픽셀 좌표로 바꾸면 된다. 사각형 구역은 바운딩 박스 중심이 항상 구역
@@ -129,6 +144,6 @@ function labelCellForZone(zone) {
 if (typeof module !== 'undefined') {
   module.exports = {
     snapAreaToGrid, resolutionForArea, planFullAreaLed, zoneBounds, zoneGridCells, boundingBoxOfZones, boundingResolutionForZones,
-    labelCellForZone,
+    boundingResolutionForPanels, labelCellForZone,
   };
 }
