@@ -174,7 +174,13 @@ function cardSummary(node) {
       const outputLabel = outputInfo.length
         ? ' · ' + outputInfo.map(i => `${i.portLabel} ${i.w}×${i.h}${i.hz ? `·${i.hz}Hz` : ''}`).join(', ')
         : '';
-      return `${base} · 입력 ${occupied}/${total}${dualLabel}${outputLabel}`;
+      // 포트 2개 이상이 같은 LED로 모자이크 합류하면 합쳐진 최종 해상도도
+      // 따로 보여준다(사용자 요청, 2026-08-27 — 포트별 몫과 헷갈리지 않게 분리).
+      const combined = resolveConsoleCombinedOutputs(State.graph, node);
+      const combinedLabel = combined.length
+        ? ' · 합계 ' + combined.map(c => `${c.w}×${c.h}`).join(', ')
+        : '';
+      return `${base} · 입력 ${occupied}/${total}${dualLabel}${outputLabel}${combinedLabel}`;
     }
     case 'sending': {
       const d = node.config.deviceId ? getDevice('sending', node.config.deviceId) : null;

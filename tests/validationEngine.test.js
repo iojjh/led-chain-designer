@@ -1,5 +1,6 @@
 const {
   runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput, resolveConsoleOutputInfo,
+  resolveConsoleCombinedOutputs,
 } = require('../js/validation/validationEngine.js');
 
 function node(id, type, config, y) {
@@ -289,15 +290,44 @@ describe('resolveConsoleOutputInfo (per-port resolution + Hz shown on the consol
     };
     const info = resolveConsoleOutputInfo(graph, graph.nodes[0]);
     expect(info.map(i => i.portId).sort()).toEqual(['dvi1', 'dvi2']);
-    // 표시 해상도는 각 포트의 몫(256)이 아니라 최종 LED 전체 해상도(512) —
-    // 콘솔 입력 쪽에서 실제로 맞춰 보내야 하는 합쳐진 캔버스 크기(사용자 확인,
-    // 2026-08-26). Hz는 여전히 각 포트가 실제로 내보내는 몫값(256×512) 기준이라
-    // resolveSendingCardOutput(그 포트에 물린 샌딩카드 자신의 몫 계산)의 hz와
-    // 그대로 일치해야 한다 — 표시 해상도와 Hz 계산 기준이 다른 게 의도된 동작.
-    expect(info.every(i => i.w === 512 && i.h === 512)).toBe(true);
+    // 표시 해상도는 포트별 몫(256×512)이다 — 한때(2026-08-26) 최종 LED 전체
+    // 해상도(512×512)를 보여준 적이 있었지만, 포트별 실제 몫과 달라 헷갈린다는
+    // 사용자 요청(2026-08-27)으로 되돌렸다. Hz는 그대로 각 포트가 실제로
+    // 내보내는 몫값 기준이라 resolveSendingCardOutput(그 포트에 물린 샌딩카드
+    // 자신의 몫 계산)의 w/h/hz와 그대로 일치해야 한다.
     const s1Out = resolveSendingCardOutput(graph, graph.nodes[1]);
     expect(s1Out.w).toBe(256);
+    expect(info.every(i => i.w === 256 && i.h === 512)).toBe(true);
     expect(info.find(i => i.portId === 'dvi1').hz).toBe(s1Out.hz);
+  });
+
+  test('resolveConsoleCombinedOutputs returns the merged LED resolution only when 2+ ports feed the same LED', () => {
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'splicer' }, 0),
+        node('s1', 'sending', {}, 100),
+        node('s2', 'sending', {}, 150),
+        ledNode('led1', 0, zoneLedDesign()),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e3', kind: 'video', from: { nodeId: 'c1', portId: 'dvi2' }, to: { nodeId: 's2', portId: 'in' } },
+        { id: 'e4', kind: 'lan', from: { nodeId: 's2', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    const combined = resolveConsoleCombinedOutputs(graph, graph.nodes[0]);
+    expect(combined).toEqual([{ ledNodeId: 'led1', w: 512, h: 512 }]);
+
+    // 포트가 하나만 물린 경우엔 "합계"라는 개념이 없으므로 빈 배열.
+    const singlePortGraph = {
+      nodes: [node('c1', 'console', { deviceId: 'novastar-j6', mode: 'splicer' }, 0), node('s1', 'sending', {}, 100), ledNode('led1', 0, zoneLedDesign())],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    expect(resolveConsoleCombinedOutputs(singlePortGraph, singlePortGraph.nodes[0])).toEqual([]);
   });
 
   test('a port that goes to a prompter (no sending card) is skipped', () => {

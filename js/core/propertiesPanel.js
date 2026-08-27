@@ -66,6 +66,7 @@ function initPropertiesPanel(panelEl) {
   panelEl.querySelector('#propsDeleteBtn').addEventListener('click', onDeleteClick);
   panelEl.querySelector('#propsResetBtn').addEventListener('click', onResetClick);
   panelEl.querySelector('#propsApplyBtn').addEventListener('click', onApplyClick);
+  registerOverlayCloser('props', closePropertiesPanel);
 }
 
 function escapeHtml(s) {
@@ -84,7 +85,10 @@ const CONFIGURABLE_TYPES = new Set(['input', 'console', 'sending', 'led']);
 // 팝업(예: LED 빠른 설정, 팔레트에서 장비 프리셋을 바로 골랐을 때)에서 같은
 // 값을 입력받아 패널을 다시 띄우면 중복인 경우용.
 function closePropertiesPanel() {
-  if (_panelEl) { _panelEl.classList.remove('open'); }
+  if (_panelEl && _panelEl.classList.contains('open')) {
+    _panelEl.classList.remove('open');
+    popHistoryOverlayIfTop('props');
+  }
 }
 
 function renderPropertiesPanel() {
@@ -93,8 +97,14 @@ function renderPropertiesPanel() {
   // 초안을 설정하는 중에 캔버스에서 다른 실제 노드를 클릭하면 초안은 조용히 버려진다.
   if (_draftNode && selectedNode) { discardDraft(); }
 
+  // 뒤로가기로 이 패널만 닫히게 하려면(사용자 요청) 닫혀 있다가 이번에 새로
+  // 열리는 전환에서만 history를 쌓아야 한다 — 아래 세 분기 모두 열기 전에
+  // 먼저 읽어둔 이 값으로 판단한다.
+  const wasOpen = _panelEl.classList.contains('open');
+
   if (_draftNode) {
     _panelEl.classList.add('open');
+    pushHistoryOverlayIfNewlyOpened('props', wasOpen);
     _panelEl.querySelector('#propsBackBtn').hidden = false;
     _panelEl.querySelector('#propsDeleteBtn').hidden = true;
     _panelEl.querySelector('#propsResetBtn').hidden = false;
@@ -104,8 +114,12 @@ function renderPropertiesPanel() {
     return;
   }
 
-  if (!selectedNode) { _panelEl.classList.remove('open'); return; }
+  if (!selectedNode) {
+    if (wasOpen) { _panelEl.classList.remove('open'); popHistoryOverlayIfTop('props'); }
+    return;
+  }
   _panelEl.classList.add('open');
+  pushHistoryOverlayIfNewlyOpened('props', wasOpen);
   _panelEl.querySelector('#propsBackBtn').hidden = true;
   _panelEl.querySelector('#propsDeleteBtn').hidden = false;
   _titleEl.textContent = `${NODE_TYPES[selectedNode.type].icon} ${selectedNode.label}`;
@@ -324,7 +338,13 @@ function outputPortListHtml(node) {
       <span class="props-port-name">${escapeHtml(p.label)}</span>
       <span class="props-port-status">사용불가 (듀얼링크로 DVI1에 병합됨)</span>
     </div>`).join('');
-  return { html: rows + disabledRows, total: ports.length, connected };
+  // 포트 2개 이상이 같은 LED로 모자이크 합류하면 카드와 대칭으로 합계 해상도도
+  // 한 줄 보여준다(사용자 요청, 2026-08-27).
+  const combinedRows = resolveConsoleCombinedOutputs(State.graph, node).map(c => `<div class="props-port-row">
+      <span class="props-port-name">합계</span>
+      <span class="props-port-status">${c.w}×${c.h}</span>
+    </div>`).join('');
+  return { html: rows + disabledRows + combinedRows, total: ports.length, connected };
 }
 
 function sendingFields(node) {
@@ -596,7 +616,15 @@ function onResetClick() {
 // 초안은 아직 캔버스에 없으므로(버튼도 숨겨져 있다) 여기 오지 않는다.
 function onDeleteClick() {
   if (_draftNode || !State.ui.selectedId) { return; }
+  // 삭제 대상이 샌딩카드면 지우기 전에 물려 있던 LED를 미리 알아둬야(엣지가
+  // 지워진 뒤엔 못 찾음) 삭제 후 남은 카드끼리 재분배할 수 있다(interactions.js
+  // 의 키보드 삭제 경로와 동일한 이유 — 연결 시점 균등분배와 대칭).
+  const node = getNode(State.ui.selectedId);
+  const affectedLedIds = node && node.type === 'sending'
+    ? downstreamOf(State.graph, node.id).filter(n => n.type === 'led').map(n => n.id)
+    : [];
   removeNode(State.ui.selectedId);
+  affectedLedIds.forEach(rebalanceLanAfterSendingDisconnect);
   renderPropertiesPanel();
   renderValidation();
 }

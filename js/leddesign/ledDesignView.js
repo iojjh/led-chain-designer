@@ -52,6 +52,14 @@ const _led = {
   paintStack: [],
   longPressTimer: null,
 
+  // ── "되돌리기" 버튼용 배정 이력(사용자 요청) — LAN/PWR 모드별로 따로 쌓는다
+  // (모드가 섞이면 되돌리기 대상이 헷갈리므로). setPanelPort가 유일한 배정
+  // 변경 진입점이라 거기서만 쌓는다. 자동 할당/전체 초기화처럼 setPanelPort를
+  // 거치지 않고 포트 배열을 통째로 갈아엎는 지점에서는 비워야 한다(안 비우면
+  // 되돌리기가 엉뚱한 과거 상태로 복원해버림).
+  lanAssignHistory: [],
+  pwrAssignHistory: [],
+
   // ── 구역 생성 방식: 'drag'(사각형 드래그, 기존) | 'cell'(칸 선택 자유 구역) ──
   // 자유 구역은 LAN/PWR 포트 배정과 같은 조작감(탭 토글·롱프레스 페인트·화살표키
   // 내비게이션)으로 격자 칸을 하나씩 골라 draftCells에 모은 뒤 확정한다.
@@ -109,6 +117,10 @@ function resetPortAssignments() {
   const cfg = getLedConfig();
   cfg.lanPorts = Array.from({ length: ledPortLayout().ports.length }, () => []);
   cfg.pwrPorts = Array.from({ length: pwrPortCount() }, () => []);
+  // 포트 배열을 통째로 갈아엎었으니 되돌리기 이력도 함께 비운다 — 안 비우면
+  // 되돌리기가 지금은 존재하지 않는 과거 배정으로 복원을 시도하게 된다.
+  _led.lanAssignHistory = [];
+  _led.pwrAssignHistory = [];
 }
 
 // LED 노드 상류의 LAN 포트 그룹(샌딩카드별)은 ledPortGroups.js(순수 함수,
@@ -117,9 +129,9 @@ function ledPortLayout() {
   return resolveLedPortLayout(State.graph, _led.nodeId);
 }
 
-// LAN 자동 할당 — "자동 할당" 버튼과 빠른 설정으로 LED를 추가하는 시점에만
-// 쓴다(샌딩카드에 새로 연결될 때는 더 이상 이걸 다시 돌리지 않고
-// reflowLanPortsForLedNode를 쓴다 — 아래 참고). _led(구역 설계 화면이 열려
+// LAN 자동 할당 — "자동 할당" 버튼, 빠른 설정으로 LED를 추가하는 시점, 그리고
+// 샌딩카드 연결/해제로 카드 수가 바뀌는 시점(rebalanceLanPortsForSendingConnect/
+// rebalanceLanAfterSendingDisconnect, 아래)에 쓴다. _led(구역 설계 화면이 열려
 // 있을 때만 유효한 휘발성 상태)에 기대지 않고 nodeId만으로 동작해 어디서든
 // 호출할 수 있다.
 function autoAssignLanForLedNode(ledNodeId) {
@@ -159,43 +171,28 @@ function autoAssignLanForLedNode(ledNodeId) {
   }
 }
 
-// 샌딩카드에 새로 연결됐을 때 쓴다 — 자동 할당을 다시 돌려 배선(포트 하나에
-// 어떤 패널들이 묶여 있는지)을 재계산하지 않고, 이미 있던 묶음은 그대로 둔
-// 채 "몇 번 포트냐"만 새 레이아웃에 맞춰 옮긴다(사용자 요청 — 자유 설계는
-// 원래도 자동 배정 대상이 아니고, 빠른 설정은 생성 시점에 이미 자동 배정이
-// 끝나 있으므로, 연결 시점엔 포트 재배치만 하면 충분하다). 다른 LED디스플레이가
-// 같은 샌딩카드의 물리 포트를 이미 쓰고 있으면(resolveSharedPortUsage) 그
-// 자리를 건너뛰고 다음 빈 포트로 순서대로 채우며, 카드가 여러 대면 카드
-// 경계 안에서만 채운다(묶음이 카드끼리 섞이지 않음 — autoAssignAllZonesBalanced와
-// 같은 원칙). 새 레이아웃에 다 못 담는 묶음은(포트가 실제로 모자란 경우)
-// 배정에서 빠지고 requiredLanPorts는 원래 필요했던 개수로 남아 있어
-// validationEngine.js가 "포트 수 부족" 이슈로 잡아낸다.
-function reflowLanPortsForLedNode(ledNodeId) {
+// 샌딩카드가 LED에 새로 연결되는 시점(=연결된 카드 수가 바뀌는 시점)에 부른다
+// — 이미 뭔가 배정돼 있었으면(빠른 설정 생성 시 자동 배정됐거나, 이전에
+// "자동 할당"을 눌렀던 경우) 카드끼리 담당 픽셀량이 균등해지도록
+// autoAssignLanForLedNode를 다시 돌린다. 자유 설계에서 LAN 탭을 아직 한 번도
+// 안 건드려 배정이 통째로 비어 있으면(원래도 자동 배정 대상이 아니라는 방침
+// 그대로 유지) 아무것도 하지 않고 계속 수동으로 채우게 둔다.
+function rebalanceLanPortsForSendingConnect(ledNodeId) {
   const node = getNode(ledNodeId);
   if (!node) { return; }
   const cfg = node.config.ledDesign;
-  const bundles = (cfg.lanPorts || []).filter(p => p && p.length > 0);
-  if (bundles.length === 0) { return; }
+  const hasExistingBundles = (cfg.lanPorts || []).some(p => p && p.length > 0);
+  if (hasExistingBundles) { autoAssignLanForLedNode(ledNodeId); }
+}
 
-  cfg.requiredLanPorts = Math.max(cfg.requiredLanPorts || 0, bundles.length);
-
-  const layout = resolveLedPortLayout(State.graph, ledNodeId);
-  const reserved = new Set(
-    resolveSharedPortUsage(State.graph, ledNodeId).map((u, i) => (u ? i : -1)).filter(i => i !== -1)
-  );
-
-  const newPorts = Array.from({ length: layout.ports.length }, () => []);
-  let bundleIdx = 0;
-  let groupOffset = 0;
-  layout.groups.forEach(group => {
-    for (let i = 0; i < group.portCount && bundleIdx < bundles.length; i += 1) {
-      const portIdx = groupOffset + i;
-      if (!reserved.has(portIdx)) { newPorts[portIdx] = bundles[bundleIdx]; bundleIdx += 1; }
-    }
-    groupOffset += group.portCount;
-  });
-
-  cfg.lanPorts = newPorts;
+// 샌딩카드가 LED에서 연결 해제될 때(엣지 삭제 또는 카드 노드 자체 삭제) 남은
+// 카드들끼리 다시 균등 재분배한다 — 연결 시점(위 함수)과 대칭. 구역이 아직
+// 없는 LED(빈 카드)는 재분배할 게 없으므로 건너뛴다.
+function rebalanceLanAfterSendingDisconnect(ledNodeId) {
+  const node = getNode(ledNodeId);
+  if (node && node.config.ledDesign.zones && node.config.ledDesign.zones.length) {
+    autoAssignLanForLedNode(ledNodeId);
+  }
 }
 
 // PWR 자동 할당 — "자동 할당" 버튼(PWR 탭)과 빠른 설정으로 LED를 추가하는
@@ -223,6 +220,8 @@ function openLedDesignView(nodeId) {
   _led.activePort = 0;
   _led.focusPanelKey = null;
   _led.fullscreen = false;
+  _led.lanAssignHistory = [];
+  _led.pwrAssignHistory = [];
   document.getElementById('ledDesignView').classList.remove('led-canvas-fullscreen');
   clearDraft();
 
@@ -231,6 +230,7 @@ function openLedDesignView(nodeId) {
 
   document.getElementById('graphView').hidden = true;
   document.getElementById('ledDesignView').hidden = false;
+  pushHistoryOverlay('ledDesign');
 
   if (!_led.canvas) { initLedDesignView(); }
   resetLedView();
@@ -242,10 +242,12 @@ function openLedDesignView(nodeId) {
 }
 
 function closeLedDesignView() {
+  const wasOpen = !document.getElementById('ledDesignView').hidden;
   recomputeTotalPx();
   if (_led.fullscreen) { closeLedCanvasFullscreen(); }
   document.getElementById('ledDesignView').hidden = true;
   document.getElementById('graphView').hidden = false;
+  if (wasOpen) { popHistoryOverlayIfTop('ledDesign'); }
   // 구역 설계 진입 시 열려 있던 해당 LED의 빠른 설정 패널이 뒤로가기 후에도
   // 숨겨진 채 남아 있다가 그대로 다시 노출되는 문제 방지 — 선택 하이라이트는
   // 유지하고 패널만 닫는다.
@@ -259,6 +261,7 @@ function initLedDesignView() {
   _led.frame = document.getElementById('ledGridFrame');
 
   document.getElementById('ledBackBtn').addEventListener('click', closeLedDesignView);
+  registerOverlayCloser('ledDesign', closeLedDesignView);
 
   document.getElementById('ledAreaW').addEventListener('change', e => {
     getLedConfig().areaW = Math.round((Number(e.target.value) || 0) * 1000);
@@ -317,6 +320,7 @@ function initLedDesignView() {
   });
   document.getElementById('guideImageDownloadBtn').addEventListener('click', downloadGuideImage);
   document.getElementById('guideImageShareBtn').addEventListener('click', shareGuideImage);
+  registerOverlayCloser('guideImage', closeGuideImageModal);
 
   document.querySelectorAll('.led-grid-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -360,6 +364,7 @@ function initLedDesignView() {
     } else {
       autoAssignPwrForLedNode(_led.nodeId);
     }
+    currentAssignHistory().length = 0; // 통째로 다시 배정했으니 되돌리기 이력은 무의미해짐
     renderPortPanel();
     drawGrid();
   });
@@ -371,9 +376,12 @@ function initLedDesignView() {
     const key = _led.mode === 'lan' ? 'lanPorts' : 'pwrPorts';
     cfg[key] = Array.from({ length: portCountForMode() }, () => []);
     _led.focusPanelKey = null;
+    currentAssignHistory().length = 0;
     renderPortPanel();
     drawGrid();
   });
+
+  document.getElementById('ledUndoAssignBtn').addEventListener('click', undoLastAssignment);
 
   // PWR 포트 수동 추가/제거 — LAN은 포트 수가 상류 장비 스펙에서 정해지므로
   // (ledPortLayout) 이 조작이 없고, PWR만 고정 포트 수(기본 18) 자체를
@@ -1329,11 +1337,20 @@ function nextEmptyPort() {
   return _led.activePort;
 }
 
+// LAN/PWR 모드별 되돌리기 이력 배열 — setPanelPort가 지금 어느 모드에서
+// 불렸는지에 따라 알맞은 스택에 쌓는다.
+function currentAssignHistory() {
+  return _led.mode === 'pwr' ? _led.pwrAssignHistory : _led.lanAssignHistory;
+}
+
 function setPanelPort(key, portIdx) {
   if (portIdx !== -1 && portIdx != null && sharedUsageOf(portIdx)) {
     showToast('다른 LED디스플레이가 이미 사용 중인 포트입니다.');
     return;
   }
+  const prevPortIdx = portIndexOfKey(key);
+  if (prevPortIdx === portIdx) { return; } // 실제 변화가 없으면 되돌리기 스택에도 안 쌓는다
+  currentAssignHistory().push({ key, prevPortIdx });
   const ports = activePortsArray();
   ports.forEach(arr => {
     const i = arr.indexOf(key);
@@ -1342,16 +1359,38 @@ function setPanelPort(key, portIdx) {
   if (portIdx !== -1 && portIdx != null) { ports[portIdx].push(key); }
 }
 
+// "되돌리기" 버튼 — 현재 모드(LAN/PWR)에서 가장 최근에 바뀐 배정 한 칸만
+// 직전 상태로 되돌린다. setPanelPort를 다시 부르면 이 되돌리기 자체가 새
+// 이력으로 또 쌓이므로, 여기서는 포트 배열을 직접 조작한다.
+function undoLastAssignment() {
+  const hist = currentAssignHistory();
+  const entry = hist.pop();
+  if (!entry) { showToast('되돌릴 작업이 없습니다.'); return; }
+  const ports = activePortsArray();
+  ports.forEach(arr => {
+    const i = arr.indexOf(entry.key);
+    if (i !== -1) { arr.splice(i, 1); }
+  });
+  if (entry.prevPortIdx !== -1 && entry.prevPortIdx != null) { ports[entry.prevPortIdx].push(entry.key); }
+  renderPortPanel();
+  drawGrid();
+}
+
 // 탭 토글: 이미 활성 포트 소속이면 해제, 아니면 활성 포트로 배정. 배정/해제에
 // 따라 키보드 포커스도 함께 옮겨서 탭 직후 방향키로 이어서 배선할 수 있게 한다.
+// 이미 다른 포트가 쓰고 있는 칸을 탭/드래그로 건드리면 조용히 가로채 가지
+// 않는다(사용자 요청) — onPortKeyDown의 방향키 배정에 이미 있던 것과 같은
+// 가드(owner !== -1 && owner !== activePort). 먼저 해제하고 다시 배정해야 한다.
 function togglePanel(panel) {
   const owner = portIndexOfKey(panel.key);
   if (owner === _led.activePort) {
     setPanelPort(panel.key, -1);
     if (_led.focusPanelKey === panel.key) { _led.focusPanelKey = null; }
-  } else {
+  } else if (owner === -1) {
     setPanelPort(panel.key, _led.activePort);
     _led.focusPanelKey = panel.key;
+  } else {
+    showToast('이미 다른 포트에 배정된 칸입니다. 먼저 해제한 뒤 다시 배정하세요.');
   }
 }
 
@@ -1366,6 +1405,9 @@ function paintPanel(panel) {
     return;
   }
   const prevPort = portIndexOfKey(panel.key);
+  // 이미 다른 포트가 쓰고 있는 칸은 드래그가 지나가도 건드리지 않고 넘어간다
+  // (매 칸마다 토스트를 띄우면 스팸이 되므로 무음 스킵 — togglePanel과 같은 원칙).
+  if (prevPort !== -1 && prevPort !== _led.activePort) { return; }
   stack.push({ key: panel.key, prevPort });
   setPanelPort(panel.key, _led.activePort);
   if (navigator.vibrate) { navigator.vibrate(15); }
@@ -2227,12 +2269,15 @@ function openGuideImageModal() {
   document.getElementById('guideImagePreview').src = url;
   document.getElementById('guideImageShareBtn').hidden = !(navigator.share);
   document.getElementById('guideImageModal').hidden = false;
+  pushHistoryOverlay('guideImage');
 }
 
 function closeGuideImageModal() {
+  const wasOpen = !document.getElementById('guideImageModal').hidden;
   document.getElementById('guideImageModal').hidden = true;
   document.getElementById('guideImagePreview').src = '';
   _guideImagePending = null;
+  if (wasOpen) { popHistoryOverlayIfTop('guideImage'); }
 }
 
 function downloadGuideImage() {

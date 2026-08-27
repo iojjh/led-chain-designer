@@ -14,6 +14,11 @@
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
+<!-- 앱 시작 스플래시: app.js 초기화 마지막에 짧게 보여주고 사라진다 -->
+<div id="splashScreen" class="splash-screen">
+  <img src="./icons/icon.svg" alt="" class="splash-logo">
+  <div class="splash-title">LED 체인 설계기</div>
+</div>
 <div id="app">
 
   <!-- 노드-그래프 캔버스 뷰 -->
@@ -88,8 +93,15 @@
       <div id="issuesList" class="issues-list"></div>
     </div>
 
-    <!-- 저장/불러오기 -->
-    <button id="saveLoadBtn" class="save-load-btn">저장/불러오기</button>
+    <!-- 캔버스 메뉴: 저장/불러오기 + 캔버스 초기화. 버튼이 우하단이라 메뉴는
+         위로 펼쳐진다(interactions.js의 initCanvasMenu). -->
+    <div id="canvasMenuWrap" class="canvas-menu-wrap">
+      <button id="canvasMenuBtn" class="canvas-menu-btn" title="메뉴" aria-label="메뉴">☰</button>
+      <div id="canvasMenu" class="canvas-menu">
+        <button id="canvasMenuSaveLoadBtn" class="canvas-menu-item">💾 저장/불러오기</button>
+        <button id="canvasMenuResetBtn" class="canvas-menu-item canvas-menu-item-danger">🗑 캔버스 초기화</button>
+      </div>
+    </div>
     <div id="saveLoadModal" class="modal-bg" hidden>
       <div class="modal-card">
         <div class="modal-head">
@@ -271,6 +283,7 @@
           <div id="ledPortStrip" class="led-port-strip"></div>
           <div id="ledPortDetail" class="led-port-detail"></div>
           <div class="led-port-actions">
+            <button id="ledUndoAssignBtn" class="props-btn">↩ 되돌리기</button>
             <button id="ledAutoAssignBtn" class="led-auto-btn">자동 할당</button>
             <button id="ledResetAllBtn" class="props-btn props-btn-danger">전체 초기화</button>
           </div>

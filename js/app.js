@@ -1,7 +1,7 @@
 // ── app 부트스트랩 ──────────────────────────────────
 // package.json의 version과 맞춰 수동으로 올린다. 기능 변경 시 이 값과
 // service-worker.js의 CACHE_VERSION을 함께 동기화할 것(CLAUDE.md 참고).
-const APP_VERSION = '0.7.1';
+const APP_VERSION = '0.8.0';
 
 (function () {
   const canvasEl = document.getElementById('graphCanvas');
@@ -28,6 +28,15 @@ const APP_VERSION = '0.7.1';
   renderNodeCards();
   renderPropertiesPanel();
   renderValidation();
+
+  // 시작 스플래시: 잠깐 보여준 뒤 페이드아웃하고 DOM에서 제거한다.
+  const splashEl = document.getElementById('splashScreen');
+  if (splashEl) {
+    setTimeout(() => {
+      splashEl.classList.add('hide');
+      setTimeout(() => splashEl.remove(), 400);
+    }, 700);
+  }
 })();
 
 // ── 업데이트 완료 감지 ──────────────────────────────

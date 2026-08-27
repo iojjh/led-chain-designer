@@ -39,8 +39,8 @@ function deleteProject(index) {
 }
 
 // ── 모달 UI ─────────────────────────────────────────
+// 여는 트리거는 캔버스 메뉴(interactions.js의 initCanvasMenu, #canvasMenuSaveLoadBtn)다.
 function initSaveLoadUi() {
-  document.getElementById('saveLoadBtn').addEventListener('click', openSaveLoadModal);
   document.getElementById('saveLoadClose').addEventListener('click', closeSaveLoadModal);
   document.getElementById('saveLoadModal').addEventListener('click', e => {
     if (e.target.id === 'saveLoadModal') { closeSaveLoadModal(); }
@@ -54,16 +54,21 @@ function initSaveLoadUi() {
     renderSaveList();
   });
   document.getElementById('cloudRefreshBtn').addEventListener('click', renderCloudList);
+  registerOverlayCloser('saveLoad', closeSaveLoadModal);
 }
 
 function openSaveLoadModal() {
   document.getElementById('saveLoadModal').hidden = false;
+  pushHistoryOverlay('saveLoad');
   renderSaveList();
   renderCloudList();
 }
 
 function closeSaveLoadModal() {
-  document.getElementById('saveLoadModal').hidden = true;
+  const el = document.getElementById('saveLoadModal');
+  const wasOpen = !el.hidden;
+  el.hidden = true;
+  if (wasOpen) { popHistoryOverlayIfTop('saveLoad'); }
 }
 
 function renderSaveList() {
@@ -85,7 +90,8 @@ function renderSaveList() {
   el.querySelectorAll('.save-load-row-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       loadProject(Number(btn.dataset.idx));
-      relayoutGraphForViewport();
+      State.ui.zoom = 1;
+      panToLeftmostNode();
       renderNodeCards();
       renderPropertiesPanel();
       renderValidation();
@@ -155,7 +161,8 @@ async function onCloudLoadClick(btn, preset) {
     State.graph = await loadCloudPresetGraph(preset.data);
     State.ui.selectedId = null;
     State.ui.selectedEdgeId = null;
-    relayoutGraphForViewport();
+    State.ui.zoom = 1;
+    panToLeftmostNode();
     renderNodeCards();
     renderPropertiesPanel();
     renderValidation();

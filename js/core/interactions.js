@@ -4,7 +4,11 @@
 // clientXY()는 js/leddesign/ledDesignView.js에 이미 정의된 전역 헬퍼를 그대로 쓴다
 // (마우스/터치 좌표 추출 규칙이 같은 도메인이라 여기서 다시 만들지 않음).
 
-let _dragNodeId = null;
+const NODE_DRAG_LONG_PRESS_MS = 320; // 이 시간만큼 눌러 유지해야 이동 모드로 전환(사용자 요청, PC/모바일 공통) — 짧게 누르고 떼면 그대로 설정창/LED 설계 화면이 열린다
+let _dragNodeId = null; // 롱프레스가 발동해 실제로 "이동 모드"에 들어간 노드
+let _pointerDownNodeId = null; // 이번 제스처가 시작된 노드(이동 모드 진입 여부와 무관하게 탭 판정에 씀)
+let _dragCancelled = false; // 롱프레스 발동 전에 임계치 이상 움직여 이번 제스처를 취소했는지
+let _dragLongPressTimer = null;
 let _dragOffset = { x: 0, y: 0 };
 let _dragStartPos = { x: 0, y: 0 }; // 드래그 시작 시점의 노드 좌표 — 겹치면 여기로 되돌린다
 let _isPanning = false;
@@ -14,6 +18,57 @@ let _connectFrom = null; // { nodeId, portId }
 let _dragMoved = false;
 let _dragStartScreen = { x: 0, y: 0 };
 let _pinch = null; // { lastDist }
+
+// ── 오버레이(속성 패널/드롭다운/모달/LED 설계 화면 등) 뒤로가기 지원 ──────
+// 모바일 하드웨어 뒤로가기가 열려 있는 창 하나 없이 곧장 앱을 종료시키는
+// 문제를 막는다(사용자 요청) — 오버레이가 열릴 때마다 history 엔트리를 하나
+// 쌓아두고, 뒤로가기(popstate)가 오면 가장 최근에 연 오버레이만 닫는다.
+// 열린 오버레이가 하나도 없을 때 뒤로가기를 누르면(스택이 비어 있으면)
+// 아무것도 하지 않고 기본 동작(진짜 이전 페이지로 이동/앱 종료)에 맡긴다.
+// 각 오버레이 모듈은 자신의 open/close 토글 함수 안에서 이 함수들을 부르고
+// registerOverlayCloser로 자기 close 함수를 등록한다.
+let _overlayStack = [];
+const OVERLAY_CLOSERS = {};
+
+function registerOverlayCloser(name, closeFn) {
+  OVERLAY_CLOSERS[name] = closeFn;
+}
+
+function pushHistoryOverlay(name) {
+  _overlayStack.push(name);
+  history.pushState({ overlay: name }, '', location.href);
+}
+
+// 닫혀 있다가 이번에 새로 열릴 때만 push해야 하므로, 호출부가 "직전에
+// 열려 있었는지"를 alreadyOpen으로 판단해 넘긴다(재렌더링 등으로 이미 열려
+// 있는 상태에서 또 열림 처리가 반복 호출돼도 중복 push하지 않기 위함).
+function pushHistoryOverlayIfNewlyOpened(name, alreadyOpen) {
+  if (alreadyOpen) { return; }
+  pushHistoryOverlay(name);
+}
+
+// UI(✕ 버튼, 바깥 클릭 등)로 직접 닫을 때는 _overlayStack에서만 조용히
+// 빼고, history.back()은 호출하지 않는다 — history.back()은 비동기라, "닫고
+// 곧바로 다른 오버레이를 연다"(예: 팔레트 닫고 LED 추가 모달 열기)처럼 같은
+// 이벤트 안에서 back() 직후 pushState가 겹치면 아직 처리되지 않은 back()과
+// 새 pushState가 순서가 꼬여 엉뚱한 오버레이가 닫히는 버그가 실제로
+// 발생했다(구현 중 브라우저로 확인). 대신 실제 하드웨어 뒤로가기가 눌렸을
+// 때만(popstate) history가 줄어들게 두고, UI로 미리 닫힌 오버레이의 history
+// 항목은 그냥 남겨둔다 — 나중에 뒤로가기를 누르면 "이미 닫혀 있어 아무 효과
+// 없는" 항목이 한 번 조용히 소비되고 지나갈 뿐이라, 그 구간만 뒤로가기를
+// 한 번 더 눌러야 할 수 있다는 사소한 영향 외에는 오작동이 없다.
+function popHistoryOverlayIfTop(name) {
+  const idx = _overlayStack.lastIndexOf(name);
+  if (idx === -1) { return; }
+  _overlayStack.splice(idx, 1);
+}
+
+function initOverlayHistory() {
+  window.addEventListener('popstate', () => {
+    const name = _overlayStack.pop();
+    if (name && OVERLAY_CLOSERS[name]) { OVERLAY_CLOSERS[name](); }
+  });
+}
 
 function initInteractions(canvasEl, nodeLayerEl) {
   canvasEl.addEventListener('mousedown', e => handleCanvasDown(e.clientX, e.clientY));
@@ -53,6 +108,9 @@ function initInteractions(canvasEl, nodeLayerEl) {
   initPaletteDeviceList();
   initLedAddModal();
   initPaletteMenu();
+  initCanvasMenu();
+  initOverlayHistory();
+  registerOverlayCloser('portPicker', closePortPicker);
 }
 
 // ── "+ 장비 추가" 드롭다운 열기/닫기 ──────────────────
@@ -80,15 +138,71 @@ function initPaletteMenu() {
   };
   window.addEventListener('mousedown', outsideHandler);
   window.addEventListener('touchstart', outsideHandler, { passive: true });
+  registerOverlayCloser('palette', closePaletteMenu);
 }
 
 function setPaletteMenuOpen(open) {
+  const wasOpen = document.getElementById('palette').classList.contains('open');
   document.getElementById('palette').classList.toggle('open', open);
   document.getElementById('paletteToggleBtn').classList.toggle('open', open);
+  if (open) { pushHistoryOverlayIfNewlyOpened('palette', wasOpen); }
+  else { popHistoryOverlayIfTop('palette'); }
 }
 
 function closePaletteMenu() {
   setPaletteMenuOpen(false);
+}
+
+// ── 캔버스 메뉴(☰): 저장/불러오기 + 캔버스 초기화 ────────
+function initCanvasMenu() {
+  const toggleBtn = document.getElementById('canvasMenuBtn');
+  toggleBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    setCanvasMenuOpen(!document.getElementById('canvasMenu').classList.contains('open'));
+  });
+  document.getElementById('canvasMenuSaveLoadBtn').addEventListener('click', () => {
+    closeCanvasMenu();
+    openSaveLoadModal();
+  });
+  document.getElementById('canvasMenuResetBtn').addEventListener('click', () => {
+    closeCanvasMenu();
+    confirmAndResetCanvas();
+  });
+  const outsideHandler = e => {
+    const wrap = document.getElementById('canvasMenuWrap');
+    if (!wrap.contains(e.target)) { closeCanvasMenu(); }
+  };
+  window.addEventListener('mousedown', outsideHandler);
+  window.addEventListener('touchstart', outsideHandler, { passive: true });
+  registerOverlayCloser('canvasMenu', closeCanvasMenu);
+}
+
+function setCanvasMenuOpen(open) {
+  const wasOpen = document.getElementById('canvasMenu').classList.contains('open');
+  document.getElementById('canvasMenu').classList.toggle('open', open);
+  document.getElementById('canvasMenuBtn').classList.toggle('open', open);
+  if (open) { pushHistoryOverlayIfNewlyOpened('canvasMenu', wasOpen); }
+  else { popHistoryOverlayIfTop('canvasMenu'); }
+}
+
+function closeCanvasMenu() {
+  setCanvasMenuOpen(false);
+}
+
+// 캔버스 초기화 — 되돌릴 수 없는 작업이라 두 번 연속 확인받는다(사용자 요청).
+function confirmAndResetCanvas() {
+  if (!State.graph.nodes.length) { showToast('캔버스가 이미 비어 있습니다.'); return; }
+  if (!window.confirm('캔버스의 모든 노드를 삭제할까요?')) { return; }
+  if (!window.confirm('정말로 삭제할까요? 이 작업은 되돌릴 수 없습니다.')) { return; }
+  State.graph.nodes = [];
+  State.graph.edges = [];
+  State.ui.selectedId = null;
+  State.ui.selectedEdgeId = null;
+  renderNodeCards();
+  renderPropertiesPanel();
+  renderValidation();
+  render();
+  showToast('캔버스를 초기화했습니다.');
 }
 
 // ── 팔레트 레벨2: 카테고리별 장비 프리셋 목록 ─────────
@@ -157,10 +271,14 @@ function onWheel(e) {
   zoomAt(e.clientX, e.clientY, factor);
 }
 
-// 이 시점엔 드래그 준비만 하고 선택·설정창은 열지 않는다 — 노드를 드래그로
-// 옮기려고 누른 순간 설정창부터 뜨는 걸 막기 위함(사용자 요청). 실제로
-// 클릭(탭)인지 드래그인지는 마우스는 handlePointerUp, 터치는 onTouchEnd에서
-// _dragMoved로 판정한 뒤에야 선택을 확정한다.
+// 포트 점은 지금처럼 누르는 즉시 연결선을 시작한다(변경 없음). 카드 몸통은
+// 곧바로 이동 모드에 들어가지 않고, NODE_DRAG_LONG_PRESS_MS만큼 눌러 유지해야
+// (진동 + 카드가 살짝 뜨는 애니메이션과 함께) 이동 모드로 전환된다 — 짧게
+// 누르고 떼면 그대로 설정창/LED 설계 화면이 열린다(사용자 요청, PC/모바일
+// 공통 — onNodeLayerMouseDown/onNodeLayerTouchStart 둘 다 이 함수를 그대로
+// 재사용하므로 이 한 곳만 바꾸면 두 입력 방식 모두에 적용된다). 롱프레스
+// 발동 전에 손가락/마우스가 일정 거리 이상 움직이면 handlePointerMove에서
+// 이번 제스처 자체를 취소한다(이동도 탭도 아닌 것으로 처리).
 function handleNodeLayerDown(targetEl, x, y) {
   const portDot = targetEl.closest('.port-dot');
   if (portDot) {
@@ -175,11 +293,21 @@ function handleNodeLayerDown(targetEl, x, y) {
   const nodeId = cardEl.dataset.nodeId;
   const node = getNode(nodeId);
   const world = screenToWorld(x, y);
-  _dragNodeId = nodeId;
+  _dragNodeId = null;
+  _pointerDownNodeId = nodeId;
+  _dragCancelled = false;
   _dragOffset = { x: world.x - node.x, y: world.y - node.y };
   _dragStartPos = { x: node.x, y: node.y };
   _dragMoved = false;
   _dragStartScreen = { x, y };
+
+  clearTimeout(_dragLongPressTimer);
+  _dragLongPressTimer = setTimeout(() => {
+    if (_pointerDownNodeId !== nodeId || _dragCancelled) { return; }
+    _dragNodeId = nodeId;
+    if (navigator.vibrate) { navigator.vibrate(15); }
+    cardEl.classList.add('node-card-liftoff');
+  }, NODE_DRAG_LONG_PRESS_MS);
 }
 
 function onNodeLayerMouseDown(e) {
@@ -223,10 +351,17 @@ function handlePointerMove(x, y) {
     }
     return;
   }
-  if (_dragNodeId) {
-    if (Math.abs(x - _dragStartScreen.x) > 4 || Math.abs(y - _dragStartScreen.y) > 4) {
-      _dragMoved = true;
+  if (_pointerDownNodeId && !_dragNodeId) {
+    // 롱프레스가 아직 발동하지 않았다 — 이 상태에서 움직이면 이동도 연결도
+    // 아닌 것으로 취소한다(포트 점이 아닌 카드 몸통이므로 연결선도 시작하지 않음).
+    if (Math.abs(x - _dragStartScreen.x) > 6 || Math.abs(y - _dragStartScreen.y) > 6) {
+      _dragCancelled = true;
+      clearTimeout(_dragLongPressTimer);
     }
+    return;
+  }
+  if (_dragNodeId) {
+    _dragMoved = true; // 롱프레스가 이미 발동했으므로 움직이는 순간 바로 이동
     const world = screenToWorld(x, y);
     moveNode(_dragNodeId, world.x - _dragOffset.x, world.y - _dragOffset.y);
     renderNodeCards();
@@ -257,13 +392,14 @@ function handlePointerUp(x, y) {
       } else if (toNode && target.portId) {
         const edge = addEdge(_connectFrom.nodeId, _connectFrom.portId, toNode.id, target.portId);
         if (edge) {
-          // 샌딩카드를 LED디스플레이에 새로 연결하면, 이미 그려져 있는 배선(포트
-          // 하나에 묶인 패널들)은 그대로 두고 몇 번 포트냐만 새 레이아웃에 맞춰
-          // 옮긴다 — 자동 배정을 통째로 다시 돌리지 않는다("빠른 설정"은 생성
-          // 시점에 이미 자동 배정이 끝나 있고, "자유 설계"는 애초에 자동 배정
-          // 대상이 아니므로 둘 다 이걸로 충분하다 — 사용자 요청).
+          // 샌딩카드가 LED디스플레이에 새로 연결되는 시점은 곧 "연결된 카드 수가
+          // 바뀌는" 시점이므로, 카드끼리 담당 픽셀량이 균등하도록 자동 배정을
+          // 다시 돌린다(rebalanceLanPortsForSendingConnect — 사용자 확인).
+          // 예전엔 배선을 그대로 두고 포트 번호만 옮기는
+          // reflowLanPortsForLedNode를 썼는데, 그 결과 새로 연결된 카드의
+          // 포트가 계속 비어 있는 문제가 있었다.
           if (fromNode.type === 'sending' && toNode.type === 'led') {
-            reflowLanPortsForLedNode(toNode.id);
+            rebalanceLanPortsForSendingConnect(toNode.id);
           }
           renderValidation();
           renderPropertiesPanel();
@@ -273,10 +409,15 @@ function handlePointerUp(x, y) {
     _connectFrom = null;
     clearConnectPreview();
   }
-  if (_dragNodeId && !_dragMoved) {
-    // 클릭(드래그 아님)일 때만 선택+설정 패널을 연다 — 터치와 동일하게 마우스도
-    // 드래그로 이동만 했을 때는 패널이 뜨지 않게 한다(사용자 요청).
-    selectNode(_dragNodeId);
+  clearTimeout(_dragLongPressTimer);
+  if (_pointerDownNodeId) {
+    const cardEl = document.querySelector(`.node-card[data-node-id="${_pointerDownNodeId}"]`);
+    if (cardEl) { cardEl.classList.remove('node-card-liftoff'); }
+  }
+  if (_pointerDownNodeId && !_dragCancelled && !_dragMoved) {
+    // 롱프레스로 이동 모드까지 들어갔더라도 실제로 움직이지 않고 놓으면
+    // 여전히 탭으로 취급해 선택+설정 패널을 연다(마우스/터치 공통 — 사용자 요청).
+    selectNode(_pointerDownNodeId);
     renderNodeCards();
     renderPropertiesPanel();
   } else if (_dragNodeId && _dragMoved) {
@@ -293,6 +434,8 @@ function handlePointerUp(x, y) {
     }
   }
   _dragNodeId = null;
+  _pointerDownNodeId = null;
+  _dragCancelled = false;
   _isPanning = false;
 }
 
@@ -437,7 +580,15 @@ function onKeyDown(e) {
   if (tag === 'INPUT' || tag === 'TEXTAREA') { return; }
   if (e.key !== 'Delete' && e.key !== 'Backspace') { return; }
   if (State.ui.selectedId) {
+    // 샌딩카드를 지우면 연결된 카드 수가 바뀌므로, 지우기 전에 그 카드가
+    // 물려 있던 LED를 미리 알아둬야(엣지가 사라진 뒤엔 못 찾음) 삭제 후
+    // 남은 카드끼리 재분배할 수 있다(연결 시점 균등분배와 대칭).
+    const node = getNode(State.ui.selectedId);
+    const affectedLedIds = node && node.type === 'sending'
+      ? downstreamOf(State.graph, node.id).filter(n => n.type === 'led').map(n => n.id)
+      : [];
     removeNode(State.ui.selectedId);
+    affectedLedIds.forEach(rebalanceLanAfterSendingDisconnect);
     renderPropertiesPanel();
     renderValidation();
   } else if (State.ui.selectedEdgeId) {
@@ -448,7 +599,12 @@ function onKeyDown(e) {
 // Delete/Backspace 키와 연결선 삭제 버튼(#edgeDeleteBtn) 둘 다 여기로 모인다.
 function deleteSelectedEdge() {
   if (!State.ui.selectedEdgeId) { return; }
+  const edge = State.graph.edges.find(e => e.id === State.ui.selectedEdgeId);
+  const fromNode = edge && getNode(edge.from.nodeId);
+  const toNode = edge && getNode(edge.to.nodeId);
+  const isSendingToLed = fromNode && fromNode.type === 'sending' && toNode && toNode.type === 'led';
   removeEdge(State.ui.selectedEdgeId);
+  if (isSendingToLed) { rebalanceLanAfterSendingDisconnect(toNode.id); }
   renderValidation();
   renderPropertiesPanel();
 }
@@ -467,6 +623,9 @@ function touchMid(touches) {
 function startPinch(touches) {
   _isPanning = false;
   _dragNodeId = null;
+  _pointerDownNodeId = null;
+  _dragCancelled = false;
+  clearTimeout(_dragLongPressTimer);
   if (_connectFrom) { _connectFrom = null; clearConnectPreview(); }
   _pinch = { lastDist: touchDist(touches) };
 }
@@ -497,7 +656,7 @@ function onTouchMove(e) {
     updatePinch(e.touches);
     return;
   }
-  if (!_connectFrom && !_dragNodeId && !_isPanning) { return; }
+  if (!_connectFrom && !_pointerDownNodeId && !_dragNodeId && !_isPanning) { return; }
   e.preventDefault();
   const { x, y } = clientXY(e);
   handlePointerMove(x, y);
@@ -508,23 +667,14 @@ function onTouchEnd(e) {
     if (e.touches.length < 2) { _pinch = null; }
     return;
   }
-  if (!_connectFrom && !_dragNodeId && !_isPanning) { return; }
+  if (!_connectFrom && !_pointerDownNodeId && !_dragNodeId && !_isPanning) { return; }
   const { x, y } = clientXY(e);
   const targetEl = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].target : e.target;
-  const wasDraggingNode = !!_dragNodeId;
-  const tappedNodeId = _dragNodeId;
-  const wasTap = wasDraggingNode && !_dragMoved;
+  const wasTap = !!_pointerDownNodeId && !_dragMoved && !_dragCancelled;
   handlePointerUp(x, y);
-  if (wasDraggingNode) {
-    tryOpenLedDesignFromTap(targetEl);
-    // 손가락을 떼지 않고 움직였다면(드래그=이동) 설정창을 열지 않는다 —
-    // 한 번 터치(탭)했을 때만 선택·설정창을 연다.
-    if (wasTap) {
-      selectNode(tappedNodeId);
-      renderNodeCards();
-      renderPropertiesPanel();
-    }
-  }
+  // handlePointerUp이 탭이면 이미 선택+설정 패널을 열었다 — LED 노드는 터치의
+  // 합성 클릭이 안 일어나므로(preventDefault) LED 설계 화면 열기만 별도로 처리.
+  if (wasTap) { tryOpenLedDesignFromTap(targetEl); }
 }
 
 // ── 포트 피커 (빈 물리 포트가 여럿일 때 사용자가 고르는 작은 팝업) ──────
@@ -537,6 +687,7 @@ function openPortPicker(clientX, clientY, ports, onPick) {
     `<button class="port-picker-btn" data-port-id="${p.id}">${escapeHtml(p.label)}</button>`
   ).join('');
   el.hidden = false;
+  pushHistoryOverlay('portPicker');
   el.style.left = `${Math.min(clientX, window.innerWidth - 190)}px`;
   el.style.top = `${Math.min(clientY, window.innerHeight - (ports.length * 34 + 12))}px`;
 
@@ -558,6 +709,7 @@ function openPortPicker(clientX, clientY, ports, onPick) {
 
 function closePortPicker() {
   const el = document.getElementById('portPicker');
+  const wasOpen = !el.hidden;
   el.hidden = true;
   el.innerHTML = '';
   if (_portPickerOutsideHandler) {
@@ -565,6 +717,7 @@ function closePortPicker() {
     window.removeEventListener('touchstart', _portPickerOutsideHandler);
     _portPickerOutsideHandler = null;
   }
+  if (wasOpen) { popHistoryOverlayIfTop('portPicker'); }
 }
 
 // ── 간단한 토스트 알림 ──────────────────────────────
@@ -679,28 +832,22 @@ function pickMobileSpot(type, rect) {
   return { x: world.x - CARD_WIDTH / 2, y: world.y };
 }
 
-// 저장된 현장을 불러오면 저장 당시 좌표가 그대로 들어오는데, 그게 지금
-// 사용자의 화면 크기·팬 위치와 안 맞으면 캔버스 밖에 놓일 수 있다 — 팔레트로
-// 장비를 하나씩 추가할 때와 똑같은 배치 규칙(pickSwimlaneSpot/pickMobileSpot +
-// ensureNodeVisible)을 저장된 순서대로 다시 적용해, 지금 보이는 화면을
-// 기준으로 새로 쌓이게 한다. 위치 계산만이 아니라 ensureNodeVisible까지 매
-// 노드마다 반복해야 실제로 "추가하면 바로 보인다"가 재현된다 — 격자 전체
-// 폭(타입 6개면 gapX*6)이 화면보다 넓을 수 있어서, 위치만 화면 중앙 기준으로
-// 계산하는 것만으론 양 끝 열이 화면 밖에 남는다.
-// 좌표만 다시 계산할 뿐 노드 객체와 그걸 참조하는 edges는 그대로 유지된다.
-function relayoutGraphForViewport() {
+// 저장된 현장을 불러오면 저장 당시 좌표가 그대로 들어온다(노드 위치는
+// State.graph에 그대로 저장/복원되고, 연결선은 그 좌표에서 매번 새로 그려지는
+// 베지어 곡선이라 별도 형태 데이터가 필요 없다). 다만 저장 당시 화면과 지금
+// 화면 크기·팬 위치가 다르면 가장 왼쪽 노드가 화면 밖에서 시작할 수 있어,
+// 좌표는 손대지 않고 팬만 옮겨 그 노드가 화면 왼쪽 여백 안에서 보이게
+// 한다(사용자 요청 — 예전엔 pickSwimlaneSpot/pickMobileSpot으로 좌표 자체를
+// 다시 계산해버려 저장된 배치가 무의미해졌었다).
+function panToLeftmostNode() {
   const canvasEl = document.getElementById('graphCanvas');
   const rect = canvasEl.getBoundingClientRect();
-  const isMobile = window.matchMedia('(max-width: 640px)').matches;
   const nodes = State.graph.nodes;
-  State.graph.nodes = [];
-  nodes.forEach(node => {
-    const spot = isMobile ? pickMobileSpot(node.type, rect) : pickSwimlaneSpot(node.type, rect);
-    node.x = spot.x;
-    node.y = spot.y;
-    State.graph.nodes.push(node);
-    ensureNodeVisible(node, rect);
-  });
+  if (!nodes.length) { return; }
+  const leftmost = nodes.reduce((a, b) => (a.x < b.x ? a : b));
+  const margin = 32;
+  State.ui.pan.x = margin - leftmost.x * State.ui.zoom;
+  ensureNodeVisible(leftmost, rect); // 세로는 화면 밖일 때만 보정
   render();
 }
 
@@ -746,6 +893,7 @@ function initLedAddModal() {
     setPaletteMenuOpen(true);
   });
   document.getElementById('ledAddConfirmBtn').addEventListener('click', onLedAddConfirm);
+  registerOverlayCloser('ledAdd', closeLedAddModal);
 
   document.getElementById('ledAddAreaW').addEventListener('input', updateLedAddPreview);
   document.getElementById('ledAddAreaH').addEventListener('input', updateLedAddPreview);
@@ -771,11 +919,15 @@ function openLedAddModal() {
   document.getElementById('ledAddPitch').value = '3mm';
   document.getElementById('ledAddPanelSize').value = '500x1000';
   setLedAddMode('rect');
+  const wasOpen = document.getElementById('ledAddModal').classList.contains('open');
   document.getElementById('ledAddModal').classList.add('open');
+  pushHistoryOverlayIfNewlyOpened('ledAdd', wasOpen);
 }
 
 function closeLedAddModal() {
+  const wasOpen = document.getElementById('ledAddModal').classList.contains('open');
   document.getElementById('ledAddModal').classList.remove('open');
+  if (wasOpen) { popHistoryOverlayIfTop('ledAdd'); }
 }
 
 function readLedAddAreaMm() {

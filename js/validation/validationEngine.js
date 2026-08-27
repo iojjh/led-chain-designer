@@ -120,16 +120,14 @@ function resolveSendingCardOutput(graph, sendingNode) {
   return { w, h, hz };
 }
 
-// 콘솔의 출력 포트별로, 그 포트가 실제로 물려 있는 샌딩카드 방향의 최대
-// Hz를 계산한다(사용자 요청, 2026-08-26) — resolveSendingCardOutput을 그대로
-// 재사용하므로(그 함수가 이미 상류 콘솔의 outputResolutionTable로 Hz를 정함)
-// 샌딩카드 카드에 표시되는 Hz와 항상 일치한다. 다만 표시하는 해상도(w/h)는
-// 그 포트 하나의 몫(예: 모자이크로 2대가 나눠 맡을 때의 절반)이 아니라
-// **최종 LED 전체 해상도**로 보여준다 — 콘솔 입력 쪽에서 실제로 맞춰 보내야
-// 하는 "합쳐진 캔버스" 크기가 바로 이 값이라서다(사용자 확인, 2026-08-26).
-// Hz는 그대로 그 포트가 실제로 내보내는 몫값 기준을 쓴다 — 한 포트가 실제로
-// 낼 수 있는 최대 주사율은 전체가 아니라 그 몫값의 대역폭에 달려 있으므로,
-// 표시 해상도(전체)와 Hz 계산 기준(포트 몫)이 서로 다른 게 의도된 동작이다.
+// 콘솔의 출력 포트별로, 그 포트가 실제로 물려 있는 샌딩카드 방향의 해상도·
+// 최대 Hz를 계산한다(사용자 요청, 2026-08-26) — resolveSendingCardOutput을
+// 그대로 재사용하므로 샌딩카드 카드에 표시되는 값과 항상 일치한다. 해상도는
+// 그 포트 하나의 몫(모자이크로 2대가 나눠 맡으면 그 절반)을 보여준다 — 한때
+// (2026-08-26) "콘솔 입력 쪽에서 맞춰 보내야 하는 합쳐진 캔버스 크기"라는
+// 이유로 최종 LED 전체 해상도를 대신 보여준 적이 있었지만, 포트별로 실제
+// 내보내는 몫과 다른 값이 떠서 오히려 헷갈린다는 사용자 요청(2026-08-27)으로
+// 되돌렸다 — 합쳐진 크기가 필요하면 resolveConsoleCombinedOutputs를 따로 쓴다.
 // 프롬프터로 연결된 포트는 샌딩카드가 없어 대상에서 빠지고, 아직 LED
 // 해상도가 안 잡혔거나 샌딩카드가 없는 포트도 결과에서 빠진다(콘솔 자체가
 // 여러 포트를 동시에 쓸 수 있어 배열로 반환 — 샌딩카드는 한 대만 연결되는 게
@@ -143,18 +141,42 @@ function resolveConsoleOutputInfo(graph, consoleNode) {
       if (!toNode || toNode.type !== 'sending') { return null; }
       const out = resolveSendingCardOutput(graph, toNode);
       if (!out) { return null; }
-      const ledNode = downstreamOf(graph, toNode.id).find(n => n.type === 'led' && hasZones(n));
-      const full = ledNode ? boundingResolutionForZones(ledNode.config.ledDesign.zones) : null;
       const port = ports.find(p => p.id === e.from.portId);
       return {
         portId: e.from.portId,
         portLabel: port ? port.label : e.from.portId,
-        w: full ? full.w : out.w,
-        h: full ? full.h : out.h,
+        w: out.w,
+        h: out.h,
         hz: out.hz,
       };
     })
     .filter(Boolean);
+}
+
+// 콘솔에서 나가는 포트들을 목적지 LED별로 묶어, 같은 LED로 2개 이상의 포트가
+// 모자이크로 합류하는 경우에만 그 LED의 최종(합쳐진) 해상도를 반환한다
+// (사용자 요청, 2026-08-27 — 포트별 몫은 위 resolveConsoleOutputInfo가 이미
+// 보여주므로, 여기서는 "다 합치면 결국 얼마인지"만 따로 보여준다). 포트가
+// 하나만 물린 LED는 애초에 "합계"라는 개념이 없으므로 제외한다.
+function resolveConsoleCombinedOutputs(graph, consoleNode) {
+  const byLed = new Map();
+  graph.edges.filter(e => e.from.nodeId === consoleNode.id).forEach(e => {
+    const toNode = graph.nodes.find(n => n.id === e.to.nodeId);
+    if (!toNode || toNode.type !== 'sending') { return; }
+    const ledNode = downstreamOf(graph, toNode.id).find(n => n.type === 'led' && hasZones(n));
+    if (!ledNode) { return; }
+    const entry = byLed.get(ledNode.id) || { count: 0, ledNode };
+    entry.count += 1;
+    byLed.set(ledNode.id, entry);
+  });
+
+  const result = [];
+  byLed.forEach(({ count, ledNode }) => {
+    if (count < 2) { return; }
+    const full = boundingResolutionForZones(ledNode.config.ledDesign.zones);
+    if (full && full.w && full.h) { result.push({ ledNodeId: ledNode.id, w: full.w, h: full.h }); }
+  });
+  return result;
 }
 
 // 구역이 없는 LED는 totalRequiredPx가 0이라 위 checkConsoleOutput/checkSendingOutput이
@@ -310,5 +332,6 @@ function panToNode(nodeId) {
 if (typeof module !== 'undefined') {
   module.exports = {
     runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput, resolveConsoleOutputInfo,
+    resolveConsoleCombinedOutputs,
   };
 }
