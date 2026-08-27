@@ -402,9 +402,10 @@ function initLedDesignView() {
 
   document.getElementById('ledUndoAssignBtn').addEventListener('click', undoLastAssignment);
 
-  // PWR 포트 수동 추가/제거 — LAN은 포트 수가 상류 장비 스펙에서 정해지므로
-  // (ledPortLayout) 이 조작이 없고, PWR만 고정 포트 수(기본 18) 자체를
-  // 사용자가 늘리거나 줄일 수 있다.
+  // PWR 포트 수동 추가/제거 — 고정 포트 수(기본 18) 자체를 사용자가 늘리거나
+  // 줄일 수 있다. LAN도 아래 ledLanPort*Btn으로 대칭 기능을 제공하되, 대상이
+  // "활성 포트가 속한 카드"인 점과 실제 장비 프리셋은 조절 불가한 점이 다르다
+  // (addLanPortToActiveGroup/removeLanPortFromActiveGroup 참고).
   document.getElementById('ledPwrPortAddBtn').addEventListener('click', () => {
     const cfg = getLedConfig();
     cfg.pwrPortCount = pwrPortCount() + 1;
@@ -427,6 +428,11 @@ function initLedDesignView() {
     renderPortPanel();
     drawGrid();
   });
+
+  document.getElementById('ledLanPortAddBtn').addEventListener('click', addLanPortToActiveGroup);
+  document.getElementById('ledLanPortRemoveBtn').addEventListener('click', removeLanPortFromActiveGroup);
+  document.getElementById('ledLanGroupMoveLeftBtn').addEventListener('click', () => moveLanGroupOrder(-1));
+  document.getElementById('ledLanGroupMoveRightBtn').addEventListener('click', () => moveLanGroupOrder(1));
 
   // 창 크기 변경(브라우저 리사이즈, 모바일 회전 등)에도 격자가 항상 화면에 맞게
   let resizeTimer = null;
@@ -1337,6 +1343,127 @@ function ensurePortsSized() {
   }
 }
 
+// LAN 그룹(카드)마다 cfg.lanPorts 배열에서 차지하는 구간([start, start+count))을
+// 구한다 — 포트 추가/제거·순서 교환이 "그 그룹 몫만" 정확히 건드리려면
+// 배열 인덱스 경계를 알아야 한다.
+function lanGroupBoundaries(layout) {
+  let offset = 0;
+  return layout.groups.map(g => {
+    const b = { nodeId: g.nodeId, start: offset, count: g.portCount };
+    offset += g.portCount;
+    return b;
+  });
+}
+
+// 지금 선택된 포트(_led.activePort)가 속한 그룹의 인덱스·정보 — LAN 전용
+// 포트 추가/제거·순서 교환 버튼이 "어느 카드를 대상으로 할지"를 여기서 정한다.
+function activeLanGroupInfo() {
+  if (_led.mode !== 'lan') { return null; }
+  const layout = ledPortLayout();
+  const port = layout.ports[_led.activePort];
+  if (!port) { return null; }
+  const idx = layout.groups.findIndex(g => g.nodeId === port.nodeId);
+  if (idx === -1) { return null; }
+  return { idx, layout, boundaries: lanGroupBoundaries(layout) };
+}
+
+// 그 그룹의 포트 수를 사용자가 직접 조절할 수 있는지 — 실제 장비 프리셋(deviceId
+// 있음)은 물리 포트 수가 매뉴얼로 고정돼 있어 조절 대상이 아니다. 미연결
+// 기본값 그룹(nodeId===null)과 수동 설정 샌딩카드(deviceId 없음)만 조절 가능.
+// 콘솔 lan-ports 직결(수동)은 아직 포트 수를 담을 config 필드가 없어 이번
+// 범위에서는 제외한다(드문 경우 — 사용자 확인).
+function lanGroupPortCountAdjustable(group) {
+  if (!group) { return false; }
+  if (group.nodeId === null) { return true; }
+  const n = getNode(group.nodeId);
+  return !!n && n.type === 'sending' && !n.config.deviceId;
+}
+
+// LAN 활성 그룹에 포트 하나 추가 — 그 그룹의 portCount 원본(config)을 늘리고,
+// 배열에서도 그 그룹 슬라이스의 맨 끝에 빈 포트 하나를 끼워 넣는다(다른
+// 그룹의 기존 배정은 위치가 그대로 보존됨).
+function addLanPortToActiveGroup() {
+  const info = activeLanGroupInfo();
+  if (!info) { return; }
+  const group = info.layout.groups[info.idx];
+  if (!lanGroupPortCountAdjustable(group)) { showToast('실제 장비 프리셋은 포트 수를 바꿀 수 없습니다.'); return; }
+  const cfg = getLedConfig();
+  if (group.nodeId === null) {
+    cfg.requiredLanPorts = (cfg.requiredLanPorts || 8) + 1;
+  } else {
+    const n = getNode(group.nodeId);
+    n.config.portCount = (n.config.portCount || 8) + 1;
+  }
+  const b = info.boundaries[info.idx];
+  const insertAt = b.start + b.count;
+  cfg.lanPorts.splice(insertAt, 0, []);
+  cfg.lanGroupOrder = ledPortLayout().groups.map(g => g.nodeId).filter(Boolean);
+  _led.activePort = insertAt; // 방금 추가한 새 포트로 바로 이동
+  renderPortPanel();
+  drawGrid();
+}
+
+// LAN 활성 그룹에서 포트 하나 제거(그 그룹의 마지막 포트) — 최소 1개는 남긴다.
+// 그 포트에 이미 배정된 패널이 있으면 확인을 받는다(PWR 제거 버튼과 동일 정책).
+function removeLanPortFromActiveGroup() {
+  const info = activeLanGroupInfo();
+  if (!info) { return; }
+  const group = info.layout.groups[info.idx];
+  if (!lanGroupPortCountAdjustable(group)) { showToast('실제 장비 프리셋은 포트 수를 바꿀 수 없습니다.'); return; }
+  const b = info.boundaries[info.idx];
+  if (b.count <= 1) { showToast('포트가 최소 1개는 있어야 합니다.'); return; }
+  const cfg = getLedConfig();
+  const removeAt = b.start + b.count - 1;
+  const removed = cfg.lanPorts[removeAt] || [];
+  if (removed.length > 0
+    && !window.confirm(`P${removeAt + 1}에 배정된 패널 ${removed.length}장이 있습니다. 포트를 제거하면 그 배정도 함께 사라집니다. 계속할까요?`)) {
+    return;
+  }
+  if (group.nodeId === null) {
+    cfg.requiredLanPorts = (cfg.requiredLanPorts || 8) - 1;
+  } else {
+    const n = getNode(group.nodeId);
+    n.config.portCount = (n.config.portCount || 8) - 1;
+  }
+  cfg.lanPorts.splice(removeAt, 1);
+  cfg.lanGroupOrder = ledPortLayout().groups.map(g => g.nodeId).filter(Boolean);
+  if (_led.activePort >= cfg.lanPorts.length) { _led.activePort = cfg.lanPorts.length - 1; }
+  renderPortPanel();
+  drawGrid();
+}
+
+// LAN 활성 그룹(카드) 전체를 인접한 그룹과 순서만 맞바꾼다(배선 내용은 그
+// 그룹 소속 그대로 함께 이동 — 어느 카드가 몇 번째로 표시/배열되는지만
+// 바뀐다). dir: -1(앞으로) | +1(뒤로). 캔버스 드래그로는 더 이상 순서가
+// 안 바뀌므로(사용자 확인, 2026-08-27), 순서를 일부러 바꾸고 싶을 때 쓰는
+// 명시적 조작이다.
+function moveLanGroupOrder(dir) {
+  const info = activeLanGroupInfo();
+  if (!info) { return; }
+  const otherIdx = info.idx + dir;
+  if (otherIdx < 0 || otherIdx >= info.layout.groups.length) { return; }
+
+  const cfg = getLedConfig();
+  const lo = Math.min(info.idx, otherIdx);
+  const first = info.boundaries[lo];
+  const second = info.boundaries[lo + 1]; // 인접 그룹이므로 second.start === first.start + first.count
+  const before = cfg.lanPorts.slice(0, first.start);
+  const firstSlice = cfg.lanPorts.slice(first.start, first.start + first.count);
+  const secondSlice = cfg.lanPorts.slice(second.start, second.start + second.count);
+  const after = cfg.lanPorts.slice(second.start + second.count);
+  cfg.lanPorts = [...before, ...secondSlice, ...firstSlice, ...after];
+
+  const order = info.layout.groups.map(g => g.nodeId);
+  [order[info.idx], order[otherIdx]] = [order[otherIdx], order[info.idx]];
+  cfg.lanGroupOrder = order.filter(Boolean);
+
+  // 옮긴 카드(활성 그룹)가 스왑 후 배열에서 시작하는 위치로 activePort를
+  // 옮겨 계속 그 카드를 보고 있게 한다.
+  _led.activePort = dir < 0 ? first.start : first.start + secondSlice.length;
+  renderPortPanel();
+  drawGrid();
+}
+
 function portIndexOfKey(key) {
   return activePortsArray().findIndex(arr => arr.includes(key));
 }
@@ -1456,6 +1583,7 @@ function onPortMouseDown(e) {
     // 고르지 않아도 P1→P2→P3처럼 이어서 배정할 수 있다(원본 §11 동일 동작).
     const owner = portIndexOfKey(panel.key);
     _led.activePort = owner !== -1 ? owner : nextEmptyPort();
+    renderLanPortControls();
     renderPortStrip();
     renderPortDetail();
     _led.isPainting = true;
@@ -2083,9 +2211,28 @@ function renderPortPanel() {
     _led.sharedPortUsage = null;
   }
   document.getElementById('ledPwrPortControls').hidden = isLan;
+  renderLanPortControls();
   renderPortStrip();
   renderPortDetail();
   renderCableSum();
+}
+
+// LAN 전용 포트 추가/제거·순서 교환 버튼 — 활성 포트가 속한 그룹(카드) 기준으로
+// 대상을 정한다. PWR 모드거나 그룹을 못 찾으면(포트가 아직 하나도 없는 등) 통째로
+// 숨긴다. 포트 수 조절은 그 그룹이 실제 장비 프리셋이 아닐 때만, 순서 교환은
+// 그룹이 2개 이상이고 옮길 방향에 다른 그룹이 있을 때만 활성화한다.
+function renderLanPortControls() {
+  const wrap = document.getElementById('ledLanPortControls');
+  const info = activeLanGroupInfo();
+  wrap.hidden = _led.mode !== 'lan' || !info;
+  if (wrap.hidden) { return; }
+
+  const group = info.layout.groups[info.idx];
+  const adjustable = lanGroupPortCountAdjustable(group);
+  document.getElementById('ledLanPortAddBtn').disabled = !adjustable;
+  document.getElementById('ledLanPortRemoveBtn').disabled = !adjustable || info.boundaries[info.idx].count <= 1;
+  document.getElementById('ledLanGroupMoveLeftBtn').disabled = info.idx <= 0;
+  document.getElementById('ledLanGroupMoveRightBtn').disabled = info.idx >= info.layout.groups.length - 1;
 }
 
 // 이 포트가 같은 샌딩카드를 공유하는 다른 LED디스플레이에서 이미 쓰이고
@@ -2129,6 +2276,7 @@ function renderPortStrip() {
   strip.querySelectorAll('.led-port-chip').forEach(btn => {
     btn.addEventListener('click', () => {
       _led.activePort = Number(btn.dataset.port);
+      renderLanPortControls();
       renderPortStrip();
       renderPortDetail();
       drawGrid();

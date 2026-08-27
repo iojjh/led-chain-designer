@@ -1209,6 +1209,8 @@ button {
   line-height: 1;
 }
 .pwr-port-count-btn:hover { background: var(--border); }
+.pwr-port-count-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.pwr-port-count-btn:disabled:hover { background: var(--bg-2); }
 
 .drag-badge {
   font-size: 10px;
