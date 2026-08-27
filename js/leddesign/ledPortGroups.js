@@ -11,13 +11,34 @@ if (typeof module !== 'undefined' && typeof getDevice === 'undefined') {
   global.MAX_PX = require('./specs.js').MAX_PX;
 }
 
-// 연결된 샌딩카드마다(캔버스에 세로로 쌓인 순서, 위→아래) 그 장비의 실제 포트
-// 수·포트당 픽셀 상한으로 그룹을 하나씩 만든다. 샌딩카드가 하나도 없고
-// lan-ports 콘솔이 직결돼 있으면 그 콘솔 하나를 그룹으로 쓰고, 아무 것도
-// 연결돼 있지 않으면 기본값 그룹 하나를 반환한다.
+// 연결된 샌딩카드마다 그룹을 하나씩 만든다 — 순서는 캔버스 y좌표가 아니라
+// cfg.lanGroupOrder(마지막으로 포트가 실제 배정/저장된 시점에 고정해둔 카드
+// 순서)를 우선 따른다. cfg.lanPorts는 이 "몇 번째 그룹" 순서를 배열 인덱스로
+// 삼는데, 순서를 그때그때 y좌표로 다시 계산하면 사용자가 캔버스에서 카드
+// 둘의 위아래 위치만 바꿔도(연결을 손댄 게 아닌데도) 이미 저장된 포트
+// 배정이 엉뚱한 카드 것으로 뒤바뀌어 보이는 문제가 있었다(사용자 확인,
+// 2026-08-27). lanGroupOrder에 없는 카드(새로 연결된 카드)만 y좌표 순으로
+// 뒤에 덧붙인다 — 순서를 "저장"하는 건 이 함수의 일이 아니라(순수 읽기
+// 함수) ledDesignView.js의 ensurePortsSized/autoAssignLanForLedNode가 한다.
+// 샌딩카드가 하나도 없고 lan-ports 콘솔이 직결돼 있으면 그 콘솔 하나를
+// 그룹으로 쓰고, 아무 것도 연결돼 있지 않으면 기본값 그룹 하나를 반환한다.
+function orderSendingNodes(sendingNodes, savedOrder) {
+  const byId = new Map(sendingNodes.map(n => [n.id, n]));
+  const ordered = [];
+  (savedOrder || []).forEach(id => {
+    const n = byId.get(id);
+    if (n) { ordered.push(n); byId.delete(id); }
+  });
+  [...byId.values()].sort((a, b) => a.y - b.y).forEach(n => ordered.push(n));
+  return ordered;
+}
+
 function resolveLedPortGroups(graph, ledNodeId) {
   const upstream = upstreamOf(graph, ledNodeId);
-  const sendingNodes = upstream.filter(n => n.type === 'sending').sort((a, b) => a.y - b.y);
+  const sendingNodesRaw = upstream.filter(n => n.type === 'sending');
+  const ledNode = graph.nodes.find(n => n.id === ledNodeId);
+  const cfg = ledNode && ledNode.config && ledNode.config.ledDesign;
+  const sendingNodes = orderSendingNodes(sendingNodesRaw, cfg && cfg.lanGroupOrder);
 
   if (sendingNodes.length > 0) {
     return sendingNodes.map(n => {
@@ -39,8 +60,6 @@ function resolveLedPortGroups(graph, ledNodeId) {
   // nodeTypes.js 참고) 그 값을 그대로 쓴다 — 자동 배정이 "포트가 모자라서
   // 일부 패널을 못 담는" 대신 포트 수 자체를 늘려 전부 담을 수 있게 하기 위함
   // (ledDesignView.js의 autoAssignLanForLedNode).
-  const ledNode = graph.nodes.find(n => n.id === ledNodeId);
-  const cfg = ledNode && ledNode.config && ledNode.config.ledDesign;
   const portCount = (cfg && cfg.requiredLanPorts) || 8;
   return [{ nodeId: null, portCount, capPerPort: MAX_PX, label: '미연결 — 기본값 사용' }];
 }

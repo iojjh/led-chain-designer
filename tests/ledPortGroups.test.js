@@ -45,6 +45,46 @@ test('two sending cards feeding the same LED: one group per card, ordered top-to
   expect(layout.ports[21].nodeId).toBe('sBottom');
 });
 
+describe('group order stability (lanGroupOrder) — canvas y-position must not silently reinterpret existing port assignments', () => {
+  function twoCardGraph(lanGroupOrder) {
+    return {
+      nodes: [
+        node('sBottom', 'sending', { deviceId: 'novastar-mctrl660pro' }, 200),
+        node('sTop', 'sending', { deviceId: 'novastar-mctrl4k' }, 50),
+        node('led1', 'led', { ledDesign: { zones: [], lanPorts: [], lanGroupOrder: lanGroupOrder || [] } }),
+      ],
+      edges: [
+        { id: 'e1', kind: 'lan', from: { nodeId: 'sBottom', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 'sTop', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+  }
+
+  test('with no saved order yet, falls back to y-position (existing behavior)', () => {
+    const groups = resolveLedPortGroups(twoCardGraph(), 'led1');
+    expect(groups.map(g => g.nodeId)).toEqual(['sTop', 'sBottom']);
+  });
+
+  test('a saved order that contradicts the current y-position wins — dragging a card on canvas does not reshuffle existing assignments', () => {
+    // sBottom(y=200)이 화면상 아래에 있어도, 저장된 순서가 sBottom을 먼저로
+    // 기억하고 있으면 그 순서를 그대로 쓴다.
+    const groups = resolveLedPortGroups(twoCardGraph(['sBottom', 'sTop']), 'led1');
+    expect(groups.map(g => g.nodeId)).toEqual(['sBottom', 'sTop']);
+  });
+
+  test('a newly connected card not yet in the saved order is appended after it, newcomers sorted by y', () => {
+    const graph = twoCardGraph(['sBottom']); // sTop은 아직 저장된 순서에 없음(방금 연결됨)
+    const groups = resolveLedPortGroups(graph, 'led1');
+    expect(groups.map(g => g.nodeId)).toEqual(['sBottom', 'sTop']);
+  });
+
+  test('a card named in the saved order but no longer connected is silently dropped', () => {
+    const graph = twoCardGraph(['sGone', 'sBottom', 'sTop']);
+    const groups = resolveLedPortGroups(graph, 'led1');
+    expect(groups.map(g => g.nodeId)).toEqual(['sBottom', 'sTop']);
+  });
+});
+
 describe('resolveSharedPortUsage', () => {
   function sharedGraph(led1Lan, led2Lan) {
     return {

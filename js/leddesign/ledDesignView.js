@@ -115,7 +115,9 @@ function pwrPortCount() {
 // 사용자가 자동 할당을 다시 누르거나 수동으로 다시 배정해야 한다.
 function resetPortAssignments() {
   const cfg = getLedConfig();
-  cfg.lanPorts = Array.from({ length: ledPortLayout().ports.length }, () => []);
+  const layout = ledPortLayout();
+  cfg.lanGroupOrder = layout.groups.map(g => g.nodeId).filter(Boolean);
+  cfg.lanPorts = Array.from({ length: layout.ports.length }, () => []);
   cfg.pwrPorts = Array.from({ length: pwrPortCount() }, () => []);
   // 포트 배열을 통째로 갈아엎었으니 되돌리기 이력도 함께 비운다 — 안 비우면
   // 되돌리기가 지금은 존재하지 않는 과거 배정으로 복원을 시도하게 된다.
@@ -139,6 +141,10 @@ function autoAssignLanForLedNode(ledNodeId) {
   if (!node) { return; }
   const cfg = node.config.ledDesign;
   let layout = resolveLedPortLayout(State.graph, ledNodeId);
+  // 이번에 실제로 쓴 카드 순서를 고정해둔다 — 이후 캔버스에서 카드 위치를
+  // 옮겨도(ledPortGroups.js의 resolveLedPortGroups가 이 값을 우선 쓰므로)
+  // 지금 막 배정한 결과가 엉뚱한 카드 것으로 재해석되지 않는다.
+  cfg.lanGroupOrder = layout.groups.map(g => g.nodeId).filter(Boolean);
 
   // 샌딩카드가 하나도 안 붙어 있으면(미연결 기본값 그룹 하나뿐) 실제 장비
   // 스펙이 없어 "몇 포트를 쓸지"가 requiredLanPorts 하나로만 정해진다 —
@@ -171,18 +177,31 @@ function autoAssignLanForLedNode(ledNodeId) {
   }
 }
 
-// 샌딩카드가 LED에 새로 연결되는 시점(=연결된 카드 수가 바뀌는 시점)에 부른다
-// — 이미 뭔가 배정돼 있었으면(빠른 설정 생성 시 자동 배정됐거나, 이전에
-// "자동 할당"을 눌렀던 경우) 카드끼리 담당 픽셀량이 균등해지도록
-// autoAssignLanForLedNode를 다시 돌린다. 자유 설계에서 LAN 탭을 아직 한 번도
-// 안 건드려 배정이 통째로 비어 있으면(원래도 자동 배정 대상이 아니라는 방침
-// 그대로 유지) 아무것도 하지 않고 계속 수동으로 채우게 둔다.
+// 샌딩카드가 LED에 새로 연결되는 시점(=연결된 카드 수가 바뀌는 시점)에 부른다.
+// 예전엔 이미 뭔가 배정돼 있으면(빠른 설정 생성 시 자동 배정됐거나, 이전에
+// "자동 할당"을 눌렀던 경우) 카드끼리 담당 픽셀량이 다시 균등해지도록
+// autoAssignLanForLedNode(전체 재배정)를 그대로 돌렸는데 — 그러면 사용자가
+// LAN 탭에서 공들여 커스텀 배선을 해둔 뒤 카드 한 대만 추가로 연결해도
+// 기존 배선이 통째로 사라지는 문제가 있었다(사용자 확인, 2026-08-27). 이제는
+// 기존 카드들의 배정은 전혀 건드리지 않고, lanGroupOrder(카드 순서 고정값)
+// 뒤에 새로 연결된 카드를 추가한 뒤 그 카드 몫만큼 빈 포트를 배열 끝에
+// 덧붙인다 — 기존 인덱스가 안 흔들리므로 안전하게 순수 추가만으로 가능하다.
+// 새 카드의 포트는 사용자가 직접 배정해야 한다. 자유 설계에서 LAN 탭을
+// 아직 한 번도 안 건드려 배정이 통째로 비어 있으면(원래도 자동 배정 대상이
+// 아니라는 방침 그대로 유지) 아무것도 하지 않는다.
 function rebalanceLanPortsForSendingConnect(ledNodeId) {
   const node = getNode(ledNodeId);
   if (!node) { return; }
   const cfg = node.config.ledDesign;
   const hasExistingBundles = (cfg.lanPorts || []).some(p => p && p.length > 0);
-  if (hasExistingBundles) { autoAssignLanForLedNode(ledNodeId); }
+  if (!hasExistingBundles) { return; }
+
+  const layout = resolveLedPortLayout(State.graph, ledNodeId);
+  cfg.lanGroupOrder = layout.groups.map(g => g.nodeId).filter(Boolean);
+  if (layout.ports.length > cfg.lanPorts.length) {
+    const extra = Array.from({ length: layout.ports.length - cfg.lanPorts.length }, () => []);
+    cfg.lanPorts = [...cfg.lanPorts, ...extra];
+  }
 }
 
 // 샌딩카드가 LED에서 연결 해제될 때(엣지 삭제 또는 카드 노드 자체 삭제) 남은
@@ -1300,9 +1319,16 @@ function capForActivePort() {
 }
 
 // 그래프 상류 장비가 바뀌어 포트 수가 달라졌을 수 있으므로 배열 길이를 맞춘다
-// (기존 배정은 앞쪽 포트부터 최대한 보존).
+// (기존 배정은 앞쪽 포트부터 최대한 보존 — 그래서 아래서 lanGroupOrder를 먼저
+// "지금 이 순간의 카드 순서"로 고정해두는 게 중요하다. LAN은 그 앞쪽 포트가
+// 어느 카드 것인지가 카드 순서에 좌우되므로, 순서를 안 고정하면 나중에
+// 캔버스에서 카드 위치만 바꿔도 이 index-preserving 로직이 엉뚱한 카드에
+// 기존 배정을 붙여버린다(ledPortGroups.js의 resolveLedPortGroups 참고).
 function ensurePortsSized() {
   const cfg = getLedConfig();
+  if (_led.mode === 'lan') {
+    cfg.lanGroupOrder = ledPortLayout().groups.map(g => g.nodeId).filter(Boolean);
+  }
   const count = portCountForMode();
   const key = _led.mode === 'lan' ? 'lanPorts' : 'pwrPorts';
   if (!cfg[key] || cfg[key].length !== count) {
