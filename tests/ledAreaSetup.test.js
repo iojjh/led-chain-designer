@@ -1,6 +1,6 @@
 const {
   snapAreaToGrid, resolutionForArea, planFullAreaLed, boundingBoxOfZones, boundingResolutionForZones, zoneBounds,
-  zoneGridCells, labelCellForZone,
+  zoneGridCells, labelCellForZone, boundingResolutionForPanels,
 } = require('../js/leddesign/ledAreaSetup.js');
 
 describe('snapAreaToGrid', () => {
@@ -106,6 +106,33 @@ describe('boundingResolutionForZones', () => {
     const rect = { id: 'r1', led: '3mm', startRow: 0, startCol: 0, rows: 2, cols: 2 };
     const free = { id: 'f1', led: '3mm', cells: [{ row: 4, col: 4 }] };
     expect(boundingBoxOfZones([rect, free])).toEqual({ minRow: 0, minCol: 0, maxRow: 5, maxCol: 5 });
+  });
+});
+
+describe('boundingResolutionForPanels (bbox of an arbitrary panel subset — used for a sending card\'s actual assigned resolution)', () => {
+  function panel(x, y, w, h, led) {
+    return { key: `${x},${y}`, x, y, w: w || 500, h: h || 500, led: led || '3mm' };
+  }
+
+  test('no panels returns null', () => {
+    expect(boundingResolutionForPanels([])).toBeNull();
+  });
+
+  test('mixed pitches return null (no single px density to convert with)', () => {
+    expect(boundingResolutionForPanels([panel(0, 0, 500, 500, '2mm'), panel(500, 0, 500, 500, '3mm')])).toBeNull();
+  });
+
+  test('a contiguous rectangular subset resolves to its exact bounding rectangle', () => {
+    const panels = [panel(0, 0), panel(500, 0), panel(0, 500), panel(500, 500)];
+    // bbox: 1000x1000mm
+    expect(boundingResolutionForPanels(panels)).toEqual(resolutionForArea(1000, 1000, '3mm'));
+  });
+
+  test('a scattered/non-rectangular subset (custom port wiring) still resolves to its bounding rectangle', () => {
+    // 좌상단 한 칸 + 우하단 한 칸(사이는 이 카드에 배정 안 됨) — 실제로는
+    // 정사각형이 아니지만, 사용자 요청대로 그 둘을 감싸는 최소 사각형으로 근사한다.
+    const panels = [panel(0, 0), panel(2000, 1500)];
+    expect(boundingResolutionForPanels(panels)).toEqual(resolutionForArea(2500, 2000, '3mm'));
   });
 });
 

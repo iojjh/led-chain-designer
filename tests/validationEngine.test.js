@@ -2,6 +2,7 @@ const {
   runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput, resolveConsoleOutputInfo,
   resolveConsoleCombinedOutputs,
 } = require('../js/validation/validationEngine.js');
+const { resolutionForArea } = require('../js/leddesign/ledAreaSetup.js');
 
 function node(id, type, config, y) {
   return { id, type, x: 0, y: y || 0, label: type, config: config || {} };
@@ -239,6 +240,39 @@ describe('resolveSendingCardOutput (resolution + max achievable Hz shown on the 
     expect(res1.w).toBe(256); // 512 / 2장
     expect(res2.w).toBe(256);
     expect(res1.h).toBe(512);
+  });
+
+  test('custom (uneven) LAN port wiring overrides the even N등분 approximation with the actual assigned bbox', () => {
+    // 4000×2000mm(8×4칸, 500×500 패널) 구역 — s1은 맨 왼쪽 한 열(500×2000mm)만,
+    // s2는 나머지 일곱 열(3500×2000mm)을 맡도록 수동 배선했다고 가정.
+    const zone = {
+      id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 4, cols: 8, panelW: 500, panelH: 500,
+    };
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'splicer' }, 0),
+        node('s1', 'sending', {}, 100),
+        node('s2', 'sending', {}, 150),
+        ledNode('led1', 0, { areaW: 4000, areaH: 2000, zones: [zone], pwrPorts: [], lanPorts: [
+          ['z1:0:0', 'z1:1:0', 'z1:2:0', 'z1:3:0'], [], [], [], [], [], [], [], // s1의 8개 포트 — 맨 왼쪽 열만 포트0에
+          ['z1:0:1', 'z1:1:1', 'z1:2:1', 'z1:3:1', 'z1:0:2', 'z1:1:2', 'z1:2:2', 'z1:3:2',
+            'z1:0:3', 'z1:1:3', 'z1:2:3', 'z1:3:3', 'z1:0:4', 'z1:1:4', 'z1:2:4', 'z1:3:4',
+            'z1:0:5', 'z1:1:5', 'z1:2:5', 'z1:3:5', 'z1:0:6', 'z1:1:6', 'z1:2:6', 'z1:3:6',
+            'z1:0:7', 'z1:1:7', 'z1:2:7', 'z1:3:7'], [], [], [], [], [], [], [], // s2의 8개 포트 — 나머지 일곱 열 전부 포트0에
+        ] }),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e3', kind: 'video', from: { nodeId: 'c1', portId: 'dvi2' }, to: { nodeId: 's2', portId: 'in' } },
+        { id: 'e4', kind: 'lan', from: { nodeId: 's2', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    const res1 = resolveSendingCardOutput(graph, graph.nodes.find(n => n.id === 's1'));
+    const res2 = resolveSendingCardOutput(graph, graph.nodes.find(n => n.id === 's2'));
+    // N등분이었다면 각각 2000×2000mm(반반)이었을 것 — 대신 실제 배정된 몫대로 나뉜다.
+    expect(res1).toMatchObject(resolutionForArea(500, 2000, '3mm'));
+    expect(res2).toMatchObject(resolutionForArea(3500, 2000, '3mm'));
   });
 
   test('no upstream console (or no device preset) still reports resolution, but Hz is unknown (null)', () => {
