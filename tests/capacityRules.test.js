@@ -6,6 +6,7 @@ const { getDevice } = require('../js/devices/devices.js');
 
 const j6 = getDevice('console', 'novastar-j6');
 const ec90 = getDevice('console', 'magnimage-ec90');
+const ec100 = getDevice('console', 'magnimage-ec100');
 const sendingMctrl4k = getDevice('sending', 'novastar-mctrl4k');
 const sendingMctrl660pro = getDevice('sending', 'novastar-mctrl660pro');
 
@@ -53,6 +54,17 @@ describe('checkConsoleOutput', () => {
     const limit = ec90.outputs.perOutputMaxPx;
     expect(checkConsoleOutput({}, ec90, limit).ok).toBe(true);
     expect(checkConsoleOutput({}, ec90, limit + 1).ok).toBe(false);
+  });
+
+  test('video-signal console without modes but with outputs.totalMaxPx (MIG-EC100) uses the 4-channel total', () => {
+    const total = ec100.outputs.totalMaxPx;
+    expect(total).toBe(4 * ec100.outputs.perOutputMaxPx);
+    expect(checkConsoleOutput({}, ec100, total).ok).toBe(true);
+    expect(checkConsoleOutput({}, ec100, total + 1).ok).toBe(false);
+    // 커넥터 1개 상한(perOutputMaxPx)은 전체 용량보다 훨씬 작다 — 단일 연결
+    // 상한 검사(checkConsoleSingleOutput)는 여전히 그걸 쓴다.
+    expect(checkConsoleSingleOutput(ec100, ec100.outputs.perOutputMaxPx).ok).toBe(true);
+    expect(checkConsoleSingleOutput(ec100, ec100.outputs.perOutputMaxPx + 1).ok).toBe(false);
   });
 });
 

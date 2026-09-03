@@ -59,6 +59,11 @@ const _led = {
   // 되돌리기가 엉뚱한 과거 상태로 복원해버림).
   lanAssignHistory: [],
   pwrAssignHistory: [],
+  // 구역 편집 모드 되돌리기 — 배정(칸 단위)과 달리 구역 변경은 격자 크기·포트
+  // 배정까지 연쇄로 바꾸므로 ledDesign config 전체를 JSON 스냅샷으로 쌓는다.
+  // 모든 구역 조작(생성/삭제/편집/격자 확장·축소/여백 정리/전체 초기화) 직전에
+  // pushZoneHistory()를 부른다.
+  zoneHistory: [],
 
   // ── 구역 생성 방식: 'drag'(사각형 드래그, 기존) | 'cell'(칸 선택 자유 구역) ──
   // 자유 구역은 LAN/PWR 포트 배정과 같은 조작감(탭 토글·롱프레스 페인트·화살표키
@@ -329,6 +334,7 @@ function openLedDesignView(nodeId) {
   _led.fullscreen = false;
   _led.lanAssignHistory = [];
   _led.pwrAssignHistory = [];
+  _led.zoneHistory = [];
   document.getElementById('ledDesignView').classList.remove('led-canvas-fullscreen');
   clearDraft();
 
@@ -431,9 +437,13 @@ function initLedDesignView() {
 
   document.querySelectorAll('.led-grid-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      // 격자 확장/축소는 한계에 닿으면 아무것도 안 바뀔 수 있으므로(축소 하한
+      // 등), 실제로 config가 달라졌을 때만 되돌리기 이력에 쌓는다.
+      const before = JSON.stringify(getLedConfig());
       exitCompactView(); // "여백 정리" 상태에서 눌러도(버튼은 그때 숨지만 방어적으로) 편집 가능 상태로
       if (btn.dataset.action === 'shrink') { shrinkGrid(btn.dataset.dir); }
       else { expandGrid(btn.dataset.dir); }
+      if (JSON.stringify(getLedConfig()) !== before) { pushZoneHistorySnap(before); }
     });
   });
 
@@ -488,10 +498,13 @@ function initLedDesignView() {
     drawGrid();
   });
 
-  document.getElementById('ledUndoAssignBtn').addEventListener('click', undoLastAssignment);
+  document.getElementById('ledUndoAssignBtn').addEventListener('click', onUndoButtonClick);
+  document.getElementById('ledZoneUndoBtn').addEventListener('click', onUndoButtonClick);
+  document.getElementById('ledToolbarUndoBtn').addEventListener('click', onUndoButtonClick);
+  document.getElementById('ledZoneConfirmToolbarBtn').addEventListener('click', confirmDraftZone);
 
   // PWR 포트 수동 추가/제거 — 고정 포트 수(기본 18) 자체를 사용자가 늘리거나
-  // 줄일 수 있다. LAN도 아래 ledLanPort*Btn으로 대칭 기능을 제공하되, 대상이
+  // 줄일 수 있다. LAN도 ledLanPort*Btn으로 대칭 기능을 제공하되, 대상이
   // "활성 포트가 속한 카드"인 점과 실제 장비 프리셋은 조절 불가한 점이 다르다
   // (addLanPortToActiveGroup/removeLanPortFromActiveGroup 참고).
   document.getElementById('ledPwrPortAddBtn').addEventListener('click', () => {
@@ -517,10 +530,13 @@ function initLedDesignView() {
     drawGrid();
   });
 
+  document.getElementById('ledPwrPortMoveLeftBtn').addEventListener('click', () => moveActivePwrPort(-1));
+  document.getElementById('ledPwrPortMoveRightBtn').addEventListener('click', () => moveActivePwrPort(1));
+
   document.getElementById('ledLanPortAddBtn').addEventListener('click', addLanPortToActiveGroup);
   document.getElementById('ledLanPortRemoveBtn').addEventListener('click', removeLanPortFromActiveGroup);
-  document.getElementById('ledLanGroupMoveLeftBtn').addEventListener('click', () => moveLanGroupOrder(-1));
-  document.getElementById('ledLanGroupMoveRightBtn').addEventListener('click', () => moveLanGroupOrder(1));
+  document.getElementById('ledLanPortMoveLeftBtn').addEventListener('click', () => moveActiveLanPort(-1));
+  document.getElementById('ledLanPortMoveRightBtn').addEventListener('click', () => moveActiveLanPort(1));
 
   // 창 크기 변경(브라우저 리사이즈, 모바일 회전 등)에도 격자가 항상 화면에 맞게
   let resizeTimer = null;
@@ -1025,6 +1041,7 @@ function onZoneMouseUp() {
     drawGrid();
     return;
   }
+  pushZoneHistory();
   const newZone = {
     id: makeId('lz'),
     led: _led.newPitch,
@@ -1120,9 +1137,14 @@ function updateZoneDraftBar() {
   const bar = document.getElementById('ledZoneDraftBar');
   const show = _led.mode === 'zone' && _led.zoneCreateMode === 'cell';
   bar.hidden = !show;
+  // 모바일 모드 툴바의 ✓ 구역 확정 버튼도 자유(칸 선택) 모드일 때만 보인다.
+  const toolbarConfirm = document.getElementById('ledZoneConfirmToolbarBtn');
+  toolbarConfirm.hidden = !show;
   if (!show) { return; }
   document.getElementById('ledZoneDraftCount').textContent = `${_led.draftCells.length}칸 선택됨`;
-  document.getElementById('ledZoneDraftConfirmBtn').disabled = _led.draftCells.length === 0;
+  const noCells = _led.draftCells.length === 0;
+  document.getElementById('ledZoneDraftConfirmBtn').disabled = noCells;
+  toolbarConfirm.disabled = noCells;
 }
 
 // 초안 변경 후 공통 후처리: 격자가 커졌을 수 있으니 캔버스를 다시 사이즈하고
@@ -1138,6 +1160,7 @@ function afterDraftChange() {
 
 function confirmDraftZone() {
   if (!_led.draftCells.length) { return; }
+  pushZoneHistory();
   const newZone = {
     id: makeId('lz'),
     led: _led.newPitch,
@@ -1296,6 +1319,7 @@ function stopEditingZone() {
 function applyZoneEdit(zoneId) {
   const zone = getLedConfig().zones.find(z => z.id === zoneId);
   if (!zone) { return; }
+  pushZoneHistory();
   zone.led = _led.cfgPitch;
   if (!zone.cells) { // 자유 구역은 패널크기가 항상 500×500 고정 — 덮어쓰지 않는다
     zone.panelW = _led.cfgW;
@@ -1308,6 +1332,7 @@ function applyZoneEdit(zoneId) {
 
 function deleteZone(zoneId) {
   const cfg = getLedConfig();
+  pushZoneHistory();
   cfg.zones = cfg.zones.filter(z => z.id !== zoneId);
   if (_led.selectedZoneId === zoneId) { _led.selectedZoneId = null; }
   if (_led.editingZoneId === zoneId) { _led.editingZoneId = null; }
@@ -1342,8 +1367,9 @@ function exitCompactView() {
 // ledResetAllBtn이 모드별로 따로 처리), 구역이 사라지면 어차피 포트도 다시
 // 비워야 하므로 resetPortAssignments도 함께 부른다.
 function resetAllZones() {
-  if (!window.confirm('모든 구역을 전부 초기화할까요? 되돌릴 수 없습니다.')) { return; }
+  if (!window.confirm('모든 구역을 전부 초기화할까요? (되돌리기로 복구 가능)')) { return; }
   const cfg = getLedConfig();
+  pushZoneHistory();
   cfg.zones = [];
   cfg.areaW = 0;
   cfg.areaH = 0;
@@ -1377,6 +1403,7 @@ function finishZoneDesign() {
   const cfg = getLedConfig();
   const bbox = boundingBoxOfZones(cfg.zones);
   if (!bbox) { return; } // 구역이 없으면 줄일 대상이 없음
+  pushZoneHistory();
   const dRow = -bbox.minRow;
   const dCol = -bbox.minCol;
   const keyMap = new Map();
@@ -1520,36 +1547,92 @@ function removeLanPortFromActiveGroup() {
   drawGrid();
 }
 
-// LAN 활성 그룹(카드) 전체를 인접한 그룹과 순서만 맞바꾼다(배선 내용은 그
-// 그룹 소속 그대로 함께 이동 — 어느 카드가 몇 번째로 표시/배열되는지만
-// 바뀐다). dir: -1(앞으로) | +1(뒤로). 캔버스 드래그로는 더 이상 순서가
-// 안 바뀌므로(사용자 확인, 2026-08-27), 순서를 일부러 바꾸고 싶을 때 쓰는
-// 명시적 조작이다.
-function moveLanGroupOrder(dir) {
+// LAN 활성 포트를 자신이 속한 카드(그룹) 안에서 인접 포트와 한 칸 맞바꾼다 —
+// cfg.lanPorts 배열에서 두 슬롯의 내용(그 포트에 배정된 패널 묶음)만 교환하므로
+// 다른 카드나 그룹 순서(cfg.lanGroupOrder)에는 영향이 없다. dir: -1(앞으로) |
+// +1(뒤로). 그룹 경계를 넘는 이동은 막는다(카드 순서를 바꾸는 조작이 아님 —
+// 카드 순서는 캔버스 y좌표가 정한다). 여러 칸 이동은 버튼을 반복해 누르면 된다.
+function moveActiveLanPort(dir) {
   const info = activeLanGroupInfo();
   if (!info) { return; }
-  const otherIdx = info.idx + dir;
-  if (otherIdx < 0 || otherIdx >= info.layout.groups.length) { return; }
+  const b = info.boundaries[info.idx];
+  const cur = _led.activePort;
+  const target = cur + dir;
+  // LAN은 카드(그룹) 경계를 못 넘는다 — 카드 순서를 바꾸는 조작이 아니다.
+  if (target < b.start || target >= b.start + b.count) { return; }
+  // 같은 샌딩카드를 공유하는 다른 LED디스플레이가 쓰고 있는 슬롯과는 못 바꾼다
+  // (그쪽 배정을 이 장비 쪽에서 흔들게 되므로). PWR엔 공유 개념이 없다.
+  if (sharedUsageOf(target)) {
+    showToast('다른 LED디스플레이가 사용 중인 포트와는 순서를 바꿀 수 없습니다.');
+    return;
+  }
+  _swapPortSlotsAnimated(getLedConfig().lanPorts, cur, target);
+}
 
-  const cfg = getLedConfig();
-  const lo = Math.min(info.idx, otherIdx);
-  const first = info.boundaries[lo];
-  const second = info.boundaries[lo + 1]; // 인접 그룹이므로 second.start === first.start + first.count
-  const before = cfg.lanPorts.slice(0, first.start);
-  const firstSlice = cfg.lanPorts.slice(first.start, first.start + first.count);
-  const secondSlice = cfg.lanPorts.slice(second.start, second.start + second.count);
-  const after = cfg.lanPorts.slice(second.start + second.count);
-  cfg.lanPorts = [...before, ...secondSlice, ...firstSlice, ...after];
+// PWR 활성 포트를 인접 포트와 한 칸 맞바꾼다 — LAN과 대칭이지만 카드 그룹이
+// 없어 전체 포트 범위(0..pwrPortCount)에서 경계만 본다.
+function moveActivePwrPort(dir) {
+  const cur = _led.activePort;
+  const target = cur + dir;
+  if (target < 0 || target >= pwrPortCount()) { return; }
+  _swapPortSlotsAnimated(getLedConfig().pwrPorts, cur, target);
+}
 
-  const order = info.layout.groups.map(g => g.nodeId);
-  [order[info.idx], order[otherIdx]] = [order[otherIdx], order[info.idx]];
-  cfg.lanGroupOrder = order.filter(Boolean);
-
-  // 옮긴 카드(활성 그룹)가 스왑 후 배열에서 시작하는 위치로 activePort를
-  // 옮겨 계속 그 카드를 보고 있게 한다.
-  _led.activePort = dir < 0 ? first.start : first.start + secondSlice.length;
+// 포트 배열의 두 슬롯 내용(그 포트에 배정된 패널 묶음)을 맞바꾸고, 재렌더 후
+// 두 칩이 서로의 옛 자리에서 미끄러져 들어온 것처럼 FLIP 애니메이션한다.
+// LAN·PWR 공용 — 어느 배열을 넘기느냐와 경계 판정만 호출부가 다르다.
+function _swapPortSlotsAnimated(portsArray, cur, target) {
+  // 스왑·재렌더 전에 칩들의 화면 위치를 재둔다 — 렌더 뒤엔 칩이 이미 최종
+  // 자리에 새로 그려져 있어 "어디서 출발했는지"를 알 수 없다.
+  const beforeRects = _portChipRects(document.getElementById('ledPortStrip'));
+  const tmp = portsArray[cur];
+  portsArray[cur] = portsArray[target];
+  portsArray[target] = tmp;
+  _led.activePort = target; // 옮긴 포트를 계속 선택 상태로 둔다
   renderPortPanel();
   drawGrid();
+  // 슬롯 cur 칩(=이제 옛 target 내용)은 옛 target 자리에서, 슬롯 target 칩(=옛
+  // cur 내용)은 옛 cur 자리에서 미끄러져 들어온 것처럼 보이게.
+  _flipChipFrom(_portChipEl(cur), beforeRects[target]);
+  _flipChipFrom(_portChipEl(target), beforeRects[cur]);
+}
+
+function _portChipEl(portIdx) {
+  const strip = document.getElementById('ledPortStrip');
+  return strip ? strip.querySelector(`.led-port-chip[data-port="${portIdx}"]`) : null;
+}
+
+function _portChipRects(strip) {
+  const map = {};
+  if (strip) {
+    strip.querySelectorAll('.led-port-chip').forEach(c => { map[c.dataset.port] = c.getBoundingClientRect(); });
+  }
+  return map;
+}
+
+// FLIP: chip을 from(옛 화면 위치)에서 지금 위치로 이동해 온 것처럼 재생한다.
+// 출발 transform은 transition을 끈 채 걸고 강제 리플로우로 확정한 뒤(rAF 타이밍에
+// 의존하지 않음 — file://에서 종종 씹혔음), transition을 살려 transform을 0으로
+// 되돌리면 브라우저가 그 사이 궤적을 그린다. 칩이 줄바꿈으로 다른 행에 있을 수도
+// 있어 x·y 둘 다 보정한다.
+function _flipChipFrom(chip, from) {
+  if (!chip || !from) { return; }
+  const now = chip.getBoundingClientRect();
+  const dx = from.left - now.left;
+  const dy = from.top - now.top;
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) { return; }
+  chip.classList.add('swapping');
+  chip.style.transition = 'none';
+  chip.style.transform = `translate(${dx}px, ${dy}px)`;
+  void chip.offsetWidth; // 출발 상태를 즉시(트랜지션 없이) 확정
+  chip.style.transition = '';
+  chip.style.transform = '';
+  const done = () => {
+    chip.classList.remove('swapping');
+    chip.style.transform = '';
+    chip.removeEventListener('transitionend', done);
+  };
+  chip.addEventListener('transitionend', done);
 }
 
 function portIndexOfKey(key) {
@@ -1615,6 +1698,44 @@ function undoLastAssignment() {
   if (entry.prevPortIdx !== -1 && entry.prevPortIdx != null) { ports[entry.prevPortIdx].push(entry.key); }
   renderPortPanel();
   drawGrid();
+}
+
+// ── 구역 편집 되돌리기 ──────────────────────────────
+// 배정 되돌리기가 "바뀐 칸 하나"만 되돌리는 것과 달리, 구역 변경은 격자
+// 크기·포트 배정까지 연쇄로 건드리므로 ledDesign config 전체를 스냅샷으로
+// 저장/복원한다. 모든 구역 조작 직전에 pushZoneHistory()를 부른다.
+function pushZoneHistorySnap(snap) {
+  _led.zoneHistory.push(snap);
+  if (_led.zoneHistory.length > 40) { _led.zoneHistory.shift(); }
+}
+
+function pushZoneHistory() {
+  pushZoneHistorySnap(JSON.stringify(getLedConfig()));
+}
+
+function undoLastZoneEdit() {
+  const snap = _led.zoneHistory.pop();
+  if (!snap) { showToast('되돌릴 작업이 없습니다.'); return; }
+  const cfg = getLedConfig();
+  const restored = JSON.parse(snap);
+  // cfg 객체 참조는 그대로 두고 내용만 교체 — 스냅샷에 없던 키는 지운다.
+  Object.keys(cfg).forEach(k => { if (!(k in restored)) { delete cfg[k]; } });
+  Object.assign(cfg, restored);
+  _led.selectedZoneId = null;
+  _led.editingZoneId = null;
+  clearDraft();
+  // exitCompactView는 부르지 않는다 — 스냅샷에 그 시점의 zoneViewCompact와
+  // 격자 크기가 이미 들어 있어 그대로 복원하는 게 맞다(부르면 compact 상태로
+  // 되돌리는 undo가 즉시 풀려버린다). 포트 배열도 스냅샷 값 그대로 두고,
+  // 정합성은 나중에 LAN/PWR 탭을 열 때 renderPortPanel→ensurePortsSized가 맞춘다.
+  renderLedDesignView();
+  updateZoneDraftBar();
+}
+
+// 되돌리기 버튼 공통 진입(툴바 ↺ / 사이드 패널) — 현재 모드에 맞는 되돌리기.
+function onUndoButtonClick() {
+  if (_led.mode === 'zone') { undoLastZoneEdit(); }
+  else { undoLastAssignment(); }
 }
 
 // 탭 토글: 이미 활성 포트 소속이면 해제, 아니면 활성 포트로 배정. 배정/해제에
@@ -2298,17 +2419,17 @@ function renderPortPanel() {
     if (_led.activePort >= pwrPortCount()) { _led.activePort = 0; }
     _led.sharedPortUsage = null;
   }
-  document.getElementById('ledPwrPortControls').hidden = isLan;
+  renderPwrPortControls();
   renderLanPortControls();
   renderPortStrip();
   renderPortDetail();
   renderCableSum();
 }
 
-// LAN 전용 포트 추가/제거·순서 교환 버튼 — 활성 포트가 속한 그룹(카드) 기준으로
-// 대상을 정한다. PWR 모드거나 그룹을 못 찾으면(포트가 아직 하나도 없는 등) 통째로
-// 숨긴다. 포트 수 조절은 그 그룹이 실제 장비 프리셋이 아닐 때만, 순서 교환은
-// 그룹이 2개 이상이고 옮길 방향에 다른 그룹이 있을 때만 활성화한다.
+// LAN 전용 포트 조작 버튼 — 활성 포트가 속한 그룹(카드) 기준으로 대상을 정한다.
+// PWR 모드거나 그룹을 못 찾으면(포트가 아직 하나도 없는 등) 통째로 숨긴다.
+// 포트 수 조절(±)은 그 그룹이 실제 장비 프리셋이 아닐 때만, 포트 이동(◀▶)은
+// 그 그룹 안에 옮길 자리가 있을 때만(경계에 닿지 않았을 때) 활성화한다.
 function renderLanPortControls() {
   const wrap = document.getElementById('ledLanPortControls');
   const info = activeLanGroupInfo();
@@ -2316,11 +2437,25 @@ function renderLanPortControls() {
   if (wrap.hidden) { return; }
 
   const group = info.layout.groups[info.idx];
+  const b = info.boundaries[info.idx];
   const adjustable = lanGroupPortCountAdjustable(group);
   document.getElementById('ledLanPortAddBtn').disabled = !adjustable;
-  document.getElementById('ledLanPortRemoveBtn').disabled = !adjustable || info.boundaries[info.idx].count <= 1;
-  document.getElementById('ledLanGroupMoveLeftBtn').disabled = info.idx <= 0;
-  document.getElementById('ledLanGroupMoveRightBtn').disabled = info.idx >= info.layout.groups.length - 1;
+  document.getElementById('ledLanPortRemoveBtn').disabled = !adjustable || b.count <= 1;
+  document.getElementById('ledLanPortMoveLeftBtn').disabled = _led.activePort <= b.start;
+  document.getElementById('ledLanPortMoveRightBtn').disabled = _led.activePort >= b.start + b.count - 1;
+}
+
+// PWR 전용 포트 조작 버튼 — renderLanPortControls와 대칭. 카드 그룹이 없어
+// 포트 수 조절(±)은 항상 가능하고(클릭 시점에 최소 1개 검사), 포트 이동(◀▶)은
+// 활성 포트가 전체 범위의 양 끝에 닿지 않았을 때만 활성화한다.
+function renderPwrPortControls() {
+  const wrap = document.getElementById('ledPwrPortControls');
+  wrap.hidden = _led.mode === 'lan';
+  if (wrap.hidden) { return; }
+
+  const count = pwrPortCount();
+  document.getElementById('ledPwrPortMoveLeftBtn').disabled = _led.activePort <= 0;
+  document.getElementById('ledPwrPortMoveRightBtn').disabled = _led.activePort >= count - 1;
 }
 
 // 이 포트가 같은 샌딩카드를 공유하는 다른 LED디스플레이에서 이미 쓰이고
@@ -2364,6 +2499,7 @@ function renderPortStrip() {
   strip.querySelectorAll('.led-port-chip').forEach(btn => {
     btn.addEventListener('click', () => {
       _led.activePort = Number(btn.dataset.port);
+      renderPwrPortControls();
       renderLanPortControls();
       renderPortStrip();
       renderPortDetail();

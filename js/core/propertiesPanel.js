@@ -243,7 +243,9 @@ function consoleFields(node) {
       // EC100은 콘솔 전체가 아니라 AUX만 별도 모드가 있다(MAIN은 항상 4채널
       // 고정) — 아래 auxModeField에서 직접 고른다.
       const mainMaxPx = device.outputGroups[0].fixed[0].maxPx;
-      summary = `MAIN 4채널(채널당 최대 ${mainMaxPx.toLocaleString()}px) · AUX 4채널(${c.auxMode === 'mosaic' ? '모자이크 — 4개 모두 독립' : '스위처 — 1/2, 3/4끼리 같은 신호(미러)'})`;
+      const o = device.outputs || {};
+      const totalLine = o.totalMaxPx ? ` (4채널 합계 ${o.totalMaxPx.toLocaleString()}px` + (o.maxMosaicWidthPx ? `, 모자이크 ${o.maxMosaicWidthPx.toLocaleString()}×${o.maxMosaicHeightPx.toLocaleString()}px` : '') + ')' : '';
+      summary = `MAIN 4채널(채널당 최대 ${mainMaxPx.toLocaleString()}px${totalLine}) · AUX 4채널(${c.auxMode === 'mosaic' ? '모자이크 — 4개 모두 독립' : '스위처 — 1/2, 3/4끼리 같은 신호(미러)'})`;
     } else {
       summary = `출력당 최대 ${device.outputs.perOutputMaxPx.toLocaleString()}px`;
     }

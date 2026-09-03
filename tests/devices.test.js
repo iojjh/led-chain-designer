@@ -25,6 +25,22 @@ test('J6 splicer mode capacity matches the vendor spec', () => {
   expect(j6.modes.splicer.maxMosaicWidthPx).toBe(15360);
 });
 
+test('MIG-EC100 MAIN output capacity reflects the vendor spec (per-connector vs 4-channel total)', () => {
+  const ec100 = getDevice('console', 'magnimage-ec100');
+  // 커넥터 1개 @60Hz 실효 상한 = 7680×1200 = 3840×2400 = 9,216,000px
+  expect(ec100.outputs.perOutputMaxPx).toBe(7680 * 1200);
+  // 독립 MAIN 4채널 → 전체 용량은 커넥터 1개 상한의 4배
+  expect(ec100.outputs.totalMaxPx).toBe(4 * 7680 * 1200);
+  // 기하학적 변 상한(기록용)
+  expect(ec100.outputs.perOutputMaxWidth).toBe(7680);
+  expect(ec100.outputs.perOutputMaxHeight).toBe(3840);
+  expect(ec100.outputs.maxMosaicWidthPx).toBe(30720);
+  expect(ec100.outputs.maxMosaicHeightPx).toBe(15360);
+  // MAIN 포트 목록의 커넥터별 maxPx도 같은 값
+  const mainPorts = getConsoleOutputPorts({ config: { deviceId: 'magnimage-ec100' } }).filter(p => p.id.startsWith('main'));
+  expect(mainPorts.every(p => p.maxPx === 7680 * 1200)).toBe(true);
+});
+
 test('MIG-EC90 exposes its 3 categorized input connector types, each with a physical count', () => {
   const ec90 = getDevice('console', 'magnimage-ec90');
   expect(ec90.inputs.map(i => i.id)).toEqual(['hdmi1', 'dp1', 'sdi1']);

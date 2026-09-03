@@ -193,6 +193,12 @@
           <button class="led-mode-btn" data-mode="lan">🔌 LAN 배선</button>
           <button class="led-mode-btn" data-mode="pwr">⚡ PWR 배선</button>
           <span class="led-grid-hint" id="ledModeHint">그리드를 드래그해 새 구역을 만드세요 (500mm 칸 단위)</span>
+          <!-- 모바일 전용: 모드 툴바 오른쪽 끝(⛶ 왼쪽)에 붙는 상황별 액션 —
+               데스크톱에선 사이드 패널 버튼을 쓰므로 CSS로 숨긴다.
+               ↺(되돌리기)는 모든 탭에서, ✓(구역 확정)은 구역 탭 자유(칸 선택)
+               모드일 때만(updateZoneDraftBar) 노출. -->
+          <button id="ledZoneConfirmToolbarBtn" class="led-toolbar-action-btn" title="구역 확정" aria-label="구역 확정" hidden>✓</button>
+          <button id="ledToolbarUndoBtn" class="led-toolbar-action-btn" title="되돌리기" aria-label="되돌리기">↺</button>
           <!-- 모바일 전용: 캔버스는 늘 이 화면에 보이지만, 손가락으로 다루기엔
                좁으니 탭하면 실제 기기 회전 없이 화면 전체를 90도 돌려
                캔버스를 크게 쓸 수 있게 한다(initLedDesignView 참고). -->
@@ -262,6 +268,7 @@
           <div class="led-side-title-row">
             <span class="led-side-title">구역 <span id="ledZoneCount">0</span></span>
             <div class="led-side-title-actions">
+              <button id="ledZoneUndoBtn" class="zone-btn led-side-undo-btn">↩ 되돌리기</button>
               <button id="ledZoneCompactBtn" class="zone-btn">캔버스 여백 정리</button>
               <button id="ledZoneResetAllBtn" class="zone-btn zone-del-btn">초기화</button>
             </div>
@@ -273,26 +280,39 @@
         <div id="ledPortSection" class="led-side-section" hidden>
           <div class="led-port-source-row">
             <div class="led-port-source" id="ledPortSource"></div>
-            <!-- LAN 배선에서만 보이는, 활성 포트가 속한 카드 기준 포트 수 조절 +
-                 카드 순서 교환(실제 장비 프리셋은 포트 수 조절 버튼이 비활성화됨,
-                 카드가 1대뿐이면 순서 교환 버튼이 비활성화됨). -->
-            <div id="ledLanPortControls" class="led-pwr-port-controls" hidden>
-              <button id="ledLanGroupMoveLeftBtn" class="pwr-port-count-btn" title="이 카드 순서를 앞으로">◀</button>
-              <button id="ledLanGroupMoveRightBtn" class="pwr-port-count-btn" title="이 카드 순서를 뒤로">▶</button>
-              <button id="ledLanPortRemoveBtn" class="pwr-port-count-btn" title="포트 제거">−</button>
-              <button id="ledLanPortAddBtn" class="pwr-port-count-btn" title="포트 추가">+</button>
+            <!-- LAN 배선에서만 보이는, 활성 포트가 속한 카드 기준 조작:
+                 윗줄=그 카드의 포트 수 조절(실제 장비 프리셋은 비활성화),
+                 아랫줄=활성 포트를 그 카드 안에서 앞/뒤로 한 칸 이동(인접 포트와
+                 배정 묶음을 맞바꿈, 그룹 경계는 못 넘음). PWR도 아래 동일 구조. -->
+            <div id="ledLanPortControls" class="led-pwr-port-controls led-port-controls-col" hidden>
+              <div class="led-port-btn-row">
+                <button id="ledLanPortRemoveBtn" class="pwr-port-count-btn" title="이 카드의 포트 제거">−</button>
+                <button id="ledLanPortAddBtn" class="pwr-port-count-btn" title="이 카드에 포트 추가">+</button>
+              </div>
+              <div class="led-port-btn-row">
+                <button id="ledLanPortMoveLeftBtn" class="pwr-port-count-btn" title="이 포트를 카드 안에서 앞으로">◀</button>
+                <button id="ledLanPortMoveRightBtn" class="pwr-port-count-btn" title="이 포트를 카드 안에서 뒤로">▶</button>
+              </div>
             </div>
-            <!-- PWR 배선에서만 보이는 포트 수 조절(LAN은 위 ledLanPortControls) -->
-            <div id="ledPwrPortControls" class="led-pwr-port-controls" hidden>
-              <button id="ledPwrPortRemoveBtn" class="pwr-port-count-btn" title="포트 제거">−</button>
-              <button id="ledPwrPortAddBtn" class="pwr-port-count-btn" title="포트 추가">+</button>
+            <!-- PWR 배선에서만 보이는: 윗줄=포트 수 조절, 아랫줄=활성 포트를
+                 앞/뒤로 한 칸 이동(LAN과 대칭, 다만 카드 그룹이 없어 전체 포트
+                 범위에서 경계만 본다). -->
+            <div id="ledPwrPortControls" class="led-pwr-port-controls led-port-controls-col" hidden>
+              <div class="led-port-btn-row">
+                <button id="ledPwrPortRemoveBtn" class="pwr-port-count-btn" title="포트 제거">−</button>
+                <button id="ledPwrPortAddBtn" class="pwr-port-count-btn" title="포트 추가">+</button>
+              </div>
+              <div class="led-port-btn-row">
+                <button id="ledPwrPortMoveLeftBtn" class="pwr-port-count-btn" title="이 포트를 앞으로">◀</button>
+                <button id="ledPwrPortMoveRightBtn" class="pwr-port-count-btn" title="이 포트를 뒤로">▶</button>
+              </div>
             </div>
             <span id="ledDragBadge" class="drag-badge" hidden>✋ 드래그 중</span>
           </div>
           <div id="ledPortStrip" class="led-port-strip"></div>
           <div id="ledPortDetail" class="led-port-detail"></div>
           <div class="led-port-actions">
-            <button id="ledUndoAssignBtn" class="props-btn">↩ 되돌리기</button>
+            <button id="ledUndoAssignBtn" class="props-btn led-side-undo-btn">↩ 되돌리기</button>
             <button id="ledAutoAssignBtn" class="led-auto-btn">자동 할당</button>
             <button id="ledResetAllBtn" class="props-btn props-btn-danger">전체 초기화</button>
           </div>

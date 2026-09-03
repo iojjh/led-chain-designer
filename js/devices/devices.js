@@ -250,15 +250,17 @@ const DEVICES = {
       //   Mode: Supports 4 independent ... outputs").
       outputGroups: [
         {
+          // 커넥터 1개당 maxPx는 아래 outputs.perOutputMaxPx와 같은 근거
+          // (7680×1200 = 3840×2400 = 9,216,000px, 벤더 매뉴얼 60Hz 포맷).
           fixed: [
-            { id: 'main1', label: 'HDMI 1a', maxPx: 7680 * 3840, mirror: 'main1' },
-            { id: 'main1b', label: 'HDMI 1b', maxPx: 7680 * 3840, mirror: 'main1' },
-            { id: 'main2', label: 'HDMI 2a', maxPx: 7680 * 3840, mirror: 'main2' },
-            { id: 'main2b', label: 'HDMI 2b', maxPx: 7680 * 3840, mirror: 'main2' },
-            { id: 'main3', label: 'HDMI 3a', maxPx: 7680 * 3840, mirror: 'main3' },
-            { id: 'main3b', label: 'HDMI 3b', maxPx: 7680 * 3840, mirror: 'main3' },
-            { id: 'main4', label: 'HDMI 4a', maxPx: 7680 * 3840, mirror: 'main4' },
-            { id: 'main4b', label: 'HDMI 4b', maxPx: 7680 * 3840, mirror: 'main4' },
+            { id: 'main1', label: 'HDMI 1a', maxPx: 7680 * 1200, mirror: 'main1' },
+            { id: 'main1b', label: 'HDMI 1b', maxPx: 7680 * 1200, mirror: 'main1' },
+            { id: 'main2', label: 'HDMI 2a', maxPx: 7680 * 1200, mirror: 'main2' },
+            { id: 'main2b', label: 'HDMI 2b', maxPx: 7680 * 1200, mirror: 'main2' },
+            { id: 'main3', label: 'HDMI 3a', maxPx: 7680 * 1200, mirror: 'main3' },
+            { id: 'main3b', label: 'HDMI 3b', maxPx: 7680 * 1200, mirror: 'main3' },
+            { id: 'main4', label: 'HDMI 4a', maxPx: 7680 * 1200, mirror: 'main4' },
+            { id: 'main4b', label: 'HDMI 4b', maxPx: 7680 * 1200, mirror: 'main4' },
           ],
         },
         {
@@ -279,16 +281,34 @@ const DEVICES = {
           },
         },
       ],
-      // capacityRules.js의 checkConsoleOutput/checkConsoleSingleOutput은
-      // (device.modes가 없는 장비 한정) 이 flat 값을 총 용량·커넥터 1개당
-      // 상한 양쪽에 그대로 쓴다 — EC90과 같은 근사(실제로는 채널이 여럿이라
-      // 총 용량이 더 크지만, 이 앱은 아직 그 정밀도까지 검증하지 않는다).
-      outputs: { perOutputMaxPx: 7680 * 3840 },
-      // MAIN 출력의 고정 해상도 2종(벤더 매뉴얼 Output 표, 2026-08-26) — 이
-      // 콘솔은 J6/EC90과 달리 H/V/FPS를 각각 자유롭게 입력하는 진짜 커스텀
-      // 타이밍(23~241Hz 범위)을 지원해 표로 딱 떨어지지 않지만, 정확한 대역폭
-      // 공식이 문서에 없어 문서에 명시된 두 해상도만 표로 남긴다 — 그 외
-      // 해상도의 Hz 판정은 이 표만으로는 보수적으로 나올 수 있다.
+      // EC100 MAIN 출력은 서로 독립적인 4채널(HDMI 1~4, 각 a/b 미러). 벤더
+      // 매뉴얼 Technical Parameter(p.5) + Output 메뉴(p.11) 실측치:
+      //  - 물리 커넥터 1개: 가로 ≤ 7680px, 세로 ≤ 3840px, 주사율 23~241Hz.
+      //    문서가 명시한 두 60Hz 포맷(7680×1200, 3840×2400)이 모두 정확히
+      //    9,216,000px이고 outputResolutionTable도 이 둘뿐이라, 커넥터 1개
+      //    @60Hz 실효 상한(perOutputMaxPx)을 7680×1200로 잡는다 — 저주사율에선
+      //    더 가능하나 문서에 대역폭 공식이 없어, J6와 같이 60Hz 표 최댓값을
+      //    상한으로 삼는 보수적 근사다.
+      //  - MAIN 4채널을 이어붙인 전체 모자이크: 가로 ≤ 30720px(=7680×4),
+      //    세로 ≤ 15360px(=3840×4). totalMaxPx는 4채널 @60Hz 합산.
+      // capacityRules.js는 modes 없는 콘솔의 총 용량 검사에 outputs.totalMaxPx가
+      // 있으면 그걸(없으면 perOutputMaxPx로 폴백) 쓰고, 커넥터 1개당 상한
+      // 검사에는 outputs.perOutputMaxPx를 쓴다. perOutputMaxWidth/Height·
+      // maxMosaic*·refreshHzRange는 아직 검사엔 안 쓰이는 기록용 필드다
+      // (J6 modes.splicer.maxMosaicWidthPx와 같은 성격).
+      outputs: {
+        perOutputMaxPx: 7680 * 1200,
+        totalMaxPx: 4 * 7680 * 1200,
+        perOutputMaxWidth: 7680,
+        perOutputMaxHeight: 3840,
+        maxMosaicWidthPx: 30720,
+        maxMosaicHeightPx: 15360,
+        refreshHzRange: [23, 241],
+      },
+      // MAIN 출력 고정 해상도는 매뉴얼상 18종 + 커스텀이지만 매뉴얼이 목록을
+      // 나열하지 않아, 명시된 두 60Hz 포맷만 표로 둔다(둘 다 9,216,000px).
+      // maxHzForPx가 이 표에서 필요 픽셀수를 감당하는 최고 Hz를 찾는다 — 표에
+      // 없는 커스텀 해상도는 보수적으로(60Hz 예산 = 9,216,000px 기준) 판정된다.
       outputResolutionTable: [
         { w: 3840, h: 2400, hz: [60] },
         { w: 7680, h: 1200, hz: [60] },

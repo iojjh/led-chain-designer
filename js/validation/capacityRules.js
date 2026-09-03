@@ -26,7 +26,12 @@ function checkConsoleOutput(consoleConfig, device, downstreamRequiredPx) {
     limit = device.outputs.portCount * device.outputs.perPortMaxPx8bit;
   } else {
     const modeSpec = device.modes ? device.modes[consoleConfig.mode || device.defaultMode] : null;
-    limit = modeSpec ? modeSpec.totalMaxPx : device.outputs.perOutputMaxPx;
+    // modes 없는 콘솔(EC90·EC100)은 outputs.totalMaxPx가 있으면 그걸 전체
+    // 용량으로 쓴다 — EC100은 독립 MAIN 4채널이라 커넥터 1개 상한의 4배.
+    // 없으면(EC90) 종전대로 커넥터 1개 상한(perOutputMaxPx)으로 폴백.
+    limit = modeSpec
+      ? modeSpec.totalMaxPx
+      : (device.outputs.totalMaxPx || device.outputs.perOutputMaxPx);
   }
 
   const ok = downstreamRequiredPx <= limit;

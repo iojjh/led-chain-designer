@@ -924,7 +924,8 @@ button {
 
 /* 데스크톱에서는 항상 숨김 — 모바일 전용 기능(아래 미디어쿼리에서 켠다) */
 .led-canvas-expand-btn,
-.led-canvas-close-btn { display: none; }
+.led-canvas-close-btn,
+.led-toolbar-action-btn { display: none; }
 
 #ledGridCanvas { image-rendering: pixelated; cursor: crosshair; display: block; }
 
@@ -1076,6 +1077,30 @@ button {
   #ledDesignView.led-canvas-fullscreen .led-canvas-expand-btn { display: none; }
   #ledDesignView.led-canvas-fullscreen .led-canvas-close-btn { display: inline-block; }
 
+  /* 모바일 모드 툴바 오른쪽 상황별 액션 버튼(↺ 되돌리기 / ✓ 구역 확정).
+     ⛶(확장)이 margin-left:auto로 오른쪽 끝에 붙으므로 이 버튼들도 auto를 줘
+     함께 오른쪽(⛶ 왼쪽)으로 밀린다. hidden이면 display:none이라 flex에서 빠짐. */
+  .led-toolbar-action-btn:not([hidden]) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-2);
+    color: var(--text-1);
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .led-toolbar-action-btn:hover { background: var(--border); }
+  #ledToolbarUndoBtn, #ledZoneConfirmToolbarBtn { margin-left: auto; }
+
+  /* 모바일에선 되돌리기를 모드 툴바 ↺로 옮겼으므로 사이드 패널 버튼은 숨김
+     (id 선택자로 .zone-btn/.props-btn의 display를 확실히 덮는다) */
+  #ledDesignView .led-side-undo-btn { display: none; }
+
   /* 회전만으로는 "화면 꽉 채워 크게 그리기"라는 목적이 안 산다 — 툴바들이
      세로로 쌓이며 여전히 캔버스 몫을 많이 잡아먹기 때문. 풀스크린에서는
      가로 공간이 넉넉하니(회전 전 기준 664px) 툴바 줄들을 세로로 쌓지 않고
@@ -1204,6 +1229,8 @@ button {
 
 .led-pwr-port-controls { display: flex; gap: 4px; flex-shrink: 0; }
 .led-pwr-port-controls[hidden] { display: none; }
+.led-port-controls-col { flex-direction: column; }
+.led-port-btn-row { display: flex; gap: 4px; }
 .pwr-port-count-btn {
   width: 22px;
   height: 22px;
@@ -1258,6 +1285,12 @@ button {
 }
 .led-port-chip:hover { background: var(--border); }
 .led-port-chip.on { border-color: var(--chip-color, var(--accent)); background: var(--accent-soft); color: var(--text-0); }
+/* ◀▶로 포트를 맞바꿀 때 두 칩이 서로의 자리로 미끄러지는 궤적(ledDesignView.js의
+   _flipChipFrom) — transform이 0으로 돌아가는 동안만 트랜지션이 걸린다. */
+.led-port-chip.swapping { position: relative; z-index: 2; transition: transform 0.24s cubic-bezier(0.34, 1.2, 0.64, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .led-port-chip.swapping { transition: none; }
+}
 .chip-count { color: var(--text-2); min-width: 12px; text-align: right; }
 
 /* 같은 샌딩카드를 다른 LED디스플레이가 이미 쓰고 있는 포트 — 클릭해 상태는
