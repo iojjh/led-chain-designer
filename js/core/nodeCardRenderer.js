@@ -61,6 +61,7 @@ function renderNodeCards() {
   });
 
   updatePaletteStartHint();
+  if (typeof refreshOnboarding === 'function') { refreshOnboarding(); }
 }
 
 // 캔버스가 완전히 비어있을 때만 LED디스플레이 팔레트 버튼을 은은하게 강조해
@@ -89,6 +90,15 @@ function buildCardEl(node) {
     <div class="node-card-body"></div>
     <div class="node-ports node-ports-out"></div>
   `;
+  // 상태 배지를 탭하면 그 노드로 이동·선택하고, 문제가 있으면 이슈 패널을
+  // 펼친다 — 빨간 !를 보고 "그래서 뭐가 문제인지"를 바로 찾아갈 수 있게.
+  el.querySelector('.node-card-badge').addEventListener('click', e => {
+    e.stopPropagation();
+    if (typeof panToNode === 'function') { panToNode(node.id); }
+    const validation = State.ui.validation;
+    const hasIssue = validation && (validation.nodeIssues.get(node.id) || []).length > 0;
+    if (hasIssue) { document.getElementById('issuesPanel').classList.remove('collapsed'); }
+  });
   return el;
 }
 

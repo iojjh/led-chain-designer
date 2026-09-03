@@ -93,6 +93,52 @@
       <div id="issuesList" class="issues-list"></div>
     </div>
 
+    <!-- 도움말 버튼(우상단) — 빈 캔버스면 아래 안내 패널이 자동으로 뜨고,
+         노드가 있어도 이 버튼으로 언제든 다시 열 수 있다(onboarding.js). -->
+    <button id="helpBtn" class="help-btn" title="사용법" aria-label="사용법">?</button>
+
+    <!-- 처음 사용자 안내 + 범례. 캔버스가 비어 있으면 자동 표시. -->
+    <div id="graphHelpPanel" class="graph-help-panel">
+      <div class="graph-help-head">
+        <span>LED 현장 신호·전원 체인 설계</span>
+        <button class="graph-help-close" aria-label="닫기">✕</button>
+      </div>
+      <div class="graph-help-body">
+        <ol class="graph-help-steps">
+          <li><b>장비 배치</b> — 좌측 상단 <b>+ 장비 추가</b>로 인풋소스·콘솔·샌딩카드·LED디스플레이를 놓습니다.</li>
+          <li><b>연결</b> — 카드 <b>오른쪽 가장자리의 점을 끌어</b> 다음 장비 카드 위에 놓으면 선이 이어집니다.</li>
+          <li><b>세부 설계</b> — LED디스플레이 카드를 <b>탭</b>하면 구역·LAN/PWR 배선 화면이 열립니다.</li>
+        </ol>
+        <div class="graph-help-gestures">
+          <span><b>탭</b> 설정 열기</span>
+          <span><b>길게 눌러 끌기</b> 카드 이동</span>
+          <span><b>점 끌기</b> 연결</span>
+          <span><b>선 탭</b> 연결 삭제</span>
+        </div>
+        <div class="graph-help-legend">
+          <div class="ghl-group">
+            <span class="ghl-title">상태</span>
+            <span class="ghl-item"><i class="ghl-badge badge-ok">✓</i> 정상</span>
+            <span class="ghl-item"><i class="ghl-badge badge-err">!</i> 용량 초과</span>
+            <span class="ghl-item"><i class="ghl-badge badge-provisional">?</i> 미확정</span>
+          </div>
+          <div class="ghl-group">
+            <span class="ghl-title">연결선</span>
+            <span class="ghl-item"><i class="ghl-dot" style="background:#4d8ff0"></i> 영상</span>
+            <span class="ghl-item"><i class="ghl-dot" style="background:#3ecf8e"></i> 랜(LAN)</span>
+            <span class="ghl-item"><i class="ghl-dot" style="background:#e7b549"></i> 전원</span>
+          </div>
+        </div>
+        <button id="graphHelpSampleBtn" class="graph-help-sample-btn">예시 현장 열어보기</button>
+      </div>
+    </div>
+
+    <!-- 연결 방법 힌트 스트립: 노드는 2개 이상인데 연결이 하나도 없을 때만. -->
+    <div id="connectHint" class="connect-hint" hidden>
+      <span>💡 카드 <b>오른쪽 점</b>을 끌어 다음 장비에 연결하세요</span>
+      <button class="connect-hint-close" aria-label="닫기">✕</button>
+    </div>
+
     <!-- 캔버스 메뉴: 저장/불러오기 + 캔버스 초기화. 버튼이 우하단이라 메뉴는
          위로 펼쳐진다(interactions.js의 initCanvasMenu). -->
     <div id="canvasMenuWrap" class="canvas-menu-wrap">
@@ -269,7 +315,7 @@
             <span class="led-side-title">구역 <span id="ledZoneCount">0</span></span>
             <div class="led-side-title-actions">
               <button id="ledZoneUndoBtn" class="zone-btn led-side-undo-btn">↩ 되돌리기</button>
-              <button id="ledZoneCompactBtn" class="zone-btn">캔버스 여백 정리</button>
+              <button id="ledZoneCompactBtn" class="zone-btn" title="빈 격자를 잘라내고 그린 구역 크기에 딱 맞게 캔버스를 줄입니다">구역에 맞게 정리</button>
               <button id="ledZoneResetAllBtn" class="zone-btn zone-del-btn">초기화</button>
             </div>
           </div>
@@ -382,6 +428,7 @@
 <script src="./js/save/cloudShare.js"></script>
 <script src="./js/save/saveStore.js"></script>
 <script src="./js/core/interactions.js"></script>
+<script src="./js/core/onboarding.js"></script>
 <script src="./js/app.js"></script>
 
 <!-- Service Worker 등록 -->

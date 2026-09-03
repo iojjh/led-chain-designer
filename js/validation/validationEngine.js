@@ -320,6 +320,8 @@ function renderValidation() {
   renderIssuesPanel(result);
 }
 
+let _prevIssueCount = 0;
+
 function renderIssuesPanel(result) {
   if (!_issuesListEl) { return; }
   const rows = [];
@@ -337,6 +339,21 @@ function renderIssuesPanel(result) {
   _issuesListEl.querySelectorAll('.issue-row').forEach(row => {
     row.addEventListener('click', () => panToNode(row.dataset.nodeId));
   });
+
+  // 문제가 하나라도 있으면 패널 헤더를 눈에 띄게(빨강) 하고, 0→N으로 새로
+  // 생긴 순간엔 접혀 있던 패널을 한 번 펼치고 살짝 흔들어 알린다 — 그 뒤엔
+  // 사용자가 다시 접을 수 있고, 접힌 상태를 강제로 다시 열지 않는다.
+  const panel = document.getElementById('issuesPanel');
+  if (panel) {
+    panel.classList.toggle('has-issues', rows.length > 0);
+    if (rows.length > 0 && _prevIssueCount === 0) {
+      panel.classList.remove('collapsed');
+      panel.classList.remove('issues-nudge');
+      void panel.offsetWidth; // 애니메이션 재시작 보장
+      panel.classList.add('issues-nudge');
+    }
+  }
+  _prevIssueCount = rows.length;
 }
 
 function panToNode(nodeId) {

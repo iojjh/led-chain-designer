@@ -286,6 +286,14 @@ button {
 
 .node-card.category-power { border-style: dashed; }
 
+/* 연결 드래그 중, 지금 놓으면 연결될 카드(interactions.js의 _highlightDropTarget) —
+   "여기에 놓으면 된다"를 분명히 한다. 정확한 입력 도트를 안 맞혀도 카드 영역이면 OK. */
+.node-card.drop-target {
+  border-color: var(--accent);
+  border-style: dashed;
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 22px rgba(110, 107, 244, 0.45);
+}
+
 .node-card.has-issue:not(.selected) {
   border-color: var(--err);
   box-shadow: 0 0 0 2px rgba(240, 87, 107, 0.25), var(--shadow);
@@ -329,9 +337,19 @@ button {
   line-height: 1;
 }
 
+.node-card-badge { cursor: pointer; }
 .node-card-badge.badge-ok { background: var(--ok); color: #08150f; }
 .node-card-badge.badge-err { background: var(--err); color: #2a0a0e; }
 .node-card-badge.badge-provisional { background: var(--warn); color: #2a2005; }
+/* 문제 배지는 눌러서 원인을 찾아가라는 신호로 살짝 맥동한다 */
+.node-card-badge.badge-err { animation: badge-err-pulse 1.8s ease-in-out infinite; }
+@keyframes badge-err-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 87, 107, 0.5); }
+  60% { box-shadow: 0 0 0 5px rgba(240, 87, 107, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .node-card-badge.badge-err { animation: none; }
+}
 
 .node-card-body {
   padding: 6px 10px;
@@ -367,10 +385,22 @@ button {
   border: 2px solid var(--bg-0);
   background: var(--text-2);
   cursor: crosshair;
-  transition: transform 0.1s ease;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
 .port-dot:hover { transform: scale(1.35); }
+
+/* 출력 포트는 "여기서 끌어 연결한다"는 게 한눈에 보이도록 더 크고 또렷하게
+   — 옅은 링을 둘러 손잡이처럼 보이게 한다(색은 kind별 아래에서). */
+.port-dot.port-out {
+  width: 13px;
+  height: 13px;
+  box-shadow: 0 0 0 3px rgba(110, 107, 244, 0.18);
+}
+.port-dot.port-out:hover {
+  transform: scale(1.4);
+  box-shadow: 0 0 0 4px rgba(110, 107, 244, 0.32);
+}
 
 /* 출력 포트 "자석 효과" — 실제 눈에 보이는 점보다 훨씬 넓은 투명 히트 영역을
    붙여서 드래그 시작을 더 쉽게 잡을 수 있게 한다. 의사 요소를 눌러도
@@ -378,7 +408,7 @@ button {
 .port-dot.port-out::after {
   content: '';
   position: absolute;
-  inset: -9px;
+  inset: -10px;
 }
 
 .port-dot.port-kind-video { background: #4d8ff0; }
@@ -946,23 +976,26 @@ button {
 .led-grid-btns-left { left: -24px; }
 .led-grid-btns-right { right: -24px; }
 
-/* 확장은 바깥을 향한 화살표, 축소는 안을 향한(반대 방향) 화살표 하나로만
-   표시한다 — +/− 기호 없이 방향만으로 구분. */
+/* 방향 화살표에 더해 확장은 ＋, 축소는 －를 앞에 붙여 한눈에 구분되게 한다
+   (툴팁이 없는 터치에서도 명확하도록). 버튼이 두 글자를 담도록 알약형으로. */
 .led-grid-btn {
-  width: 18px;
+  min-width: 18px;
   height: 18px;
-  padding: 0;
+  padding: 0 4px;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 1px;
   background: rgba(110, 107, 244, 0.35);
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  font-size: 13px;
+  border-radius: 9px;
+  font-size: 12px;
   line-height: 1;
 }
 .led-grid-btn:hover { background: rgba(110, 107, 244, 0.6); }
+.led-grid-btn[data-action="expand"]::before { content: '＋'; font-size: 11px; }
+.led-grid-btn[data-action="shrink"]::before { content: '－'; font-size: 11px; }
 
 /* 화살표는 단일 ">" 글자를 변마다 회전시켜 재사용한다(글자 자체를 4종 따로 두지 않음). */
 .grid-arrow { display: inline-block; }
@@ -1661,4 +1694,193 @@ button {
 @keyframes splash-title-in {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 처음 사용자 안내 (onboarding.js) ──────────────────── */
+/* 우상단 도움말 버튼 — 팔레트(좌상단)·이슈(좌하단)·메뉴(우하단)와 겹치지 않는 자리 */
+.help-btn {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  z-index: 10;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--bg-1);
+  border: 1px solid var(--border-float);
+  color: var(--text-0);
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: var(--shadow-float);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.help-btn:hover { background: var(--bg-2); }
+
+/* 안내 패널 — LED 추가 창(.led-add-panel)과 같은 "떠 있는 카드" 언어. 캔버스를
+   가리지 않도록 우상단에 붙고, 화면이 좁으면 폭을 줄인다. 열림은 .open으로만. */
+.graph-help-panel {
+  position: absolute;
+  right: 16px;
+  top: 58px;
+  z-index: 11;
+  width: min(340px, calc(100vw - 32px));
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  background: var(--bg-1);
+  border: 1px solid var(--border-float);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  transform-origin: top right;
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.graph-help-panel.open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+
+.graph-help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border-soft);
+}
+.graph-help-close {
+  color: var(--text-2);
+  font-size: 13px;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+}
+.graph-help-close:hover { background: var(--bg-2); color: var(--text-0); }
+
+.graph-help-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+
+.graph-help-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.graph-help-steps b { color: var(--text-0); }
+
+.graph-help-gestures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.graph-help-gestures span {
+  font-size: 11px;
+  color: var(--text-1);
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+.graph-help-gestures b { color: var(--text-0); font-weight: 600; }
+
+.graph-help-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 10px;
+}
+.ghl-group { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ghl-title { font-size: 11px; color: var(--text-2); min-width: 42px; }
+.ghl-item { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-1); }
+.ghl-badge {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  font-style: normal;
+}
+.ghl-badge.badge-ok { background: var(--ok); color: #08150f; }
+.ghl-badge.badge-err { background: var(--err); color: #2a0a0e; }
+.ghl-badge.badge-provisional { background: var(--warn); color: #2a2005; }
+.ghl-dot { width: 11px; height: 3px; border-radius: 2px; display: inline-block; }
+
+.graph-help-sample-btn {
+  align-self: flex-start;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-0);
+  font-size: 12px;
+  font-weight: 600;
+}
+.graph-help-sample-btn:hover { background: var(--accent); color: #fff; }
+
+/* 연결 방법 힌트 스트립 — 상단 중앙, 짧게. [hidden]이면 안 보인다. */
+.connect-hint {
+  position: absolute;
+  left: 50%;
+  top: 60px;
+  transform: translateX(-50%);
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 10px 8px 14px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-float);
+  border-radius: 999px;
+  box-shadow: var(--shadow-float);
+  font-size: 12px;
+  color: var(--text-1);
+  animation: connect-hint-in 0.2s ease;
+}
+.connect-hint[hidden] { display: none; }
+.connect-hint b { color: var(--text-0); }
+.connect-hint-close {
+  color: var(--text-2);
+  font-size: 12px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.connect-hint-close:hover { background: var(--bg-2); color: var(--text-0); }
+@keyframes connect-hint-in {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* 이슈 패널: 문제가 있을 때 헤더를 빨갛게, 처음 생긴 순간 한 번 흔든다. */
+.issues-panel.has-issues { border-color: var(--err); }
+.issues-panel.has-issues .issues-head { color: var(--err); }
+.issues-panel.has-issues .issues-count { background: var(--err); color: #2a0a0e; }
+.issues-panel.issues-nudge { animation: issues-nudge 0.45s ease; }
+@keyframes issues-nudge {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .issues-panel.issues-nudge { animation: none; }
+  .connect-hint { animation: none; }
+}
+
+@media (max-width: 640px) {
+  /* 좁은 화면에선 안내 패널을 화면 폭에 맞춰 중앙 정렬 */
+  .graph-help-panel { left: 16px; right: 16px; width: auto; transform-origin: top center; }
+  .connect-hint { font-size: 11px; }
 }

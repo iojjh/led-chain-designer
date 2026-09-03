@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v57';
+const CACHE_VERSION = 'v58';
 const CORE_CACHE    = `led-chain-core-${CACHE_VERSION}`;
 
 // Core assets — always cached; bump CACHE_VERSION to force update
@@ -14,6 +14,7 @@ const CORE_ASSETS = [
   './js/core/nodeCardRenderer.js',
   './js/core/propertiesPanel.js',
   './js/core/interactions.js',
+  './js/core/onboarding.js',
   './js/devices/devices.js',
   './js/leddesign/specs.js',
   './js/leddesign/betaPanels.js',

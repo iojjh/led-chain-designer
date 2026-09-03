@@ -30,7 +30,7 @@ if (typeof module !== 'undefined') { module.exports = { ... }; }
 index.html, manifest.json, service-worker.js, style.css, package.json
 icons/
 js/
-  core/        state.js, idgen.js, nodeTypes.js, canvasRenderer.js, nodeCardRenderer.js, interactions.js, graphOps.js
+  core/        state.js, idgen.js, nodeTypes.js, canvasRenderer.js, nodeCardRenderer.js, interactions.js, graphOps.js, onboarding.js
   devices/     devices.js
   validation/  capacityRules.js, validationEngine.js
   leddesign/   specs.js, betaPanels.js, betaAreaInchLabel.js, portAssignment.js, ledPortGroups.js, ledDesignView.js
@@ -89,6 +89,20 @@ GraphState = {
 - LED디스플레이 노드 클릭 → LED 설계 세부 페이지(`ledDesignView.js`)로 전환. 포트당 픽셀 상한은 그래프 상류에 연결된 장비의 스펙에서 가져오고, 미연결 시에만 `MAX_PX`(655,360) 기본값 사용.
 
   **되돌리기(`onUndoButtonClick`, 2026-08-28, LAN/PWR도 스냅샷 방식으로 통일 2026-09-03):** 모드별로 이력만 따로 두고 방식은 같다 — 조작 직전에 그 대상을 JSON 스냅샷으로 쌓고 통째로 복원한다. LAN/PWR 배선은 그 모드의 포트 배열(`cfg.lanPorts`/`cfg.pwrPorts`)을 스냅샷하고(`pushAssignHistory`, `_led.lanAssignHistory`/`pwrAssignHistory`, `undoLastAssignment`) — 단일 칸 재배정(`setPanelPort`, 드래그 페인트는 칸마다 쌓여 한 칸씩 풀림), 자동 할당(`ledAutoAssignBtn`), 전체 초기화(`ledResetAllBtn`), 포트 이동 스왑(`_swapPortSlotsAnimated` → `moveActiveLanPort`/`moveActivePwrPort`)이 전부 대상이다. 포트 수 자체를 바꾸는 `±`(`addLanPortToActiveGroup` 등)는 레이아웃(`lanGroupOrder`/경계) 정합성 문제로 대상이 아니다. 예전엔 `{key, prevPortIdx}` 한 칸만 담아 초기화·자동 할당은 이력을 비우기만 했다(사용자 요청으로 확장). 구역 편집은 격자 크기·포트 배정까지 연쇄로 바뀌므로 조작 직전에 `ledDesign` config 전체를 JSON 스냅샷으로 쌓고(`pushZoneHistory`, `_led.zoneHistory`) 통째로 복원한다(`undoLastZoneEdit`) — 구역 생성/삭제/편집, 격자 확장·축소, 여백 정리, 전체 초기화 전부 대상. 스냅샷 복원 시 `exitCompactView`를 부르면 안 된다(compact로 되돌리는 undo가 바로 풀림). **버튼 배치:** 데스크톱은 사이드 패널에 `↩ 되돌리기`(LAN/PWR는 `#ledUndoAssignBtn`, 구역 탭은 `#ledZoneUndoBtn`, 둘 다 `.led-side-undo-btn`). 모바일(`@media max-width:700px`)은 사이드 버튼을 숨기고 모드 툴바 오른쪽 끝(⛶ 왼쪽)에 아이콘만 — `#ledToolbarUndoBtn`(↺, 모든 탭) + 구역 탭 자유(칸 선택) 모드에서만 `#ledZoneConfirmToolbarBtn`(✓ 구역 확정, `updateZoneDraftBar`가 토글). 셋 다 `.led-toolbar-action-btn`.
+
+## 처음 사용자 안내 (`js/core/onboarding.js`, 2026-09-03)
+
+강제 튜토리얼 없이 상황에 맞을 때만 뜨는 넛지 모음. 전부 그래프 뷰(`#graphView`) 안에 있고, LED 설계 페이지가 열리면 `.view[hidden]`으로 자동으로 안 보인다.
+
+- **안내 패널(`#graphHelpPanel`)** — 3스텝 퀵스타트 + 제스처 요약 + 색상 범례(상태 배지 ✓/!/?, 연결선 kind별 색). 캔버스가 비면 자동으로 뜨고(`_helpAutoShown`), 첫 노드가 생기면 알아서 닫힌다. 우상단 `#helpBtn`(`?`)으로 언제든 다시 연다 — 이렇게 직접 열면 `_helpAutoShown=false`가 돼 노드가 생겨도 안 닫힌다. `_helpDismissed`는 사용자가 ✕/토글로 닫았거나 예시를 불러왔음을 표시(캔버스가 다시 완전히 빌 때까지 자동 표시 안 함).
+- **예시 현장(`SAMPLE_GRAPH` → `loadSampleGraph`)** — 인풋소스→콘솔→샌딩카드→LED가 이어진 최소 체인. 콘솔·샌딩카드는 수동(장비 미지정) 모드라 포트 id도 수동 기본값(`in1`/`out1`). `State.graph`를 통째로 갈아끼우고 저장 슬롯 불러오기와 같은 후처리(`panToLeftmostNode` 등).
+- **연결 힌트 스트립(`#connectHint`)** — 노드 ≥2 & 엣지 0일 때만. ✕로 닫으면 `localStorage`(`onboard-connect-hint-dismissed`)에 기록해 다시 안 뜬다.
+- **드롭 타깃 하이라이트** — 연결 드래그 중 커서 밑 카드에 `.node-card.drop-target`(`interactions.js`의 `_highlightDropTarget`, `resolveDropTarget` 재사용). 정확한 입력 도트를 안 맞혀도 카드 영역이면 연결된다는 걸 보여준다.
+- **"꾹 눌러 이동" 1회 토스트(`maybeHoldToMoveHint`)** — 카드를 롱프레스 전에 빠르게 끌어 제스처가 취소된 첫 순간에만(`localStorage` `onboard-hold-to-move-seen`).
+- **상태 배지 탭** — `nodeCardRenderer.js`(데스크톱 click)와 `interactions.js`의 `tryFocusNodeFromBadgeTap`(터치)이 `panToNode` + 문제 있으면 이슈 패널 펼침.
+- **이슈 패널 강조** — 문제 ≥1이면 `#issuesPanel.has-issues`(헤더 빨강), 0→N 전이 순간 접혀 있으면 한 번 펼치고 `.issues-nudge`로 흔든다(`validationEngine.js`의 `_prevIssueCount`).
+
+`refreshOnboarding()`는 `renderNodeCards()` 끝에서 매번 불린다(그래프 변화에 반응). `onboarding.js`는 순수 로직이 아니라 DOM 전용이라 `module.exports` 가드도 테스트도 없다.
 
 ## 버전 업 규칙
 

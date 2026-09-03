@@ -336,6 +336,21 @@ function tryOpenLedDesignFromTap(targetEl) {
   if (node && node.type === 'led') { openLedDesignView(node.id); }
 }
 
+// 터치는 합성 click이 안 일어나므로(preventDefault), 상태 배지 탭도 여기서
+// 직접 처리한다 — 데스크톱은 nodeCardRenderer.js의 배지 click 핸들러가 맡는다.
+function tryFocusNodeFromBadgeTap(targetEl) {
+  if (_dragMoved || !targetEl || !targetEl.closest) { return; }
+  if (!targetEl.closest('.node-card-badge')) { return; }
+  const cardEl = targetEl.closest('.node-card');
+  const node = cardEl && getNode(cardEl.dataset.nodeId);
+  if (!node) { return; }
+  panToNode(node.id);
+  const validation = State.ui.validation;
+  if (validation && (validation.nodeIssues.get(node.id) || []).length > 0) {
+    document.getElementById('issuesPanel').classList.remove('collapsed');
+  }
+}
+
 function handlePointerMove(x, y) {
   if (_connectFrom) {
     const fromNode = getNode(_connectFrom.nodeId);
@@ -348,6 +363,9 @@ function handlePointerMove(x, y) {
         toScreen: { x: x - rect.left, y: y - rect.top },
         kind: outPort ? outPort.kind : 'video',
       });
+      // 지금 커서 아래에 놓으면 연결될 카드를 하이라이트해 "여기에 놓으면 된다"를
+      // 명확히 한다(정확한 포트 도트를 안 맞혀도 카드 영역이면 연결됨 — B1).
+      _highlightDropTarget(resolveDropTarget(x, y));
     }
     return;
   }
@@ -357,6 +375,8 @@ function handlePointerMove(x, y) {
     if (Math.abs(x - _dragStartScreen.x) > 6 || Math.abs(y - _dragStartScreen.y) > 6) {
       _dragCancelled = true;
       clearTimeout(_dragLongPressTimer);
+      // 처음으로 "빠르게 끌어 옮기려다 실패한" 순간 1회 안내(onboarding.js, B2)
+      if (typeof maybeHoldToMoveHint === 'function') { maybeHoldToMoveHint(); }
     }
     return;
   }
@@ -408,6 +428,7 @@ function handlePointerUp(x, y) {
     }
     _connectFrom = null;
     clearConnectPreview();
+    _highlightDropTarget(null);
   }
   clearTimeout(_dragLongPressTimer);
   if (_pointerDownNodeId) {
@@ -482,6 +503,17 @@ function snapNodeBack(nodeId, pos) {
   el.addEventListener('transitionend', cleanupSnap);
   setTimeout(cleanupSnap, 300); // transitionend가 안 오는 경우(예: 곧바로 재드래그) 대비
   shakeNode(nodeId);
+}
+
+// 연결 드래그 중, 지금 놓으면 연결될 카드에 .drop-target을 붙인다(B1). 대상이
+// 없거나(빈 캔버스 위 등) 바뀌면 이전 하이라이트를 지운다.
+let _dropTargetEl = null;
+function _highlightDropTarget(target) {
+  const nextEl = target ? document.querySelector(`.node-card[data-node-id="${target.nodeId}"]`) : null;
+  if (nextEl === _dropTargetEl) { return; }
+  if (_dropTargetEl) { _dropTargetEl.classList.remove('drop-target'); }
+  if (nextEl) { nextEl.classList.add('drop-target'); }
+  _dropTargetEl = nextEl;
 }
 
 // 연결 드롭 지점을 정한다: 정확히 입력 포트 도트 위에 놓였으면 그 포트를 쓰고,
@@ -682,7 +714,7 @@ function onTouchEnd(e) {
   handlePointerUp(x, y);
   // handlePointerUp이 탭이면 이미 선택+설정 패널을 열었다 — LED 노드는 터치의
   // 합성 클릭이 안 일어나므로(preventDefault) LED 설계 화면 열기만 별도로 처리.
-  if (wasTap) { tryOpenLedDesignFromTap(targetEl); }
+  if (wasTap) { tryOpenLedDesignFromTap(targetEl); tryFocusNodeFromBadgeTap(targetEl); }
 }
 
 // ── 포트 피커 (빈 물리 포트가 여럿일 때 사용자가 고르는 작은 팝업) ──────
