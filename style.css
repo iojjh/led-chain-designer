@@ -469,6 +469,13 @@ button {
 }
 .port-picker-btn:hover { background: var(--bg-2); }
 
+.port-picker-heading {
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 4px 10px 2px;
+  max-width: 220px;
+}
+
 /* ── 속성 패널 ──────────────────────────────────────── */
 /* 팔레트(.palette)와 같은 좌상단 자리에 뜬다 — 통일성을 위해 한 자리를
    공유하며(props-panel이 열리면 팔레트는 그 아래 가려짐), 열고 닫힘도

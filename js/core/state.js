@@ -6,6 +6,9 @@ const State = {
   ui: {
     selectedId: null, selectedEdgeId: null, pan: { x: 0, y: 0 }, zoom: 1,
     validation: { nodeIssues: new Map(), edgeIssues: new Map(), nodeProvisional: new Set() },
+    // 이번 selectNode가 "사용자가 방금 명시적으로 고른 것"인지 표시 — true일 때만
+    // renderPropertiesPanel이 닫혀 있던 패널을 강제로 연다(propertiesPanel.js 참고).
+    pendingPanelOpen: false,
   },
 };
 
@@ -46,6 +49,7 @@ function moveNode(nodeId, x, y) {
 function selectNode(nodeId) {
   State.ui.selectedId = nodeId;
   State.ui.selectedEdgeId = null;
+  if (nodeId) { State.ui.pendingPanelOpen = true; }
 }
 
 function selectEdge(edgeId) {

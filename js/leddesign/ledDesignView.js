@@ -177,31 +177,108 @@ function autoAssignLanForLedNode(ledNodeId) {
   }
 }
 
-// 샌딩카드가 LED에 새로 연결되는 시점(=연결된 카드 수가 바뀌는 시점)에 부른다.
-// 예전엔 이미 뭔가 배정돼 있으면(빠른 설정 생성 시 자동 배정됐거나, 이전에
-// "자동 할당"을 눌렀던 경우) 카드끼리 담당 픽셀량이 다시 균등해지도록
-// autoAssignLanForLedNode(전체 재배정)를 그대로 돌렸는데 — 그러면 사용자가
-// LAN 탭에서 공들여 커스텀 배선을 해둔 뒤 카드 한 대만 추가로 연결해도
-// 기존 배선이 통째로 사라지는 문제가 있었다(사용자 확인, 2026-08-27). 이제는
-// 기존 카드들의 배정은 전혀 건드리지 않고, lanGroupOrder(카드 순서 고정값)
-// 뒤에 새로 연결된 카드를 추가한 뒤 그 카드 몫만큼 빈 포트를 배열 끝에
-// 덧붙인다 — 기존 인덱스가 안 흔들리므로 안전하게 순수 추가만으로 가능하다.
-// 새 카드의 포트는 사용자가 직접 배정해야 한다. 자유 설계에서 LAN 탭을
-// 아직 한 번도 안 건드려 배정이 통째로 비어 있으면(원래도 자동 배정 대상이
-// 아니라는 방침 그대로 유지) 아무것도 하지 않는다.
-function rebalanceLanPortsForSendingConnect(ledNodeId) {
+// 기존 카드들의 배정(배선 내용)은 전혀 안 건드리고, lanGroupOrder(카드 순서
+// 고정값) 뒤에 새로 연결된 카드를 추가한 뒤 그 몫만큼 빈 포트를 배열 끝에
+// 덧붙인다 — 새 카드의 포트는 사용자가 직접 배정해야 한다.
+function growLanPortsForNewCard(ledNodeId) {
   const node = getNode(ledNodeId);
   if (!node) { return; }
   const cfg = node.config.ledDesign;
-  const hasExistingBundles = (cfg.lanPorts || []).some(p => p && p.length > 0);
-  if (!hasExistingBundles) { return; }
-
   const layout = resolveLedPortLayout(State.graph, ledNodeId);
   cfg.lanGroupOrder = layout.groups.map(g => g.nodeId).filter(Boolean);
   if (layout.ports.length > cfg.lanPorts.length) {
     const extra = Array.from({ length: layout.ports.length - cfg.lanPorts.length }, () => []);
     cfg.lanPorts = [...cfg.lanPorts, ...extra];
   }
+}
+
+// "카드 몫 이전" — 새로 연결된 카드(항상 lanGroupOrder 맨 끝)에게, 기존 카드
+// 들이 이미 채워둔 포트를 통째로(그 포트에 배정된 패널 구성 자체는 손대지
+// 않고) 옮겨 붙여서 카드별 "활성 포트 개수"가 균등해지게 한다 — 배선 내용
+// (어떤 패널들이 한 포트에 묶여 있는지)은 그대로 유지하고, 그 포트가 어느
+// 카드 소속인지만 바뀐다(사용자 요청, 2026-09-03). growLanPortsForNewCard로
+// 새 카드 몫의 빈 포트를 먼저 만들어둔 뒤에 호출해야 한다.
+function transferActivePortsToNewestGroup(ledNodeId) {
+  const node = getNode(ledNodeId);
+  if (!node) { return; }
+  const cfg = node.config.ledDesign;
+  const layout = resolveLedPortLayout(State.graph, ledNodeId);
+  const boundaries = lanGroupBoundaries(layout);
+  if (boundaries.length < 2) { return; }
+  const newest = boundaries[boundaries.length - 1];
+  const oldGroups = boundaries.slice(0, -1);
+
+  const activeByGroup = oldGroups.map(g => {
+    const indices = [];
+    for (let i = g.start; i < g.start + g.count; i += 1) {
+      if ((cfg.lanPorts[i] || []).length > 0) { indices.push(i); }
+    }
+    return indices;
+  });
+  const totalActive = activeByGroup.reduce((sum, indices) => sum + indices.length, 0);
+  if (totalActive === 0) { return; } // 옮길 활성 포트가 없으면 끝
+
+  // 새 카드까지 포함해 균등하게 나눴을 때의 목표치만큼만 옮긴다 — 전부
+  // 새 카드로 몰아주지 않고 "부담을 던다" 정도로만.
+  const targetPerGroup = totalActive / boundaries.length;
+  let wanted = Math.min(newest.count, Math.max(0, Math.round(totalActive - targetPerGroup * oldGroups.length)));
+
+  let newPortCursor = newest.start;
+  while (wanted > 0 && newPortCursor < newest.start + newest.count) {
+    let donorIdx = -1;
+    activeByGroup.forEach((indices, gi) => {
+      if (indices.length > 0 && (donorIdx === -1 || indices.length > activeByGroup[donorIdx].length)) { donorIdx = gi; }
+    });
+    if (donorIdx === -1) { break; } // 더 옮길 활성 포트가 없음
+    const takeIdx = activeByGroup[donorIdx].pop(); // 그 카드의 가장 뒤쪽 활성 포트부터
+    cfg.lanPorts[newPortCursor] = cfg.lanPorts[takeIdx]; // 배선 내용 그대로 이전
+    cfg.lanPorts[takeIdx] = [];
+    newPortCursor += 1;
+    wanted -= 1;
+  }
+}
+
+// 샌딩카드가 LED에 새로 연결되는 시점(=연결된 카드 수가 바뀌는 시점)에 부른다.
+// 예전엔 이미 뭔가 배정돼 있으면(빠른 설정 생성 시 자동 배정됐거나, 이전에
+// "자동 할당"을 눌렀던 경우) 카드끼리 담당 픽셀량이 다시 균등해지도록
+// autoAssignLanForLedNode(전체 재배정)를 무조건 그대로 돌렸는데 — 그러면
+// 사용자가 LAN 탭에서 공들여 커스텀 배선을 해둔 뒤 카드 한 대만 추가로
+// 연결해도 기존 배선이 통째로 사라지는 문제가 있었다(사용자 확인,
+// 2026-08-27). 그렇다고 무조건 안 건드리기만 하면 이번엔 반대로 "카드
+// 늘렸으니 당연히 다시 균등하게 나눠주길" 원하는 경우를 못 만족시키므로,
+// 매번 물어봐서 사용자가 그때그때 고르게 한다(사용자 요청, 2026-08-28) —
+// 3가지 중 고른다(사용자 요청, 2026-09-03로 "카드 몫 이전" 추가):
+//  1. 전체 균등 재배정 — autoAssignLanForLedNode, 배선 전부 새로 계산(초기화)
+//  2. 카드 몫 이전 — growLanPortsForNewCard + transferActivePortsToNewestGroup,
+//     기존 포트의 배선 내용은 그대로 둔 채 일부 포트만 새 카드 소속으로 이전
+//  3. 포트만 추가 — growLanPortsForNewCard만, 기존 배선 전혀 안 건드림
+// 자유 설계에서 LAN 탭을 아직 한 번도 안 건드려 배정이 통째로 비어 있으면
+// (원래도 자동 배정 대상이 아니라는 방침 그대로 유지) 물어보지 않고 그냥
+// 아무것도 안 한다 — 지울 것도 옮길 것도 없으니 물을 필요가 없다.
+function rebalanceLanPortsForSendingConnect(ledNodeId, clientX, clientY) {
+  const node = getNode(ledNodeId);
+  if (!node) { return; }
+  const cfg = node.config.ledDesign;
+  const hasExistingBundles = (cfg.lanPorts || []).some(p => p && p.length > 0);
+  if (!hasExistingBundles) { return; }
+
+  const choices = [
+    { id: 'full', label: '전체 균등 재배정 (배선 초기화)' },
+    { id: 'transfer', label: '카드 몫 이전 (배선 유지)' },
+    { id: 'append', label: '포트만 추가 (배선 유지)' },
+  ];
+  openPortPicker(clientX, clientY, choices, choice => {
+    if (choice === 'full') {
+      autoAssignLanForLedNode(ledNodeId);
+    } else if (choice === 'transfer') {
+      growLanPortsForNewCard(ledNodeId);
+      transferActivePortsToNewestGroup(ledNodeId);
+    } else {
+      growLanPortsForNewCard(ledNodeId);
+    }
+    renderValidation();
+    renderPropertiesPanel();
+  }, '샌딩카드가 새로 연결됐습니다 — 포트를 어떻게 배분할까요?');
 }
 
 // 샌딩카드가 LED에서 연결 해제될 때(엣지 삭제 또는 카드 노드 자체 삭제) 남은

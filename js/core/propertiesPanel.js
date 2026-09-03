@@ -85,6 +85,13 @@ const CONFIGURABLE_TYPES = new Set(['input', 'console', 'sending', 'led']);
 // 팝업(예: LED 빠른 설정, 팔레트에서 장비 프리셋을 바로 골랐을 때)에서 같은
 // 값을 입력받아 패널을 다시 띄우면 중복인 경우용.
 function closePropertiesPanel() {
+  // 이번에 대기 중이던 "강제로 열기" 요청도 함께 취소한다 — 안 그러면 이
+  // 직후에 selectNode(null)이 아니라(선택은 유지한 채) 패널만 닫는
+  // 호출(finalizeAddedNode(node, false) 등)에서, 나중에 전혀 무관한 다른
+  // 액션(예: 다른 두 노드 연결)이 renderPropertiesPanel()을 부를 때 이
+  // 닫아둔 패널이 그 대기 플래그 때문에 도로 열려버리는 문제가 있었다
+  // (사용자 확인, 2026-08-28).
+  State.ui.pendingPanelOpen = false;
   if (_panelEl && _panelEl.classList.contains('open')) {
     _panelEl.classList.remove('open');
     popHistoryOverlayIfTop('props');
@@ -101,6 +108,10 @@ function renderPropertiesPanel() {
   // 열리는 전환에서만 history를 쌓아야 한다 — 아래 세 분기 모두 열기 전에
   // 먼저 읽어둔 이 값으로 판단한다.
   const wasOpen = _panelEl.classList.contains('open');
+  // selectNode가 방금 이 선택을 명시적으로 만들었을 때만 true — 한 번 읽으면
+  // 바로 소비(false로 되돌림)해서, 이 렌더 호출 하나에만 유효하게 한다.
+  const forceOpen = State.ui.pendingPanelOpen;
+  State.ui.pendingPanelOpen = false;
 
   if (_draftNode) {
     _panelEl.classList.add('open');
@@ -118,6 +129,13 @@ function renderPropertiesPanel() {
     if (wasOpen) { _panelEl.classList.remove('open'); popHistoryOverlayIfTop('props'); }
     return;
   }
+
+  // 이미 닫혀 있고(사용자가 "선택은 유지, 패널만 숨김"으로 명시적으로 닫아둔
+  // 상태) 이번 호출도 방금 새로 선택한 게 아니라 다른 작업(노드 연결 등)의
+  // 부수 효과로 불린 것뿐이면, 닫힌 패널을 도로 열지 않는다 — 실제로 열릴
+  // 때 다시 그리므로 지금 내용을 갱신할 필요도 없다(사용자 확인, 2026-08-28).
+  if (!wasOpen && !forceOpen) { return; }
+
   _panelEl.classList.add('open');
   pushHistoryOverlayIfNewlyOpened('props', wasOpen);
   _panelEl.querySelector('#propsBackBtn').hidden = true;

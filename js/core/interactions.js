@@ -399,7 +399,7 @@ function handlePointerUp(x, y) {
           // reflowLanPortsForLedNode를 썼는데, 그 결과 새로 연결된 카드의
           // 포트가 계속 비어 있는 문제가 있었다.
           if (fromNode.type === 'sending' && toNode.type === 'led') {
-            rebalanceLanPortsForSendingConnect(toNode.id);
+            rebalanceLanPortsForSendingConnect(toNode.id, x, y);
           }
           renderValidation();
           renderPropertiesPanel();
@@ -680,16 +680,21 @@ function onTouchEnd(e) {
 // ── 포트 피커 (빈 물리 포트가 여럿일 때 사용자가 고르는 작은 팝업) ──────
 let _portPickerOutsideHandler = null;
 
-function openPortPicker(clientX, clientY, ports, onPick) {
+// heading이 있으면(물리 포트가 아니라 일반적인 "여러 선택지 중 하나 고르기"
+// 용도로 재사용할 때 — 예: rebalanceLanPortsForSendingConnect) 버튼 목록
+// 위에 짧은 설명을 붙인다. 원래의 "빈 물리 포트 고르기" 용도는 heading 생략.
+function openPortPicker(clientX, clientY, ports, onPick, heading) {
   closePortPicker(); // 이전에 열려 있던 피커의 outside-click 리스너가 남아있지 않도록 먼저 정리
   const el = document.getElementById('portPicker');
-  el.innerHTML = ports.map(p =>
+  const headingHtml = heading ? `<div class="port-picker-heading">${escapeHtml(heading)}</div>` : '';
+  el.innerHTML = headingHtml + ports.map(p =>
     `<button class="port-picker-btn" data-port-id="${p.id}">${escapeHtml(p.label)}</button>`
   ).join('');
   el.hidden = false;
   pushHistoryOverlay('portPicker');
-  el.style.left = `${Math.min(clientX, window.innerWidth - 190)}px`;
-  el.style.top = `${Math.min(clientY, window.innerHeight - (ports.length * 34 + 12))}px`;
+  const headingRows = heading ? 1.6 : 0; // 헤딩 한 줄만큼 위치 계산에 여유를 더 둔다
+  el.style.left = `${Math.min(clientX, window.innerWidth - 220)}px`;
+  el.style.top = `${Math.min(clientY, window.innerHeight - ((ports.length + headingRows) * 34 + 12))}px`;
 
   el.querySelectorAll('.port-picker-btn').forEach(btn => {
     btn.addEventListener('click', () => {
