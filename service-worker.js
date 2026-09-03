@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v49';
+const CACHE_VERSION = 'v52';
 const CORE_CACHE    = `led-chain-core-${CACHE_VERSION}`;
 
 // Core assets — always cached; bump CACHE_VERSION to force update
