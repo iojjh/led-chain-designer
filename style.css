@@ -1349,7 +1349,7 @@ button {
 .port-bar { width: 100%; height: 4px; background: var(--bg-2); border-radius: 2px; overflow: hidden; }
 .port-bar-fill { height: 100%; }
 
-.led-port-actions { display: flex; gap: 6px; }
+.led-port-actions { display: flex; gap: 6px; flex-wrap: wrap; row-gap: 6px; }
 .led-auto-btn {
   flex: 1;
   padding: 8px;
@@ -1360,6 +1360,25 @@ button {
   font-weight: 600;
 }
 .led-auto-btn:hover { opacity: 0.9; }
+
+/* PWR "포트당 N열" 셀렉트 — 자동 할당 밀도 조절. PWR 모드에서만 보인다. */
+.led-pwr-cols-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+.led-pwr-cols-field[hidden] { display: none; }
+.led-pwr-cols-field select {
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-0);
+  font-size: 11px;
+}
 
 /* ── 케이블 소요량 계산 (원본 §11 랜선 시뮬레이터 cc-grid 이식) ─────── */
 .led-cable-sum { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }

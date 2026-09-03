@@ -240,4 +240,39 @@ describe('autoAssignPwrZones', () => {
     const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 2, cols: 2, panelW: 500, panelH: 500 };
     expect(autoAssignPwrZones([zone], 0)).toEqual([]);
   });
+
+  test('minColsPerPort lets the caller pack 3·4·… columns per port', () => {
+    // 12열(1행×12열). 3열/포트 → 4포트, 4열/포트 → 3포트 사용.
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 1, cols: 12, panelW: 500, panelH: 500 };
+    const at3 = autoAssignPwrZones([zone], 18, 3);
+    const used3 = at3.map((k, i) => (k.length ? i : -1)).filter(i => i !== -1);
+    expect(used3).toEqual([0, 1, 2, 3]);
+    at3.slice(0, 4).forEach(k => expect(k).toHaveLength(3));
+
+    const at4 = autoAssignPwrZones([zone], 18, 4);
+    const used4 = at4.map((k, i) => (k.length ? i : -1)).filter(i => i !== -1);
+    expect(used4).toEqual([0, 1, 2]);
+    at4.slice(0, 3).forEach(k => expect(k).toHaveLength(4));
+
+    // 빠진 값·이상값이면 기본 2로 폴백
+    expect(autoAssignPwrZones([zone], 18).map((k, i) => (k.length ? i : -1)).filter(i => i !== -1)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  test('minColsPerPort still bumps higher when the fixed port count cannot fit it', () => {
+    // 20열 / 포트 4개 + 3열/포트 요청 → 3×4=12 < 20이라 5열/포트로 올라간다.
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 1, cols: 20, panelW: 500, panelH: 500 };
+    const assignments = autoAssignPwrZones([zone], 4, 3);
+    assignments.forEach(k => expect(k).toHaveLength(5));
+    expect(assignments.flat()).toHaveLength(betaPanels(zone).length);
+  });
+});
+
+describe('requiredPwrPortCount with minColsPerPort', () => {
+  test('divides total columns by the requested density', () => {
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 1, cols: 12, panelW: 500, panelH: 500 };
+    expect(requiredPwrPortCount([zone], 2)).toBe(6);
+    expect(requiredPwrPortCount([zone], 3)).toBe(4);
+    expect(requiredPwrPortCount([zone], 4)).toBe(3);
+    expect(requiredPwrPortCount([zone])).toBe(6); // 기본 2
+  });
 });

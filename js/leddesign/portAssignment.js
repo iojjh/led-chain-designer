@@ -109,16 +109,17 @@ function autoAssignZoneToPorts(zone, portOff, availableIndices, capPerPort, assi
 }
 
 // PWR 자동 배정: LAN처럼 픽셀 상한을 기준으로 포트당 열 수를 계산하지 않고,
-// "포트당 열 수" 자체를 기준으로 채운다 — 기본은 포트당 2열. 그 기본값으로는
-// 고정된 포트 수(portCount) 안에 전체 열을 다 못 담을 때만(2×portCount <
-// 전체 열 수) 포트당 열 수를 필요한 만큼(3, 4, …) 늘려서 모든 패널이 항상
-// 어딘가에는 배정되게 한다(사용자 요청 — 포트 수를 늘리는 대신 우선 열을
-// 더 눌러 담는 쪽을 기본으로 함. 포트 수 자체를 늘리고 싶으면 UI의 포트
+// "포트당 열 수" 자체를 기준으로 채운다 — 기본은 포트당 2열(minColsPerPort로
+// 3·4·… 조절 가능, ledDesignView.js의 PWR 탭 "포트당 N열" 셀렉트 = cfg.pwrColsPerPort).
+// 지정한 열 수로는 고정된 포트 수(portCount) 안에 전체 열을 다 못 담을 때만
+// (minColsPerPort×portCount < 전체 열 수) 포트당 열 수를 필요한 만큼 더 늘려서
+// 모든 패널이 항상 어딘가에는 배정되게 한다(사용자 요청 — 포트 수를 늘리는
+// 대신 우선 열을 더 눌러 담는 쪽. 포트 수 자체를 늘리고 싶으면 UI의 포트
 // 추가 버튼으로 portCount를 먼저 늘린 뒤 다시 자동 배정하면 된다).
 // 구역 경계와 무관하게 전체 열을 (startRow, startCol) 순서로 이어붙여 채우므로
 // (LAN과 달리 포트 하나에 서로 다른 구역의 열이 섞일 수 있음) "전체 LED"
 // 기준으로 판단한다는 요청과 맞다.
-function autoAssignPwrZones(zones, portCount) {
+function autoAssignPwrZones(zones, portCount, minColsPerPort) {
   const assignments = Array.from({ length: portCount }, () => []);
   if (portCount <= 0) { return assignments; }
 
@@ -129,7 +130,8 @@ function autoAssignPwrZones(zones, portCount) {
   const totalCols = allColumns.length;
   if (totalCols === 0) { return assignments; }
 
-  const colsPerPort = Math.max(2, Math.ceil(totalCols / portCount));
+  const minCols = Math.max(1, Math.round(minColsPerPort) || 2);
+  const colsPerPort = Math.max(minCols, Math.ceil(totalCols / portCount));
 
   let portIdx = 0;
   let ci = 0;
@@ -253,14 +255,15 @@ function requiredLanPortCount(zones, capPerPort) {
   }, 0);
 }
 
-// PWR 자동 배정의 기본 밀도(포트당 2열)를 유지하는 데 필요한 최소 포트 수.
-// autoAssignPwrZones는 고정된 portCount 안에 다 안 담기면 포트당 열 수를
-// 늘려 알아서 다 담아버리므로 "부족"이 절대 드러나지 않는다 — 그 전에
-// ledDesignView.js의 autoAssignPwrForLedNode가 이 값과 현재 pwrPortCount를
+// PWR 자동 배정의 목표 밀도(포트당 minColsPerPort열, 기본 2)를 유지하는 데
+// 필요한 최소 포트 수. autoAssignPwrZones는 고정된 portCount 안에 다 안 담기면
+// 포트당 열 수를 늘려 알아서 다 담아버리므로 "부족"이 절대 드러나지 않는다 —
+// 그 전에 ledDesignView.js의 autoAssignPwrForLedNode가 이 값과 현재 pwrPortCount를
 // 비교해, 부족하면 밀도를 늘리는 대신 포트 수 자체를 늘린다(사용자 요청).
-function requiredPwrPortCount(zones) {
+function requiredPwrPortCount(zones, minColsPerPort) {
+  const per = Math.max(1, Math.round(minColsPerPort) || 2);
   const totalCols = zones.reduce((sum, z) => sum + columnsOfZone(z).length, 0);
-  return totalCols > 0 ? Math.ceil(totalCols / 2) : 0;
+  return totalCols > 0 ? Math.ceil(totalCols / per) : 0;
 }
 
 if (typeof module !== 'undefined') {

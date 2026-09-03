@@ -58,6 +58,7 @@ function defaultConfig(type) {
           lanPorts: [], lanOrder: [], lanGroupOrder: [], // lanGroupOrder: LAN 포트 배열의 순서를 고정하는 샌딩카드 nodeId 목록(ledPortGroups.js 참고) — 캔버스에서 카드 위치를 옮겨도 기존 배정이 안 흔들리게 함
 
           pwrPorts: [], pwrOrder: [], pwrPortCount: PWR_PORT_COUNT, // 포트 추가/제거 버튼으로 조절 — 저장/불러오기에도 유지됨
+          pwrColsPerPort: 2, // PWR 자동 할당 시 포트당 몇 열씩 담을지(PWR 탭 "포트당 N열" 셀렉트) — 저장/불러오기에도 유지됨
           spareAdj: { l1: 2, sl: 20, c1: 2, sp: 20 },
           zoneViewCompact: false, // "여백 정리"로 캔버스를 구역 크기만큼 줄인 상태 — 저장/불러오기에도 유지됨
           // 격자 크기/원점 — 더 이상 드래그 중 자동으로 안 늘어나고, 캔버스

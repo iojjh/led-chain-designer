@@ -359,6 +359,17 @@
           <div id="ledPortDetail" class="led-port-detail"></div>
           <div class="led-port-actions">
             <button id="ledUndoAssignBtn" class="props-btn led-side-undo-btn">↩ 되돌리기</button>
+            <!-- PWR 배선에서만 보이는, 자동 할당 시 포트당 담을 열 수(3열씩·4열씩 등).
+                 바꾸면 그 자리에서 PWR 자동 할당을 다시 돌린다(되돌리기 대상). -->
+            <label id="ledPwrColsField" class="led-pwr-cols-field" hidden>포트당
+              <select id="ledPwrColsSelect">
+                <option value="2">2열</option>
+                <option value="3">3열</option>
+                <option value="4">4열</option>
+                <option value="5">5열</option>
+                <option value="6">6열</option>
+              </select>
+            </label>
             <button id="ledAutoAssignBtn" class="led-auto-btn">자동 할당</button>
             <button id="ledResetAllBtn" class="props-btn props-btn-danger">전체 초기화</button>
           </div>

@@ -118,6 +118,15 @@ function pwrPortCount() {
   return getLedConfig().pwrPortCount || PWR_PORT_COUNT;
 }
 
+// PWR 자동 할당 시 포트당 담을 열 수(PWR 탭 "포트당 N열" 셀렉트). 예전 프로젝트나
+// 예시처럼 값이 없으면 기본 2. 2~6으로 제한.
+const PWR_COLS_MIN = 2;
+const PWR_COLS_MAX = 6;
+function pwrColsPerPort(cfg) {
+  const raw = Math.round((cfg || getLedConfig()).pwrColsPerPort) || PWR_COLS_MIN;
+  return Math.min(PWR_COLS_MAX, Math.max(PWR_COLS_MIN, raw));
+}
+
 // 구역이 추가/삭제/변경되면 기존 포트 배정은 무효화(패널 key가 달라지므로) —
 // 사용자가 자동 할당을 다시 누르거나 수동으로 다시 배정해야 한다.
 function resetPortAssignments() {
@@ -320,9 +329,10 @@ function autoAssignPwrForLedNode(ledNodeId) {
   const node = getNode(ledNodeId);
   if (!node) { return; }
   const cfg = node.config.ledDesign;
-  const required = requiredPwrPortCount(cfg.zones);
+  const per = pwrColsPerPort(cfg);
+  const required = requiredPwrPortCount(cfg.zones, per);
   if (required > (cfg.pwrPortCount || PWR_PORT_COUNT)) { cfg.pwrPortCount = required; }
-  cfg.pwrPorts = autoAssignPwrZones(cfg.zones, cfg.pwrPortCount || PWR_PORT_COUNT);
+  cfg.pwrPorts = autoAssignPwrZones(cfg.zones, cfg.pwrPortCount || PWR_PORT_COUNT, per);
 }
 
 function openLedDesignView(nodeId) {
@@ -491,6 +501,19 @@ function initLedDesignView() {
     }
     renderPortPanel();
     drawGrid();
+  });
+
+  // PWR "포트당 N열" — 바꾸는 즉시 PWR 자동 할당을 다시 돌린다(직전 상태는
+  // 되돌리기로 복구 가능). PWR 모드에서만 보인다(renderPwrPortControls).
+  document.getElementById('ledPwrColsSelect').addEventListener('change', e => {
+    const cfg = getLedConfig();
+    cfg.pwrColsPerPort = Number(e.target.value);
+    if (_led.mode !== 'pwr') { return; }
+    pushAssignHistory();
+    autoAssignPwrForLedNode(_led.nodeId);
+    renderPortPanel();
+    drawGrid();
+    showToast(`PWR 자동 할당: 포트당 ${pwrColsPerPort(cfg)}열`);
   });
 
   document.getElementById('ledResetAllBtn').addEventListener('click', () => {
@@ -2472,7 +2495,15 @@ function renderLanPortControls() {
 // 활성 포트가 전체 범위의 양 끝에 닿지 않았을 때만 활성화한다.
 function renderPwrPortControls() {
   const wrap = document.getElementById('ledPwrPortControls');
-  wrap.hidden = _led.mode === 'lan';
+  const isPwr = _led.mode !== 'lan';
+  wrap.hidden = !isPwr;
+
+  // "포트당 N열" 셀렉트도 PWR 모드에서만. 현재 cfg 값으로 동기화.
+  const colsField = document.getElementById('ledPwrColsField');
+  colsField.hidden = !isPwr;
+  if (isPwr) {
+    document.getElementById('ledPwrColsSelect').value = String(pwrColsPerPort());
+  }
   if (wrap.hidden) { return; }
 
   const count = pwrPortCount();

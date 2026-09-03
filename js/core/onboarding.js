@@ -28,7 +28,7 @@ const SAMPLE_GRAPH = {
         ledDesign: {
           areaW: 6000, areaH: 3000, zones: [],
           lanPorts: [], lanOrder: [], lanGroupOrder: [],
-          pwrPorts: [], pwrOrder: [], pwrPortCount: 18,
+          pwrPorts: [], pwrOrder: [], pwrPortCount: 18, pwrColsPerPort: 2,
           spareAdj: { l1: 2, sl: 20, c1: 2, sp: 20 },
           zoneViewCompact: false,
           gridOriginRow: 0, gridOriginCol: 0, gridCols: 15, gridRows: 10,
