@@ -538,28 +538,33 @@ function resolveConsoleInputConnection(fromNode, fromPortId, toNode, clientX, cl
 // 콘솔 → 샌딩카드/LED/프롬프터 연결: 입력 쪽과 대칭 — 콘솔의 실제 물리 출력
 // 포트(devices.js) 중 이 목적지에 실제로 연결 가능한 것(예: 프롬프터는 AUX
 // 포트만 — graphOps.js의 isPairAllowed)만 추려 빈 것을 찾는다. 그런 포트가
-// 아예 없거나 전부 찼으면 연결을 거부하고, 하나만 남았으면 바로 연결하고,
-// 여러 개 남았으면 사용자가 고르도록 피커를 띄운다.
+// 아예 없거나 전부 찼으면 연결을 거부하고, 실제로 고를 수 있는 포트가 하나뿐
+// 이면 바로 연결하고, 여러 개(비활성 포함)면 피커를 띄운다.
 function resolveConsoleOutputConnection(fromNode, toNode, toPortId, clientX, clientY) {
   const compatible = getConsoleOutputPorts(fromNode).filter(p => isPairAllowed(fromNode, p.id, toNode, toPortId));
   if (compatible.length === 0) {
     showToast('이 목적지로 연결할 수 있는 출력 포트가 없습니다');
     return;
   }
-  // 하나의 LED를 나눠 담당하는 샌딩카드 두 대에 같은 미러 쌍(예: 1a/1b)을
-  // 하나씩 물리면 둘 다 같은 신호를 받아 화면을 나눌 수 없다 — 그런 후보
-  // 포트는 애초에 자동 연결·피커 목록에서 빼서 선택할 수 없게 한다
-  // (graphOps.js의 mirrorPortConflict).
-  const allPorts = compatible.filter(p => !mirrorPortConflict(State.graph, fromNode, p.id, toNode));
-  if (allPorts.length === 0) {
-    showToast('같은 LED를 나눠 담당하는 다른 샌딩카드가 이미 이 콘솔의 같은 미러 포트 쌍을 쓰고 있어 연결할 수 없습니다');
+  const occupied = new Set(State.graph.edges.filter(e => e.from.nodeId === fromNode.id).map(e => e.from.portId));
+  const free = compatible.filter(p => !occupied.has(p.id));
+  if (free.length === 0) {
+    showToast(`출력 포트가 모두 사용 중입니다 (${compatible.length}/${compatible.length})`);
     return;
   }
-  const occupied = new Set(State.graph.edges.filter(e => e.from.nodeId === fromNode.id).map(e => e.from.portId));
-  const free = allPorts.filter(p => !occupied.has(p.id));
-
-  if (free.length === 0) {
-    showToast(`출력 포트가 모두 사용 중입니다 (${allPorts.length}/${allPorts.length})`);
+  // 하나의 LED를 나눠 담당하는 샌딩카드 두 대에 같은 미러 쌍(예: 1a/1b)을
+  // 하나씩 물리면 둘 다 같은 신호를 받아 화면을 나눌 수 없다 — 그런 후보
+  // 포트는 목록에서 빼지 않고 남겨두되 선택할 수 없게 비활성 표시한다
+  // (사용자 요청, 2026-09-03 — 예전엔 후보에서 아예 숨겼는데, 그러면 왜
+  // 후보가 줄어드는지 안 보여서 비활성 표시로 바꿨다).
+  const candidates = free.map(p => ({
+    ...p,
+    disabled: mirrorPortConflict(State.graph, fromNode, p.id, toNode),
+    disabledReason: '다른 샌딩카드가 같은 신호(미러 포트) 사용 중',
+  }));
+  const enabled = candidates.filter(p => !p.disabled);
+  if (enabled.length === 0) {
+    showToast('같은 LED를 나눠 담당하는 다른 샌딩카드가 이미 이 콘솔의 같은 미러 포트 쌍을 쓰고 있어 연결할 수 없습니다');
     return;
   }
 
@@ -568,11 +573,14 @@ function resolveConsoleOutputConnection(fromNode, toNode, toPortId, clientX, cli
     if (edge) { renderValidation(); renderPropertiesPanel(); }
   };
 
-  if (free.length === 1) {
-    connect(free[0].id);
+  // 고를 수 있는(비활성 아닌) 후보가 하나뿐이고 비활성 후보도 안 섞여 있으면
+  // 곧바로 연결한다 — 비활성 후보가 하나라도 있으면, 왜 다른 포트를 못 쓰는지
+  // 보여주기 위해 피커를 띄운다(사용자가 그 비활성 표시를 보게 하려는 목적).
+  if (candidates.length === 1) {
+    connect(candidates[0].id);
     return;
   }
-  openPortPicker(clientX, clientY, free, connect);
+  openPortPicker(clientX, clientY, candidates, connect);
 }
 
 function onKeyDown(e) {
@@ -683,20 +691,24 @@ let _portPickerOutsideHandler = null;
 // heading이 있으면(물리 포트가 아니라 일반적인 "여러 선택지 중 하나 고르기"
 // 용도로 재사용할 때 — 예: rebalanceLanPortsForSendingConnect) 버튼 목록
 // 위에 짧은 설명을 붙인다. 원래의 "빈 물리 포트 고르기" 용도는 heading 생략.
+// ports 항목에 disabled:true가 있으면(예: 미러 포트 충돌) 목록에서 빼지 않고
+// 회색으로 비활성 표시만 한다 — 후보에서 왜 줄었는지 알 수 있게(사용자 요청,
+// 2026-09-03), disabledReason이 있으면 그 사유를 작게 덧붙인다.
 function openPortPicker(clientX, clientY, ports, onPick, heading) {
   closePortPicker(); // 이전에 열려 있던 피커의 outside-click 리스너가 남아있지 않도록 먼저 정리
   const el = document.getElementById('portPicker');
   const headingHtml = heading ? `<div class="port-picker-heading">${escapeHtml(heading)}</div>` : '';
-  el.innerHTML = headingHtml + ports.map(p =>
-    `<button class="port-picker-btn" data-port-id="${p.id}">${escapeHtml(p.label)}</button>`
-  ).join('');
+  el.innerHTML = headingHtml + ports.map(p => {
+    const title = p.disabled ? ` title="${escapeHtml(p.disabledReason || '사용 불가')}"` : '';
+    return `<button class="port-picker-btn" data-port-id="${p.id}" ${p.disabled ? 'disabled' : ''}${title}>${escapeHtml(p.label)}</button>`;
+  }).join('');
   el.hidden = false;
   pushHistoryOverlay('portPicker');
   const headingRows = heading ? 1.6 : 0; // 헤딩 한 줄만큼 위치 계산에 여유를 더 둔다
   el.style.left = `${Math.min(clientX, window.innerWidth - 220)}px`;
   el.style.top = `${Math.min(clientY, window.innerHeight - ((ports.length + headingRows) * 34 + 12))}px`;
 
-  el.querySelectorAll('.port-picker-btn').forEach(btn => {
+  el.querySelectorAll('.port-picker-btn:not([disabled])').forEach(btn => {
     btn.addEventListener('click', () => {
       closePortPicker();
       onPick(btn.dataset.portId);

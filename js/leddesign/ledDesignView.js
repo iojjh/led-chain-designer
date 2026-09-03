@@ -262,6 +262,17 @@ function rebalanceLanPortsForSendingConnect(ledNodeId, clientX, clientY) {
   const hasExistingBundles = (cfg.lanPorts || []).some(p => p && p.length > 0);
   if (!hasExistingBundles) { return; }
 
+  const layout = resolveLedPortLayout(State.graph, ledNodeId);
+  if (layout.groups.length <= 1) {
+    // 이번에 연결된 카드가 유일한 샌딩카드(=이 LED에 처음 연결되는 카드)면
+    // 비교/균형을 맞출 다른 카드가 아직 없으므로 물어볼 필요가 없다 —
+    // 미연결 기본값 상태에서 이미 자동 배정돼 있던 배선(빠른 설정 등)을
+    // 그대로 이어받아 포트 수만 이 카드의 실제 스펙에 맞춰 늘린다(사용자
+    // 요청, 2026-09-03).
+    growLanPortsForNewCard(ledNodeId);
+    return;
+  }
+
   const choices = [
     { id: 'full', label: '전체 균등 재배정 (배선 초기화)' },
     { id: 'transfer', label: '카드 몫 이전 (배선 유지)' },
