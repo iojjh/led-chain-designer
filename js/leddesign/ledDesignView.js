@@ -53,10 +53,12 @@ const _led = {
   longPressTimer: null,
 
   // ── "되돌리기" 버튼용 배정 이력(사용자 요청) — LAN/PWR 모드별로 따로 쌓는다
-  // (모드가 섞이면 되돌리기 대상이 헷갈리므로). setPanelPort가 유일한 배정
-  // 변경 진입점이라 거기서만 쌓는다. 자동 할당/전체 초기화처럼 setPanelPort를
-  // 거치지 않고 포트 배열을 통째로 갈아엎는 지점에서는 비워야 한다(안 비우면
-  // 되돌리기가 엉뚱한 과거 상태로 복원해버림).
+  // (모드가 섞이면 되돌리기 대상이 헷갈리므로). 조작 직전에 그 모드의 포트
+  // 배열(cfg.lanPorts / cfg.pwrPorts)을 JSON 스냅샷으로 쌓고(pushAssignHistory),
+  // 되돌리기는 통째로 복원한다 — 단일 칸 재배정뿐 아니라 자동 할당·전체
+  // 초기화·포트 이동(스왑)처럼 여러 칸이 한꺼번에 바뀌는 조작도 되돌릴 수
+  // 있다(구역 되돌리기 zoneHistory와 같은 방식). 포트 수 자체를 바꾸는 ±
+  // 조작은 레이아웃 정합성 문제로 대상이 아니다.
   lanAssignHistory: [],
   pwrAssignHistory: [],
   // 구역 편집 모드 되돌리기 — 배정(칸 단위)과 달리 구역 변경은 격자 크기·포트
@@ -481,24 +483,24 @@ function initLedDesignView() {
   document.getElementById('ledZoneCompactBtn').addEventListener('click', finishZoneDesign);
 
   document.getElementById('ledAutoAssignBtn').addEventListener('click', () => {
+    pushAssignHistory(); // 자동 할당 직전 상태를 되돌리기로 복구 가능하게
     if (_led.mode === 'lan') {
       autoAssignLanForLedNode(_led.nodeId);
     } else {
       autoAssignPwrForLedNode(_led.nodeId);
     }
-    currentAssignHistory().length = 0; // 통째로 다시 배정했으니 되돌리기 이력은 무의미해짐
     renderPortPanel();
     drawGrid();
   });
 
   document.getElementById('ledResetAllBtn').addEventListener('click', () => {
     const label = _led.mode === 'lan' ? 'LAN' : 'PWR';
-    if (!window.confirm(`현재 ${label} 포트 배정을 전부 초기화할까요? 되돌릴 수 없습니다.`)) { return; }
+    if (!window.confirm(`현재 ${label} 포트 배정을 전부 초기화할까요? (되돌리기로 복구 가능)`)) { return; }
     const cfg = getLedConfig();
-    const key = _led.mode === 'lan' ? 'lanPorts' : 'pwrPorts';
+    const key = activeAssignPortsKey();
+    pushAssignHistory(); // 초기화 직전 상태를 되돌리기로 복구 가능하게
     cfg[key] = Array.from({ length: portCountForMode() }, () => []);
     _led.focusPanelKey = null;
-    currentAssignHistory().length = 0;
     renderPortPanel();
     drawGrid();
   });
@@ -1587,6 +1589,7 @@ function moveActivePwrPort(dir) {
 // 두 칩이 서로의 옛 자리에서 미끄러져 들어온 것처럼 FLIP 애니메이션한다.
 // LAN·PWR 공용 — 어느 배열을 넘기느냐와 경계 판정만 호출부가 다르다.
 function _swapPortSlotsAnimated(portsArray, cur, target) {
+  pushAssignHistory(); // 포트 이동(스왑)도 되돌리기 대상 — 스왑 직전 배열을 스냅샷
   // 스왑·재렌더 전에 칩들의 화면 위치를 재둔다 — 렌더 뒤엔 칩이 이미 최종
   // 자리에 새로 그려져 있어 "어디서 출발했는지"를 알 수 없다.
   const beforeRects = _portChipRects(document.getElementById('ledPortStrip'));
@@ -1666,10 +1669,24 @@ function nextEmptyPort() {
   return _led.activePort;
 }
 
-// LAN/PWR 모드별 되돌리기 이력 배열 — setPanelPort가 지금 어느 모드에서
-// 불렸는지에 따라 알맞은 스택에 쌓는다.
+// LAN/PWR 모드별 되돌리기 이력 배열/포트 키 — 지금 어느 모드에서 불렸는지에
+// 따라 알맞은 스택·config 키를 고른다.
 function currentAssignHistory() {
   return _led.mode === 'pwr' ? _led.pwrAssignHistory : _led.lanAssignHistory;
+}
+
+function activeAssignPortsKey() {
+  return _led.mode === 'pwr' ? 'pwrPorts' : 'lanPorts';
+}
+
+// 배정을 바꾸는 모든 조작(단일 칸 재배정, 자동 할당, 전체 초기화, 포트 이동
+// 스왑) 직전에 호출 — 그 모드의 포트 배열을 통째로 스냅샷해 쌓는다. 드래그
+// 페인트는 칸마다 setPanelPort가 불려 스냅샷도 칸마다 쌓이므로, 되돌리기는
+// 한 번에 한 칸씩 풀린다(기존 동작과 동일).
+function pushAssignHistory() {
+  const hist = currentAssignHistory();
+  hist.push(JSON.stringify(getLedConfig()[activeAssignPortsKey()] || []));
+  if (hist.length > 60) { hist.shift(); }
 }
 
 function setPanelPort(key, portIdx) {
@@ -1679,7 +1696,7 @@ function setPanelPort(key, portIdx) {
   }
   const prevPortIdx = portIndexOfKey(key);
   if (prevPortIdx === portIdx) { return; } // 실제 변화가 없으면 되돌리기 스택에도 안 쌓는다
-  currentAssignHistory().push({ key, prevPortIdx });
+  pushAssignHistory();
   const ports = activePortsArray();
   ports.forEach(arr => {
     const i = arr.indexOf(key);
@@ -1688,19 +1705,19 @@ function setPanelPort(key, portIdx) {
   if (portIdx !== -1 && portIdx != null) { ports[portIdx].push(key); }
 }
 
-// "되돌리기" 버튼 — 현재 모드(LAN/PWR)에서 가장 최근에 바뀐 배정 한 칸만
-// 직전 상태로 되돌린다. setPanelPort를 다시 부르면 이 되돌리기 자체가 새
-// 이력으로 또 쌓이므로, 여기서는 포트 배열을 직접 조작한다.
+// "되돌리기" 버튼(LAN/PWR 모드) — 현재 모드에서 가장 최근 조작 직전의 포트
+// 배열 전체를 복원한다.
 function undoLastAssignment() {
   const hist = currentAssignHistory();
-  const entry = hist.pop();
-  if (!entry) { showToast('되돌릴 작업이 없습니다.'); return; }
-  const ports = activePortsArray();
-  ports.forEach(arr => {
-    const i = arr.indexOf(entry.key);
-    if (i !== -1) { arr.splice(i, 1); }
-  });
-  if (entry.prevPortIdx !== -1 && entry.prevPortIdx != null) { ports[entry.prevPortIdx].push(entry.key); }
+  const snap = hist.pop();
+  if (!snap) { showToast('되돌릴 작업이 없습니다.'); return; }
+  const cfg = getLedConfig();
+  const key = activeAssignPortsKey();
+  cfg[key] = JSON.parse(snap);
+  // 스냅샷이 지금보다 짧을 수도(초기화 전 포트 수가 달랐던 경우 등) 있어
+  // 활성 포트 인덱스가 범위를 벗어나면 당겨 온다.
+  if (_led.activePort >= cfg[key].length) { _led.activePort = Math.max(0, cfg[key].length - 1); }
+  _led.focusPanelKey = null;
   renderPortPanel();
   drawGrid();
 }
