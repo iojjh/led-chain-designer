@@ -36,6 +36,12 @@ function initCanvasRenderer(canvasEl, nodeLayerEl, edgeLabelLayerEl) {
 function resizeCanvas() {
   if (!_canvas) { return; }
   const rect = _canvas.parentElement.getBoundingClientRect();
+  // 뷰가 숨겨져 있는 동안(예: LED 설계 페이지가 열린 채로 창 크기가 바뀜)
+  // 부모가 display:none이라 rect가 0×0으로 잡힌다 — 이때 캔버스를 0×0으로
+  // 만들어 버리면 인라인 width/height:0px가 CSS(100%)를 눌러, 그래프 뷰로
+  // 돌아와도 점 배경·엣지가 사라진 채로 남는다(다음 resize 전까지). 측정
+  // 불가하면 크기를 건드리지 않고, 뷰가 다시 보일 때 재측정하게 둔다.
+  if (rect.width === 0 || rect.height === 0) { return; }
   const dpr = window.devicePixelRatio || 1;
   _canvas.width = Math.round(rect.width * dpr);
   _canvas.height = Math.round(rect.height * dpr);

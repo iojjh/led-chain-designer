@@ -360,6 +360,11 @@ function closeLedDesignView() {
   if (_led.fullscreen) { closeLedCanvasFullscreen(); }
   document.getElementById('ledDesignView').hidden = true;
   document.getElementById('graphView').hidden = false;
+  // 이 페이지가 열려 있는 동안 창 크기가 바뀌었으면 그래프 캔버스는 숨겨진
+  // 상태라 그 resize를 반영하지 못했다(resizeCanvas가 0×0 부모를 보고 건너뜀).
+  // 뷰가 다시 보이는 지금 재측정해, 점 배경·엣지가 안 그려진 채로 남지 않게
+  // 한다(resizeCanvas가 render()도 함께 부른다).
+  if (typeof resizeCanvas === 'function') { resizeCanvas(); }
   if (wasOpen) { popHistoryOverlayIfTop('ledDesign'); }
   // 구역 설계 진입 시 열려 있던 해당 LED의 빠른 설정 패널이 뒤로가기 후에도
   // 숨겨진 채 남아 있다가 그대로 다시 노출되는 문제 방지 — 선택 하이라이트는
