@@ -230,6 +230,7 @@ async function renderScheduleList() {
           <div class="save-row-info">
             <b>${escapeHtml(e.title || '(제목 없음)')}</b>
             <span>${escapeHtml(e.date)}</span>
+            ${e.body ? `<span class="sched-row-body">${escapeHtml(e.body)}</span>` : ''}
           </div>
           <button class="save-load-row-btn" data-idx="${i}">가져오기</button>
         </div>`).join('')

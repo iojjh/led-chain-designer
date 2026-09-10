@@ -1561,8 +1561,18 @@ button {
   border-radius: var(--radius-sm);
   animation: list-row-in 0.16s ease;
 }
-.save-row-info { flex: 1; display: flex; flex-direction: column; font-size: 12px; }
+.save-row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12px; }
 .save-row-info span { color: var(--text-1); font-size: 11px; }
+/* 일정 목록: 본문(피치·면적·비고)을 날짜 아래 최대 2줄까지 */
+.sched-row-body {
+  margin-top: 2px;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .save-load-row-btn, .save-del-row-btn, .cloud-share-row-btn { font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); }
 .save-load-row-btn { background: var(--accent-soft); color: var(--text-0); }
 .cloud-share-row-btn { background: var(--bg-2); border: 1px solid var(--border); color: var(--text-0); }

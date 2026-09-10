@@ -1,4 +1,4 @@
-const { parseIcs, stripSchedFooter, icsDate } = require('../js/save/scheduleFeed.js');
+const { parseIcs, stripSchedFooter, icsDate, dedupeScheduleRows } = require('../js/save/scheduleFeed.js');
 const { parseScheduleText } = require('../js/leddesign/scheduleParse.js');
 
 // 실측 Outlook 피드에서 뽑은 형태 (CRLF, 줄 폴딩, TZID, \, \n 이스케이프 포함)
@@ -59,6 +59,29 @@ describe('stripSchedFooter', () => {
   test('빈/누락 입력', () => {
     expect(stripSchedFooter('')).toBe('');
     expect(stripSchedFooter(null)).toBe('');
+  });
+});
+
+describe('dedupeScheduleRows', () => {
+  test('같은 날짜·제목이면 본문이 가장 긴 것만 남긴다', () => {
+    const rows = [
+      { date: '2026-09-11', title: '생물다양성탐사대회 셋업', body: '3mm 4*3 레이허 야외' },
+      { date: '2026-09-11', title: '생물다양성탐사대회 셋업', body: '3mm 4*3 레이허 야외 11시 도착 전기 20m' },
+      { date: '2026-09-12', title: '허준인트로축제', body: '3mm 7*3 프로파일' },
+      { date: '2026-09-12', title: '허준인트로축제', body: '3mm 7*3 프로파일' },
+    ];
+    expect(dedupeScheduleRows(rows)).toEqual([
+      { date: '2026-09-11', title: '생물다양성탐사대회 셋업', body: '3mm 4*3 레이허 야외 11시 도착 전기 20m' },
+      { date: '2026-09-12', title: '허준인트로축제', body: '3mm 7*3 프로파일' },
+    ]);
+  });
+
+  test('날짜가 다르면 유지', () => {
+    const rows = [
+      { date: '2026-09-11', title: '크레스트72', body: 'a' },
+      { date: '2026-09-12', title: '크레스트72', body: 'b' },
+    ];
+    expect(dedupeScheduleRows(rows)).toHaveLength(2);
   });
 });
 
