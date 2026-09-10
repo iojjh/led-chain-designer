@@ -8,7 +8,7 @@
 // SCHEDULE_ICS_PROXY_URL 에 넣는다(설정 절차: 일정-피드-설정.md). 비어 있으면
 // 기능 비활성 — 모달이 "설정되지 않았습니다"를 표시하고 요청을 안 한다.
 
-const SCHEDULE_ICS_PROXY_URL = '';   // Apps Script 웹 앱 URL (.../exec)
+const SCHEDULE_ICS_PROXY_URL = 'https://script.google.com/macros/s/AKfycbzPAdGgWQrHLCxgKUWH37wpZ_MwY2Udi2xq88czs20VLNqPM7OvoTsv6nzpT0NKiwFv/exec';   // Apps Script 웹 앱 (.../exec)
 const SCHEDULE_RECENT_DAYS = 7;      // 시작일이 오늘 -이 일수 이전인 일정은 목록에서 제외
 
 // ── ICS 파싱 (계산기앱 script.js의 _parseIcs·_stripSchedFooter 이식) ──
