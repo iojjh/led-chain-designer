@@ -1,0 +1,124 @@
+const { parseScheduleText, panelSizeForPitch } = require('../js/leddesign/scheduleParse.js');
+
+describe('parseScheduleText — 단일', () => {
+  test('기본형 "3mm 7*3"', () => {
+    expect(parseScheduleText('3mm 7*3')).toEqual([
+      { label: null, pitch: '3mm', areaWm: 7, areaHm: 3 },
+    ]);
+  });
+
+  test('2mm + 소수 면적', () => {
+    expect(parseScheduleText('2mm 4*3.5')).toEqual([
+      { label: null, pitch: '2mm', areaWm: 4, areaHm: 3.5 },
+    ]);
+  });
+
+  test('피치·면적 사이 공백 "LED 4 mm 10 * 6"', () => {
+    expect(parseScheduleText('LED 4 mm 10 * 6')).toEqual([
+      { label: null, pitch: '4mm', areaWm: 10, areaHm: 6 },
+    ]);
+  });
+
+  test('구분자 ×/x/X 모두 허용', () => {
+    const want = [{ label: null, pitch: '3mm', areaWm: 7, areaHm: 3 }];
+    expect(parseScheduleText('3mm 7×3')).toEqual(want);
+    expect(parseScheduleText('3mm 7x3')).toEqual(want);
+    expect(parseScheduleText('3mm 7X3')).toEqual(want);
+  });
+
+  test('피치 없으면 3mm로 가정', () => {
+    expect(parseScheduleText('7*3')).toEqual([
+      { label: null, pitch: '3mm', areaWm: 7, areaHm: 3 },
+    ]);
+  });
+
+  test('지원 밖 피치(5mm)도 3mm로 가정', () => {
+    expect(parseScheduleText('5mm 7*3')).toEqual([
+      { label: null, pitch: '3mm', areaWm: 7, areaHm: 3 },
+    ]);
+  });
+
+  test('양쪽 소수 "3mm 6.5*2.25"', () => {
+    expect(parseScheduleText('3mm 6.5*2.25')).toEqual([
+      { label: null, pitch: '3mm', areaWm: 6.5, areaHm: 2.25 },
+    ]);
+  });
+
+  test('제목+본문 blob에서 전화번호·주소는 안 걸림', () => {
+    const text = 'OO페스티벌 무대 LED\n장소: 서울 강남구 어딘가로 123\n담당 010-1234-5678\n3mm 12*4.5 설치';
+    expect(parseScheduleText(text)).toEqual([
+      { label: null, pitch: '3mm', areaWm: 12, areaHm: 4.5 },
+    ]);
+  });
+});
+
+describe('parseScheduleText — 멀티(좌우/중앙)', () => {
+  test('"중앙 6*3, 좌우 3*2.5" → 3섹션', () => {
+    expect(parseScheduleText('중앙 6*3, 좌우 3*2.5')).toEqual([
+      { label: '중앙', pitch: '3mm', areaWm: 6, areaHm: 3 },
+      { label: '좌', pitch: '3mm', areaWm: 3, areaHm: 2.5 },
+      { label: '우', pitch: '3mm', areaWm: 3, areaHm: 2.5 },
+    ]);
+  });
+
+  test('좌측/우측 개별 크기', () => {
+    expect(parseScheduleText('중앙 6*3 좌측 2*2 우측 2.5*2')).toEqual([
+      { label: '중앙', pitch: '3mm', areaWm: 6, areaHm: 3 },
+      { label: '좌', pitch: '3mm', areaWm: 2, areaHm: 2 },
+      { label: '우', pitch: '3mm', areaWm: 2.5, areaHm: 2 },
+    ]);
+  });
+
+  test('피치는 모든 섹션에 적용', () => {
+    const out = parseScheduleText('3mm 중앙 6*3 좌우 3*2.5');
+    expect(out.map(s => s.pitch)).toEqual(['3mm', '3mm', '3mm']);
+  });
+
+  test('라벨 없는 첫 N*M을 중앙으로', () => {
+    expect(parseScheduleText('6*3 좌우 3*2.5')).toEqual([
+      { label: '중앙', pitch: '3mm', areaWm: 6, areaHm: 3 },
+      { label: '좌', pitch: '3mm', areaWm: 3, areaHm: 2.5 },
+      { label: '우', pitch: '3mm', areaWm: 3, areaHm: 2.5 },
+    ]);
+  });
+
+  test('좌우만 있으면 2섹션', () => {
+    expect(parseScheduleText('좌측 3*2 우측 3*2')).toEqual([
+      { label: '좌', pitch: '3mm', areaWm: 3, areaHm: 2 },
+      { label: '우', pitch: '3mm', areaWm: 3, areaHm: 2 },
+    ]);
+  });
+
+  test('"좌 N" 축약형도 멀티로 인식', () => {
+    expect(parseScheduleText('중앙 6*3 좌 2*2 우 2*2')).toEqual([
+      { label: '중앙', pitch: '3mm', areaWm: 6, areaHm: 3 },
+      { label: '좌', pitch: '3mm', areaWm: 2, areaHm: 2 },
+      { label: '우', pitch: '3mm', areaWm: 2, areaHm: 2 },
+    ]);
+  });
+});
+
+describe('parseScheduleText — 에러', () => {
+  test('무관한 텍스트', () => {
+    expect(() => parseScheduleText('안녕하세요 회의 잘 부탁드립니다')).toThrow(/피치 또는 설치 면적/);
+  });
+
+  test('피치만 있고 면적 없음', () => {
+    expect(() => parseScheduleText('3mm 설치 예정')).toThrow(/설치 면적/);
+  });
+
+  test('멀티 키워드만 있고 크기 없음', () => {
+    expect(() => parseScheduleText('좌우 있음')).toThrow(/설치 면적/);
+  });
+});
+
+describe('panelSizeForPitch', () => {
+  test('2mm → 500×500', () => {
+    expect(panelSizeForPitch('2mm')).toEqual({ panelW: 500, panelH: 500 });
+  });
+
+  test('3mm/4mm → 500×1000', () => {
+    expect(panelSizeForPitch('3mm')).toEqual({ panelW: 500, panelH: 1000 });
+    expect(panelSizeForPitch('4mm')).toEqual({ panelW: 500, panelH: 1000 });
+  });
+});

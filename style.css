@@ -1593,6 +1593,30 @@ button {
 }
 .cloud-share-hint { font-size: 11px; color: var(--text-1); }
 
+/* ── 일정에서 LED 추가 모달 (.save-new-row 밖의 입력/버튼은 스타일이 없어 직접 지정) ── */
+#scheduleDateInput,
+#scheduleTitleInput,
+#scheduleBodyInput {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  color: var(--text-0);
+  font-size: 13px;
+}
+#scheduleBodyInput { font-family: inherit; resize: vertical; }
+#scheduleSubmitBtn {
+  align-self: flex-start;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 /* ── 업데이트 배너/토스트 (기존 앱과 동일 패턴) ───────── */
 .update-banner {
   position: fixed;

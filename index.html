@@ -53,6 +53,7 @@
           <button class="palette-btn" data-type="console">🖥️ 콘솔</button>
           <button class="palette-btn" data-type="sending">📡 샌딩카드</button>
           <button class="palette-btn" data-type="led">🟩 LED디스플레이</button>
+          <button class="palette-btn" data-type="schedule">🗓 일정에서 추가</button>
           <button class="palette-btn" data-type="prompter">📺 프롬프터</button>
           <button class="palette-btn" data-type="power">🔌 메인전원</button>
           <button class="palette-btn" data-type="distro">⚡ 분전함</button>
@@ -168,6 +169,36 @@
             </div>
             <p class="cloud-share-hint">로그인 없이 서로 저장한 현장을 공유합니다. 여기 올리면 링크를 아는 누구나 볼 수 있어요.</p>
             <div id="cloudList" class="save-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 일정에서 LED 추가: 밴드 일정 메시지를 붙여넣어 구글 폼으로 등록(cloudShare
+         패턴)하고, 게시된 응답 시트 CSV에서 목록을 읽어 "가져오기" 시 피치·면적에
+         맞는 LED디스플레이 노드를 만든다. scheduleFeed.js의 5개 상수가 채워지기
+         전까지는 목록에 "설정되지 않았습니다"가 표시된다. -->
+    <div id="scheduleModal" class="modal-bg" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <span>일정에서 LED 추가</span>
+          <button id="scheduleClose" class="props-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="save-new-row">
+            <input id="scheduleDateInput" type="text" placeholder="날짜 (예: 9/20)">
+          </div>
+          <input id="scheduleTitleInput" type="text" placeholder="제목 / 피치·면적 (예: 3mm 7*3)">
+          <textarea id="scheduleBodyInput" rows="4" placeholder="밴드 일정 메시지 전체 붙여넣기"></textarea>
+          <button id="scheduleSubmitBtn">일정 등록</button>
+
+          <div class="cloud-share-section">
+            <div class="cloud-share-head">
+              <span>등록된 일정</span>
+              <button id="scheduleRefreshBtn" class="cloud-refresh-btn">새로고침</button>
+            </div>
+            <p class="cloud-share-hint">등록하면 몇 분 뒤 목록에 나타납니다. "가져오기"를 누르면 피치·면적에 맞는 LED디스플레이 노드가 만들어집니다.</p>
+            <div id="scheduleList" class="save-list"></div>
           </div>
         </div>
       </div>
@@ -433,10 +464,12 @@
 <script src="./js/leddesign/betaAreaInchLabel.js"></script>
 <script src="./js/leddesign/portAssignment.js"></script>
 <script src="./js/leddesign/ledAreaSetup.js"></script>
+<script src="./js/leddesign/scheduleParse.js"></script>
 <script src="./js/leddesign/ledPortGroups.js"></script>
 <script src="./js/leddesign/ledDesignView.js"></script>
 <script src="./js/save/projectState.js"></script>
 <script src="./js/save/cloudShare.js"></script>
+<script src="./js/save/scheduleFeed.js"></script>
 <script src="./js/save/saveStore.js"></script>
 <script src="./js/core/interactions.js"></script>
 <script src="./js/core/onboarding.js"></script>

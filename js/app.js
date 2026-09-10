@@ -1,7 +1,7 @@
 // ── app 부트스트랩 ──────────────────────────────────
 // package.json의 version과 맞춰 수동으로 올린다. 기능 변경 시 이 값과
 // service-worker.js의 CACHE_VERSION을 함께 동기화할 것(CLAUDE.md 참고).
-const APP_VERSION = '0.9.1';
+const APP_VERSION = '0.10.0';
 
 (function () {
   const canvasEl = document.getElementById('graphCanvas');
@@ -13,6 +13,7 @@ const APP_VERSION = '0.9.1';
   initPropertiesPanel(document.getElementById('propsPanel'));
   initValidationUi(document.getElementById('issuesList'), document.getElementById('issuesCount'));
   initSaveLoadUi();
+  initScheduleUi();
   initInteractions(canvasEl, nodeLayerEl);
   initOnboarding();
 

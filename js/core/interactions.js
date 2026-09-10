@@ -99,6 +99,9 @@ function initInteractions(canvasEl, nodeLayerEl) {
       // LED디스플레이만 추가 전에 설치면적/피치/패널크기를 미리 물어보는 팝업을
       // 거친다(선택 사항 — 건너뛰면 다른 타입과 동일하게 빈 상태로 추가된다).
       if (type === 'led') { closePaletteMenu(); openLedAddModal(); return; }
+      // "일정에서 추가"는 노드 타입이 아니라, 밴드 일정을 불러와 LED디스플레이
+      // 노드를 만드는 모달을 여는 진입점이다(saveStore.js).
+      if (type === 'schedule') { closePaletteMenu(); openScheduleModal(); return; }
       if (listDevices(type).length > 0) { openPaletteDeviceList(type); return; }
       if (CONFIGURABLE_TYPES.has(type)) { closePaletteMenu(); openDraftPanel(type, 'categories'); return; }
       closePaletteMenu();

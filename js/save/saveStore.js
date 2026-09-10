@@ -187,3 +187,127 @@ function onCloudDeleteClick(btn, preset) {
     showToast('삭제 요청 실패: ' + e.message);
   });
 }
+
+// ── 일정에서 LED 추가 (구글 폼/시트 기반, scheduleFeed.js + scheduleParse.js) ────
+// 팔레트 "🗓 일정에서 추가"(interactions.js) → 이 모달. 밴드 일정 메시지를
+// 붙여넣어 등록하고, 게시된 응답 시트에서 목록을 읽어 "가져오기" 시 피치·면적에
+// 맞는 LED디스플레이 노드를 만든다. 커뮤니티 프리셋 모달과 같은 구조라 여기 둔다.
+function initScheduleUi() {
+  document.getElementById('scheduleClose').addEventListener('click', closeScheduleModal);
+  document.getElementById('scheduleModal').addEventListener('click', e => {
+    if (e.target.id === 'scheduleModal') { closeScheduleModal(); }
+  });
+  document.getElementById('scheduleSubmitBtn').addEventListener('click', onScheduleSubmitClick);
+  document.getElementById('scheduleRefreshBtn').addEventListener('click', renderScheduleList);
+  registerOverlayCloser('schedule', closeScheduleModal);
+}
+
+function openScheduleModal() {
+  document.getElementById('scheduleModal').hidden = false;
+  pushHistoryOverlay('schedule');
+  renderScheduleList();
+}
+
+function closeScheduleModal() {
+  const el = document.getElementById('scheduleModal');
+  const wasOpen = !el.hidden;
+  el.hidden = true;
+  if (wasOpen) { popHistoryOverlayIfTop('schedule'); }
+}
+
+async function renderScheduleList() {
+  const el = document.getElementById('scheduleList');
+  // 비설정("아직 상수 안 채움")과 "빈 피드"를 구분 — fetch 전에 먼저 본다.
+  if (!SCHEDULE_SHEET_CSV_URL) {
+    el.innerHTML = '<div class="led-zone-empty">일정 피드가 아직 설정되지 않았습니다. (일정-피드-설정.md 참고)</div>';
+    return;
+  }
+  el.innerHTML = '<div class="led-zone-empty">불러오는 중…</div>';
+  try {
+    const entries = await fetchScheduleEntries();
+    el.innerHTML = entries.length
+      ? entries.map((e, i) => `
+        <div class="save-row">
+          <div class="save-row-info">
+            <b>${escapeHtml(e.title || '(제목 없음)')}</b>
+            <span>${escapeHtml(e.date || e.submittedAt)}</span>
+          </div>
+          <button class="save-load-row-btn" data-idx="${i}">가져오기</button>
+        </div>`).join('')
+      : '<div class="led-zone-empty">등록된 일정이 없습니다.</div>';
+    el.querySelectorAll('.save-load-row-btn').forEach(btn => {
+      btn.addEventListener('click', () => onScheduleImportClick(entries[Number(btn.dataset.idx)]));
+    });
+  } catch (e) {
+    el.innerHTML = `<div class="led-zone-empty">일정을 불러오지 못했습니다: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function onScheduleImportClick(entry) {
+  if (!entry) { return; }
+  let sections;
+  try {
+    sections = parseScheduleText((entry.title || '') + '\n' + (entry.body || ''));
+  } catch (e) {
+    showToast(e.message.split('\n')[0]); // 토스트(#appToast)는 한 줄만
+    return;
+  }
+  const summary = sections
+    .map(s => `${s.label ? s.label + ' ' : ''}${s.areaWm}×${s.areaHm}m ${s.pitch}`)
+    .join(' / ');
+  if (!window.confirm(`LED ${sections.length}개를 추가할까요?\n${summary}`)) { return; }
+  applyScheduleEntry(sections);
+}
+
+// interactions.js onLedAddConfirm의 "빠른 설정"(rect) 분기를 섹션마다 반복한다.
+// 섹션끼리는 연결하지 않는다(요구사항). createPositionedNode가 같은 타입 노드를
+// 자동으로 아래(모바일은 오른쪽)에 쌓으므로 별도 위치 오프셋은 두지 않는다.
+function applyScheduleEntry(sections) {
+  const created = [];
+  sections.forEach(sec => {
+    const areaW = Math.round(sec.areaWm * 1000); // 미터 → mm (planFullAreaLed가 500mm 격자로 스냅)
+    const areaH = Math.round(sec.areaHm * 1000);
+    const { panelW, panelH } = panelSizeForPitch(sec.pitch);
+    const plan = planFullAreaLed({ areaW, areaH, panelW, panelH, pitch: sec.pitch });
+
+    const node = createPositionedNode('led');
+    node.config.ledDesign.areaW = plan.areaW;
+    node.config.ledDesign.areaH = plan.areaH;
+    node.config.ledDesign.zones = [plan.zone];
+    node.config.totalRequiredPx = plan.totalPx;
+    node.config.ledDesign.zoneViewCompact = true;
+    node.config.ledDesign.quickSetup = true;
+    if (sec.label) { node.label = 'LED ' + sec.label; }
+
+    autoAssignLanForLedNode(node.id);
+    autoAssignPwrForLedNode(node.id);
+    created.push(node);
+  });
+  if (!created.length) { return; }
+
+  closeScheduleModal();
+  finalizeAddedNode(created[created.length - 1], false); // 마지막 노드 선택, 속성 패널은 안 엶
+  renderValidation();
+  showToast(created.length === 1 ? 'LED 1개를 추가했습니다' : `LED ${created.length}개를 추가했습니다`);
+}
+
+async function onScheduleSubmitClick() {
+  const date = document.getElementById('scheduleDateInput').value.trim();
+  const title = document.getElementById('scheduleTitleInput').value.trim();
+  const body = document.getElementById('scheduleBodyInput').value.trim();
+  if (!title && !body) { showToast('일정 내용을 입력하세요'); return; }
+  const btn = document.getElementById('scheduleSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = '등록 중…';
+  try {
+    await submitScheduleForm(date, title, body);
+    showToast('일정을 등록했습니다 (목록 반영까지 몇 분 걸릴 수 있습니다)');
+    document.getElementById('scheduleDateInput').value = '';
+    document.getElementById('scheduleTitleInput').value = '';
+    document.getElementById('scheduleBodyInput').value = '';
+  } catch (e) {
+    showToast('등록 실패: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = '일정 등록';
+}
