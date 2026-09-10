@@ -8,9 +8,12 @@
 // areaWm / areaHm 은 일정에 적힌 그대로의 "미터" 값이다 — 미터→mm 환산과 500mm
 // 격자 스냅은 하류 planFullAreaLed(ledAreaSetup.js)가 한다.
 //
-// 소스가 구글 폼에 붙여넣은 텍스트라 led-calculator의 Outlook 변환 꼬리말
-// (_stripSchedFooter)은 이식하지 않았다. N*M 정규식은 주소("3층 5*2") 등에
-// 오탐할 수 있다(계산기와 동일 한계) — 호출부에서 미리보기 confirm으로 완화한다.
+// N*M 정규식은 주소("3층 5*2")나 부가 설명("모니터 2개")에 오탐할 수 있어
+// 호출부에서 미리보기 confirm으로 완화한다. 멀티(좌우·중앙)는 "중앙 6*3, 좌우
+// 3*2.5"처럼 섹션이 2개 이상 깔끔히 잡힐 때만 적용하고, 자유 텍스트에 "중앙무대"
+// 같은 단어만 섞이면 첫 N*M 하나만 뽑는 단일 모드로 폴백한다(실측 데이터 기준).
+// Outlook 변환 꼬리말(" - A-TEAM(CJ)…")은 outlook-sync.gs 쪽에서 잘라 시트에
+// 넣으므로 여기선 신경 쓰지 않는다.
 
 // SPECS(specs.js) 키가 '2mm'|'3mm'|'4mm'뿐이라 그 외 피치는 못 쓴다.
 // 피치를 못 찾거나 지원 밖이면 계산기와 동일하게 '3mm'로 가정한다.
@@ -49,10 +52,10 @@ function parseScheduleText(text) {
     if (center) { sections.push({ label: '중앙', pitch: resolvedPitch, areaWm: center.areaWm, areaHm: center.areaHm }); }
     if (left) { sections.push({ label: '좌', pitch: resolvedPitch, areaWm: left.areaWm, areaHm: left.areaHm }); }
     if (right) { sections.push({ label: '우', pitch: resolvedPitch, areaWm: right.areaWm, areaHm: right.areaHm }); }
-    if (!sections.length) {
-      throw new Error('일정에서 설치 면적을 찾을 수 없습니다.\n(예: 3mm 7*3)');
-    }
-    return sections;
+    // 섹션이 2개 이상 깔끔하게 잡힐 때만 멀티로 본다. 1개 이하면 자유 텍스트에
+    // "중앙무대"·"좌우중계" 같은 단어가 우연히 섞인 것이므로 아래 단일 모드로
+    // 폴백해 첫 번째 N*M 하나만 뽑는다(실측 데이터 기준).
+    if (sections.length >= 2) { return sections; }
   }
 
   const sizeM = src.match(new RegExp(SZ));

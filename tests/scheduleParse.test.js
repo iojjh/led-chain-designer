@@ -96,6 +96,19 @@ describe('parseScheduleText — 멀티(좌우/중앙)', () => {
       { label: '우', pitch: '3mm', areaWm: 2, areaHm: 2 },
     ]);
   });
+
+  test('자유 텍스트에 "중앙무대"·"좌우중계" 단어만 섞이면 단일로 폴백', () => {
+    // 실측: 섹션 2개를 못 뽑으면 첫 N*M 하나만. 라벨 오염 안 됨.
+    expect(parseScheduleText('광복절 전야제 셋업\n3mm 18*5 중앙무대(대진렌탈) 4mm 20*5 좌우중계 더 팀')).toEqual([
+      { label: null, pitch: '3mm', areaWm: 18, areaHm: 5 },
+    ]);
+  });
+
+  test('"중앙 1*4 패턴" 같은 부가 설명이 있어도 첫 N*M(주 화면)을 잡음', () => {
+    expect(parseScheduleText('경기도자비엔날레 셋업\n3mm 14*4 중앙 1*4 패턴 좌우 2줄 4mm 6*4 좌우 레이허')).toEqual([
+      { label: null, pitch: '3mm', areaWm: 14, areaHm: 4 },
+    ]);
+  });
 });
 
 describe('parseScheduleText — 에러', () => {
