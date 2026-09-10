@@ -13,11 +13,11 @@
 // 설정 절차(아래 5개 상수 채우기): 일정-피드-설정.md 참고. 상수가 비어 있으면
 // 기능은 비활성 — 모달이 "설정되지 않았습니다"를 표시하고 요청을 하지 않는다.
 
-const SCHEDULE_FORM_RESPONSE_URL = '';   // 구글 폼 제출 URL (.../formResponse)
-const SCHEDULE_FORM_ENTRY_DATE = '';     // 'entry.XXXXXXX' — 날짜 질문
-const SCHEDULE_FORM_ENTRY_TITLE = '';    // 'entry.XXXXXXX' — 제목 질문
-const SCHEDULE_FORM_ENTRY_BODY = '';     // 'entry.XXXXXXX' — 일정 내용 질문
-const SCHEDULE_SHEET_CSV_URL = '';       // 응답 시트 "웹에 게시" CSV URL
+const SCHEDULE_FORM_RESPONSE_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSdyqKVWIcahy5Tk0GIsaWP26wokDrMs470Kr9rxusccMeuuvg/formResponse';
+const SCHEDULE_FORM_ENTRY_DATE = 'entry.623028658';    // 날짜 질문
+const SCHEDULE_FORM_ENTRY_TITLE = 'entry.1355743448';  // 제목 질문
+const SCHEDULE_FORM_ENTRY_BODY = 'entry.210595530';    // 일정 내용 질문
+const SCHEDULE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSbpnMw8YKfLM_4ZnJA1CP95OMsHZwv9XQwpapvHmhYrNPl0mNPMk_wFq5PDq7XRYjLE5_c2QKJQ5z4/pub?gid=608217936&single=true&output=csv';
 
 // 브라우저에선 cloudShare.js가 먼저 로드돼 parseCsv가 이미 전역이다.
 // Jest에선 여기서 끌어온다(ledAreaSetup.js의 SPECS 로딩과 같은 패턴).
