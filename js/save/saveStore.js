@@ -216,8 +216,8 @@ function closeScheduleModal() {
 
 async function renderScheduleList() {
   const el = document.getElementById('scheduleList');
-  // 비설정("아직 상수 안 채움")과 "빈 피드"를 구분 — fetch 전에 먼저 본다.
-  if (!SCHEDULE_SHEET_CSV_URL) {
+  // 비설정("아직 프록시 URL 안 넣음")과 "빈 피드"를 구분 — fetch 전에 먼저 본다.
+  if (!SCHEDULE_ICS_PROXY_URL) {
     el.innerHTML = '<div class="led-zone-empty">일정 피드가 아직 설정되지 않았습니다. (일정-피드-설정.md 참고)</div>';
     return;
   }
@@ -229,7 +229,7 @@ async function renderScheduleList() {
         <div class="save-row">
           <div class="save-row-info">
             <b>${escapeHtml(e.title || '(제목 없음)')}</b>
-            <span>${escapeHtml(e.date || e.submittedAt)}</span>
+            <span>${escapeHtml(e.date)}</span>
           </div>
           <button class="save-load-row-btn" data-idx="${i}">가져오기</button>
         </div>`).join('')

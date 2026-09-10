@@ -108,10 +108,10 @@ GraphState = {
 
 ## 일정에서 LED 추가 (`js/leddesign/scheduleParse.js`, `js/save/scheduleFeed.js`, 2026-09-10)
 
-자매 앱 `led-calculator`의 밴드 일정 파싱(§13)을 이식하되, 데이터 소스는 Outlook이 아니라 **게시된 구글 시트 CSV**다(읽기 = "웹에 게시"된 CSV `fetch`, 구글이 공개 게시 문서엔 CORS 허용). **앱은 읽기 전용** — 시트에 행을 채우는 건 자동화(Gmail→시트 Apps Script 등)가 담당한다. **소스 무관 설계**: 앱은 `SCHEDULE_SHEET_CSV_URL`의 행만 읽으므로 무엇이 행을 채우든(열 순서 타임스탬프·날짜·제목·일정 내용만 지키면) 앱 코드는 그대로다.
+자매 앱 `led-calculator`의 밴드 일정 파싱(§13)을 이식. 데이터 소스는 계산기앱과 **같은 Outlook 공유 캘린더의 ICS**. 사람 작업은 밴드→Outlook 뿐(계산기용으로 이미 하던 것). **앱은 읽기 전용**.
 
-- `scheduleFeed.js` 상단 `SCHEDULE_SHEET_CSV_URL` 하나만 설정하면 된다(현재 값 채워짐). 비어 있으면 기능 비활성 — 모달이 "설정되지 않았습니다"를 표시하고 네트워크 요청을 안 한다. 설정·자동화 절차: `일정-피드-설정.md`.
-- **시트 자동 채우기**: `apps-script/outlook-sync.gs`(구글 Apps Script, kdj3531 계정, 시트에 바인딩, 30분 트리거)가 계산기앱도 쓰는 Outlook 공유 캘린더 ICS를 읽어 새 일정을 시트에 추가한다. 사람 작업은 밴드→Outlook 뿐(계산기용으로 이미 하던 것). VEVENT UID로 중복 제거(`_seen` 숨김 탭), `N*M` 없는 일정 제외, `" - A-TEAM(CJ)…"` 꼬리말 제거. 노드앱 코드와는 무관 — 앱은 시트만 읽음.
+- Outlook ICS 응답엔 CORS 헤더가 없어 브라우저에서 직접 못 읽는다(무료 공개 프록시도 게이트/불안정). 그래서 `apps-script/ics-proxy.gs`를 **웹 앱으로 배포한 자체 프록시**(`doGet`이 서버에서 ICS를 받아 CORS 열어 반환)를 거친다. 시트·트리거·지연 없음. 그 `/exec` URL을 `scheduleFeed.js`의 `SCHEDULE_ICS_PROXY_URL`에 넣는다 — 비면 기능 비활성("설정되지 않았습니다"). 설정: `일정-피드-설정.md`.
+- `parseIcs(raw)` / `stripSchedFooter(s)` / `icsDate(v)` (`scheduleFeed.js`, 순수, 테스트) — 계산기 `_parseIcs`·`_stripSchedFooter` 이식. `fetchScheduleEntries()`는 프록시 fetch → `parseIcs` → 시작일이 오늘-`SCHEDULE_RECENT_DAYS`(7) 이후인 것만 → `N*M` 있는 것만 → 날짜 오름차순 → `{date,title,body}` 배열.
 - `parseScheduleText(text)` (`scheduleParse.js`, 순수) — `{label, pitch:'3mm', areaWm, areaHm}[]` 배열 반환. 피치를 못 찾거나 지원 밖(2/3/4mm 아님)이면 `'3mm'` 가정, 면적이 없으면 throw. 멀티(좌우·중앙)는 섹션이 **2개 이상** 깔끔히 잡힐 때만("중앙 6*3, 좌우 3*2.5"). 자유 텍스트에 "중앙무대"·"좌우중계" 단어만 섞이면 첫 `N*M` 하나만 뽑는 단일 모드로 폴백(실측 Outlook 데이터 기준). `panelSizeForPitch(pitch)` — 2mm는 500×500, 그 외 500×1000.
 - 적용(`saveStore.js`의 `applyScheduleEntry`)은 `interactions.js` `onLedAddConfirm`의 빠른 설정(rect) 분기(`:1022-1051`)를 섹션마다 반복 — `planFullAreaLed` → `createPositionedNode('led')`(같은 타입 노드를 자동으로 아래/오른쪽에 쌓아 팬아웃) → `ledDesign` 채우기 → `autoAssignLanForLedNode`/`autoAssignPwrForLedNode`. 섹션끼리 **엣지로 연결하지 않는다**. `finalizeAddedNode`/`renderValidation`은 루프가 끝난 뒤 마지막 노드에 대해 **한 번만**(반복 호출 시 팬이 튐).
 - 모달·목록 UI는 `saveStore.js`의 `renderCloudList` 옆(`initScheduleUi`/`openScheduleModal`/`closeScheduleModal`/`renderScheduleList`/`onScheduleImportClick`/`applyScheduleEntry`). `initScheduleUi()`는 `app.js`에서 `initSaveLoadUi()` 다음에 호출. 진입점은 팔레트의 `data-type="schedule"` 버튼 + `interactions.js` 카테고리 핸들러의 한 줄 분기(노드 타입이 아니라 모달 오프너). 순수 모듈 2개는 `tests/scheduleParse.test.js`·`tests/scheduleFeed.test.js`.

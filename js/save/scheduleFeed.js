@@ -1,36 +1,74 @@
 // ── scheduleFeed ────────────────────────────────────
-// 밴드 일정을 서버·로그인 없이 앱으로 가져오는 읽기 전용 피드. 밴드 일정이
-// 자동으로 쌓이는 구글 시트를 "웹에 게시"한 CSV를 fetch로 읽는다(구글이 공개
-// 게시 문서엔 CORS를 허용해 프록시가 필요 없음).
+// 밴드 일정을 노드앱으로 가져오는 읽기 전용 피드. 계산기앱도 쓰는 Outlook 공유
+// 캘린더의 ICS를 읽어 파싱한다 — 사람이 하는 일은 "밴드 일정 → Outlook 캘린더"
+// 뿐(계산기용으로 이미 하던 작업).
 //
-// 소스 무관 설계: 앱은 SCHEDULE_SHEET_CSV_URL의 행만 읽는다 — 그 행을 무엇이
-// 채우는지(Gmail→시트 Apps Script, 밴드 스크래퍼, 구글 폼 수동 입력 등)는
-// 앱과 무관하다. 열 순서만 타임스탬프·날짜·제목·일정 내용으로 지키면 된다.
-//
-// 설정 절차: 일정-피드-설정.md 참고. URL이 비어 있으면 기능 비활성 — 모달이
-// "설정되지 않았습니다"를 표시하고 요청을 하지 않는다.
+// Outlook ICS 응답엔 CORS 헤더가 없어 브라우저에서 직접 못 읽는다. 그래서
+// apps-script/ics-proxy.gs 를 "웹 앱"으로 배포해 그 /exec URL을 아래
+// SCHEDULE_ICS_PROXY_URL 에 넣는다(설정 절차: 일정-피드-설정.md). 비어 있으면
+// 기능 비활성 — 모달이 "설정되지 않았습니다"를 표시하고 요청을 안 한다.
 
-const SCHEDULE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSbpnMw8YKfLM_4ZnJA1CP95OMsHZwv9XQwpapvHmhYrNPl0mNPMk_wFq5PDq7XRYjLE5_c2QKJQ5z4/pub?gid=608217936&single=true&output=csv';
+const SCHEDULE_ICS_PROXY_URL = '';   // Apps Script 웹 앱 URL (.../exec)
+const SCHEDULE_RECENT_DAYS = 7;      // 시작일이 오늘 -이 일수 이전인 일정은 목록에서 제외
 
-// 브라우저에선 cloudShare.js가 먼저 로드돼 parseCsv가 이미 전역이다.
-// Jest에선 여기서 끌어온다(ledAreaSetup.js의 SPECS 로딩과 같은 패턴).
-if (typeof module !== 'undefined' && typeof parseCsv === 'undefined') {
-  global.parseCsv = require('./cloudShare.js').parseCsv;
+// ── ICS 파싱 (계산기앱 script.js의 _parseIcs·_stripSchedFooter 이식) ──
+function parseIcs(raw) {
+  // 줄바꿈 정규화 후 폴딩(다음 줄 첫 글자가 공백/탭) 해제
+  const text = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n[ \t]/g, '');
+  const events = [];
+  const blocks = text.split('BEGIN:VEVENT').slice(1);
+  for (const blk of blocks) {
+    const body = blk.split('END:VEVENT')[0];
+    const ev = { date: '', title: '', description: '' };
+    for (const line of body.split('\n')) {
+      const sep = line.indexOf(':');
+      if (sep < 0) { continue; }
+      const key = line.slice(0, sep).split(';')[0].toUpperCase();
+      const val = line.slice(sep + 1).trim();
+      if (key === 'SUMMARY') { ev.title = icsUnescape(val); }
+      else if (key === 'DESCRIPTION') { ev.description = icsUnescape(val); }
+      else if (key === 'DTSTART') { ev.date = icsDate(val); }
+    }
+    if (ev.title && ev.date) { events.push(ev); }
+  }
+  return events;
 }
 
-// 응답 시트 열 순서: 타임스탬프 | 날짜 | 제목 | 일정 내용 (구글 폼 응답 시트 기본).
-function mapScheduleRows(rows) {
-  return rows.slice(1) // 헤더 제외
-    .filter(r => r.length >= 4 && r[3]) // 본문 있는 행만
-    .map(r => ({ submittedAt: r[0], date: r[1], title: r[2], body: r[3] }))
-    .reverse(); // 최신순
+function icsUnescape(s) {
+  return s.replace(/\\n/gi, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
+}
+
+// 'YYYYMMDD' 또는 'YYYYMMDDTHHMMSS[Z]' → 'YYYY-MM-DD'
+function icsDate(val) {
+  const s = val.replace(/Z$/, '');
+  if (s.length >= 8) { return s.slice(0, 4) + '-' + s.slice(4, 6) + '-' + s.slice(6, 8); }
+  return '';
+}
+
+// Band→Outlook 변환 시 붙는 " - 대문자..." 꼬리말 제거 (계산기 _stripSchedFooter).
+function stripSchedFooter(s) {
+  const idx = String(s || '').search(/ - [A-Z]/);
+  return (idx > 0 ? s.slice(0, idx) : String(s || '')).trim();
+}
+
+function _cutoffYmd(daysAgo) {
+  const d = new Date(Date.now() - daysAgo * 86400000);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return d.getFullYear() + '-' + m + '-' + day;
 }
 
 async function fetchScheduleEntries() {
-  if (!SCHEDULE_SHEET_CSV_URL) { return []; }
-  const res = await fetch(SCHEDULE_SHEET_CSV_URL, { cache: 'no-store' });
+  if (!SCHEDULE_ICS_PROXY_URL) { return []; }
+  const res = await fetch(SCHEDULE_ICS_PROXY_URL, { cache: 'no-store' });
   if (!res.ok) { throw new Error('HTTP ' + res.status); }
-  return mapScheduleRows(parseCsv(await res.text()));
+  const cutoff = _cutoffYmd(SCHEDULE_RECENT_DAYS);
+  return parseIcs(await res.text())
+    .filter(e => e.date >= cutoff)
+    // 설치면적(N*M) 표기가 없는 일정(예: "영상오퍼")은 목록에서 뺀다.
+    .filter(e => /\d\s*[*×xX]\s*\d/.test(e.title + ' ' + e.description))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .map(e => ({ date: e.date, title: e.title, body: stripSchedFooter(e.description) }));
 }
 
-if (typeof module !== 'undefined') { module.exports = { mapScheduleRows }; }
+if (typeof module !== 'undefined') { module.exports = { parseIcs, stripSchedFooter, icsDate }; }

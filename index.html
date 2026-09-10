@@ -174,10 +174,11 @@
       </div>
     </div>
 
-    <!-- 일정에서 LED 추가: 게시된 구글 시트 CSV(밴드 일정이 자동으로 쌓임 —
-         일정-피드-설정.md 참고)에서 목록을 읽어, "가져오기" 시 피치·면적에 맞는
-         LED디스플레이 노드를 만든다. 이 앱은 읽기 전용 — 일정 등록은 자동화가
-         담당한다. SCHEDULE_SHEET_CSV_URL이 비어 있으면 "설정되지 않았습니다" 표시. -->
+    <!-- 일정에서 LED 추가: 계산기앱도 쓰는 Outlook 공유 캘린더의 ICS를
+         Apps Script 프록시(ics-proxy.gs) 경유로 읽어 목록을 만들고, "가져오기" 시
+         피치·면적에 맞는 LED디스플레이 노드를 만든다. 읽기 전용.
+         scheduleFeed.js의 SCHEDULE_ICS_PROXY_URL이 비면 "설정되지 않았습니다" 표시.
+         (설정 절차: 일정-피드-설정.md) -->
     <div id="scheduleModal" class="modal-bg" hidden>
       <div class="modal-card">
         <div class="modal-head">
