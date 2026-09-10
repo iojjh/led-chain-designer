@@ -108,12 +108,12 @@ GraphState = {
 
 ## 일정에서 LED 추가 (`js/leddesign/scheduleParse.js`, `js/save/scheduleFeed.js`, 2026-09-10)
 
-자매 앱 `led-calculator`의 밴드 일정 파싱(§13)을 이식하되, 데이터 소스는 Outlook이 아니라 **새 구글 폼 + 게시된 시트 CSV**다 — `cloudShare.js`와 동일한 발상(쓰기 = 숨은 iframe `<form>` POST, 읽기 = "웹에 게시"된 CSV `fetch`, 프리셋 공유와는 별개인 두 번째 폼/시트). **소스 무관 설계**: 앱은 `SCHEDULE_SHEET_CSV_URL`의 행만 읽으므로 나중에 Gmail→시트 Apps Script나 밴드 스크래퍼가 같은 열 순서(타임스탬프·날짜·제목·일정 내용)로 행을 추가해도 앱 코드는 그대로다.
+자매 앱 `led-calculator`의 밴드 일정 파싱(§13)을 이식하되, 데이터 소스는 Outlook이 아니라 **게시된 구글 시트 CSV**다(읽기 = "웹에 게시"된 CSV `fetch`, 구글이 공개 게시 문서엔 CORS 허용). **앱은 읽기 전용** — 시트에 행을 채우는 건 자동화(Gmail→시트 Apps Script 등)가 담당한다. **소스 무관 설계**: 앱은 `SCHEDULE_SHEET_CSV_URL`의 행만 읽으므로 무엇이 행을 채우든(열 순서 타임스탬프·날짜·제목·일정 내용만 지키면) 앱 코드는 그대로다.
 
-- 실제 구글 값이 아직 없어 `scheduleFeed.js` 상단 상수 5개(`SCHEDULE_FORM_RESPONSE_URL`, `SCHEDULE_FORM_ENTRY_DATE/TITLE/BODY`, `SCHEDULE_SHEET_CSV_URL`)는 빈 문자열이다. 비어 있으면 기능 비활성 — 모달이 "설정되지 않았습니다"를 표시하고 네트워크 요청을 안 한다. 설정 절차: `일정-피드-설정.md`.
+- `scheduleFeed.js` 상단 `SCHEDULE_SHEET_CSV_URL` 하나만 설정하면 된다(현재 값 채워짐). 비어 있으면 기능 비활성 — 모달이 "설정되지 않았습니다"를 표시하고 네트워크 요청을 안 한다. 설정·자동화 절차: `일정-피드-설정.md`.
 - `parseScheduleText(text)` (`scheduleParse.js`, 순수) — 단일/멀티(좌우·중앙)를 `{label, pitch:'3mm', areaWm, areaHm}[]` 배열로 통일. 피치를 못 찾거나 지원 밖(2/3/4mm 아님)이면 `'3mm'` 가정, 면적이 없으면 throw. `panelSizeForPitch(pitch)` — 2mm는 500×500, 그 외 500×1000(계산기 `_schedApplyParsedBeta`와 동일 규칙). `_stripSchedFooter`는 이식 안 함(폼 붙여넣기 텍스트엔 Outlook 꼬리말이 없음).
 - 적용(`saveStore.js`의 `applyScheduleEntry`)은 `interactions.js` `onLedAddConfirm`의 빠른 설정(rect) 분기(`:1022-1051`)를 섹션마다 반복 — `planFullAreaLed` → `createPositionedNode('led')`(같은 타입 노드를 자동으로 아래/오른쪽에 쌓아 팬아웃) → `ledDesign` 채우기 → `autoAssignLanForLedNode`/`autoAssignPwrForLedNode`. 섹션끼리 **엣지로 연결하지 않는다**. `finalizeAddedNode`/`renderValidation`은 루프가 끝난 뒤 마지막 노드에 대해 **한 번만**(반복 호출 시 팬이 튐).
-- 모달·목록 UI는 `saveStore.js`의 `renderCloudList` 옆(`initScheduleUi`/`openScheduleModal`/`closeScheduleModal`/`renderScheduleList`/`onScheduleImportClick`/`applyScheduleEntry`/`onScheduleSubmitClick`). `initScheduleUi()`는 `app.js`에서 `initSaveLoadUi()` 다음에 호출. 진입점은 팔레트의 `data-type="schedule"` 버튼 + `interactions.js` 카테고리 핸들러의 한 줄 분기(노드 타입이 아니라 모달 오프너). 순수 모듈 2개는 `tests/scheduleParse.test.js`·`tests/scheduleFeed.test.js`.
+- 모달·목록 UI는 `saveStore.js`의 `renderCloudList` 옆(`initScheduleUi`/`openScheduleModal`/`closeScheduleModal`/`renderScheduleList`/`onScheduleImportClick`/`applyScheduleEntry`). `initScheduleUi()`는 `app.js`에서 `initSaveLoadUi()` 다음에 호출. 진입점은 팔레트의 `data-type="schedule"` 버튼 + `interactions.js` 카테고리 핸들러의 한 줄 분기(노드 타입이 아니라 모달 오프너). 순수 모듈 2개는 `tests/scheduleParse.test.js`·`tests/scheduleFeed.test.js`.
 
 ## 버전 업 규칙
 

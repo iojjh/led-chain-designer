@@ -188,16 +188,15 @@ function onCloudDeleteClick(btn, preset) {
   });
 }
 
-// ── 일정에서 LED 추가 (구글 폼/시트 기반, scheduleFeed.js + scheduleParse.js) ────
-// 팔레트 "🗓 일정에서 추가"(interactions.js) → 이 모달. 밴드 일정 메시지를
-// 붙여넣어 등록하고, 게시된 응답 시트에서 목록을 읽어 "가져오기" 시 피치·면적에
-// 맞는 LED디스플레이 노드를 만든다. 커뮤니티 프리셋 모달과 같은 구조라 여기 둔다.
+// ── 일정에서 LED 추가 (게시된 구글 시트 CSV, scheduleFeed.js + scheduleParse.js) ────
+// 팔레트 "🗓 일정에서 추가"(interactions.js) → 이 모달. 밴드 일정이 자동으로
+// 쌓이는 시트에서 목록을 읽어(읽기 전용), "가져오기" 시 피치·면적에 맞는
+// LED디스플레이 노드를 만든다. 커뮤니티 프리셋 모달과 같은 구조라 여기 둔다.
 function initScheduleUi() {
   document.getElementById('scheduleClose').addEventListener('click', closeScheduleModal);
   document.getElementById('scheduleModal').addEventListener('click', e => {
     if (e.target.id === 'scheduleModal') { closeScheduleModal(); }
   });
-  document.getElementById('scheduleSubmitBtn').addEventListener('click', onScheduleSubmitClick);
   document.getElementById('scheduleRefreshBtn').addEventListener('click', renderScheduleList);
   registerOverlayCloser('schedule', closeScheduleModal);
 }
@@ -289,25 +288,4 @@ function applyScheduleEntry(sections) {
   finalizeAddedNode(created[created.length - 1], false); // 마지막 노드 선택, 속성 패널은 안 엶
   renderValidation();
   showToast(created.length === 1 ? 'LED 1개를 추가했습니다' : `LED ${created.length}개를 추가했습니다`);
-}
-
-async function onScheduleSubmitClick() {
-  const date = document.getElementById('scheduleDateInput').value.trim();
-  const title = document.getElementById('scheduleTitleInput').value.trim();
-  const body = document.getElementById('scheduleBodyInput').value.trim();
-  if (!title && !body) { showToast('일정 내용을 입력하세요'); return; }
-  const btn = document.getElementById('scheduleSubmitBtn');
-  btn.disabled = true;
-  btn.textContent = '등록 중…';
-  try {
-    await submitScheduleForm(date, title, body);
-    showToast('일정을 등록했습니다 (목록 반영까지 몇 분 걸릴 수 있습니다)');
-    document.getElementById('scheduleDateInput').value = '';
-    document.getElementById('scheduleTitleInput').value = '';
-    document.getElementById('scheduleBodyInput').value = '';
-  } catch (e) {
-    showToast('등록 실패: ' + e.message);
-  }
-  btn.disabled = false;
-  btn.textContent = '일정 등록';
 }
