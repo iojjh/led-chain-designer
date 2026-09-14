@@ -1,6 +1,6 @@
 const {
   runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput, resolveConsoleOutputInfo,
-  resolveConsoleCombinedOutputs,
+  resolveConsoleCombinedOutputs, resolveConsoleMosaicOutputs, computeProjectSummary,
 } = require('../js/validation/validationEngine.js');
 const { resolutionForArea } = require('../js/leddesign/ledAreaSetup.js');
 
@@ -497,5 +497,183 @@ describe('provisional badge: LED with no zones yet makes upstream "ok" results t
     expect(result.nodeIssues.has('s1')).toBe(true);
     expect(result.nodeProvisional.has('s1')).toBe(false);
     expect(result.nodeProvisional.has('ledBig')).toBe(false);
+  });
+});
+
+describe('resolveConsoleMosaicOutputs (아웃풋 N+M 모자이크 합산 해상도)', () => {
+  test('EC90: pgm1+pgm2가 각각 다른 샌딩카드에 연결되면 두 카드의 해상도를 가로로 합친다', () => {
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'magnimage-ec90' }, 0),
+        node('s1', 'sending', {}, 100),
+        node('s2', 'sending', {}, 150),
+        ledNode('led1', 0, zoneLedDesign()),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'pgm1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e3', kind: 'video', from: { nodeId: 'c1', portId: 'pgm2' }, to: { nodeId: 's2', portId: 'in' } },
+        { id: 'e4', kind: 'lan', from: { nodeId: 's2', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    expect(resolveConsoleMosaicOutputs(graph, graph.nodes[0])).toEqual([{ pairLabel: '1+2', w: 512, h: 512 }]);
+  });
+
+  test('EC90: 한 쪽만 연결되면 모자이크 대상이 아니다(빈 배열)', () => {
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'magnimage-ec90' }, 0),
+        node('s1', 'sending', {}, 100),
+        ledNode('led1', 0, zoneLedDesign()),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'pgm1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    expect(resolveConsoleMosaicOutputs(graph, graph.nodes[0])).toEqual([]);
+  });
+
+  test('EC100: main1+main3처럼 선언된 짝이 아닌 조합으로 연결되면 어느 쪽 짝도 완성되지 않아 빈 배열', () => {
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'magnimage-ec100' }, 0),
+        node('s1', 'sending', {}, 100),
+        node('s2', 'sending', {}, 150),
+        ledNode('led1', 0, zoneLedDesign()),
+        ledNode('led2', 0, zoneLedDesign()),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'main1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e3', kind: 'video', from: { nodeId: 'c1', portId: 'main3' }, to: { nodeId: 's2', portId: 'in' } },
+        { id: 'e4', kind: 'lan', from: { nodeId: 's2', portId: 'out' }, to: { nodeId: 'led2', portId: 'in' } },
+      ],
+    };
+    expect(resolveConsoleMosaicOutputs(graph, graph.nodes[0])).toEqual([]);
+  });
+
+  test('EC100: main1+main2, main3+main4 두 짝이 모두 완성되면 각각 별도 항목으로 나온다', () => {
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'magnimage-ec100' }, 0),
+        node('s1', 'sending', {}, 100),
+        node('s2', 'sending', {}, 150),
+        node('s3', 'sending', {}, 200),
+        node('s4', 'sending', {}, 250),
+        ledNode('led1', 0, zoneLedDesign()),
+        ledNode('led2', 0, zoneLedDesign()),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'main1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e3', kind: 'video', from: { nodeId: 'c1', portId: 'main2' }, to: { nodeId: 's2', portId: 'in' } },
+        { id: 'e4', kind: 'lan', from: { nodeId: 's2', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e5', kind: 'video', from: { nodeId: 'c1', portId: 'main3' }, to: { nodeId: 's3', portId: 'in' } },
+        { id: 'e6', kind: 'lan', from: { nodeId: 's3', portId: 'out' }, to: { nodeId: 'led2', portId: 'in' } },
+        { id: 'e7', kind: 'video', from: { nodeId: 'c1', portId: 'main4' }, to: { nodeId: 's4', portId: 'in' } },
+        { id: 'e8', kind: 'lan', from: { nodeId: 's4', portId: 'out' }, to: { nodeId: 'led2', portId: 'in' } },
+      ],
+    };
+    expect(resolveConsoleMosaicOutputs(graph, graph.nodes[0])).toEqual([
+      { pairLabel: '1+2', w: 512, h: 512 },
+      { pairLabel: '3+4', w: 512, h: 512 },
+    ]);
+  });
+
+  test('J6은 mosaicOutputPairs가 없어 항상 빈 배열', () => {
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'splicer' }, 0),
+        node('s1', 'sending', {}, 100),
+        node('s2', 'sending', {}, 150),
+        ledNode('led1', 0, zoneLedDesign()),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e3', kind: 'video', from: { nodeId: 'c1', portId: 'dvi2' }, to: { nodeId: 's2', portId: 'in' } },
+        { id: 'e4', kind: 'lan', from: { nodeId: 's2', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+      ],
+    };
+    expect(resolveConsoleMosaicOutputs(graph, graph.nodes[0])).toEqual([]);
+  });
+});
+
+describe('computeProjectSummary (설치 자재 요약 패널이 쓰는 프로젝트 전체 집계)', () => {
+  test('최종 해상도(LED 가로 합)·패널/랙 수(피치×패널크기별)·케이블 개수를 프로젝트 전체 기준으로 합산한다', () => {
+    // led1: 3mm, 500×500 패널 4×4칸(2000×2000mm) → 16장, 1랙(500×500=24장/랙).
+    const zone1 = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 4, cols: 4, panelW: 500, panelH: 500 };
+    // led2: 3mm, 500×1000(세로) 패널 2×4칸(1000×2000mm) → 4장, 1랙(500×1000=12장/랙).
+    const zone2 = { id: 'z2', led: '3mm', startRow: 0, startCol: 0, rows: 4, cols: 2, panelW: 500, panelH: 1000 };
+
+    const led1 = ledNode('led1', 0, {
+      areaW: 2000, areaH: 2000, zones: [zone1],
+      lanPorts: [['z1:0:0', 'z1:1:0', 'z1:2:0'], [], ['z1:0:1', 'z1:1:1']],
+      pwrPorts: [['z1:0:0'], ['z1:0:1', 'z1:1:1', 'z1:2:1']],
+    });
+    const led2 = ledNode('led2', 0, { areaW: 1000, areaH: 2000, zones: [zone2], lanPorts: [], pwrPorts: [] });
+    const s1 = node('s1', 'sending', {}, 100);
+
+    const graph = {
+      nodes: [led1, led2, s1],
+      edges: [{ id: 'e1', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } }],
+    };
+
+    const summary = computeProjectSummary(graph);
+
+    // led1: resolutionForArea(2000,2000,'3mm') = 512×512. led2: resolutionForArea(1000,2000,'3mm') = 256×512.
+    expect(summary.totalResolution).toEqual({ w: 512 + 256, h: 512 });
+
+    expect(summary.sendingCards).toEqual([{ nodeId: 's1', label: 'sending', w: 512, h: 512, hz: null }]);
+
+    expect(summary.panelGroups).toEqual([
+      { pitch: '3mm', sizeKey: '500×500', rackSize: 24, count: 16, racks: 1 },
+      { pitch: '3mm', sizeKey: '500×1000', rackSize: 12, count: 4, racks: 1 },
+    ]);
+    expect(summary.totalPanelCount).toBe(20);
+    expect(summary.panelTotalsByPitch).toEqual([{ pitch: '3mm', count: 20, racks: 2 }]);
+
+    // led1 LAN: 사용 포트 2개(3장·2장 배정) → 1번랜 2×2=4, 숏랜 (3-1)+(2-1)=3.
+    // led1 PWR: 사용 포트 2개 → 1번파워 2, 숏파워 (1-1)+(3-1)=2. led2는 배선 없음.
+    // 여유분(spareAdj)을 안 준 노드라 필요=합계, 여유=0.
+    expect(summary.cables).toEqual({
+      lan1: 4, lan1Net: 4, lan1Spare: 0,
+      lanShort: 3, lanShortNet: 3, lanShortSpare: 0, lanShortBundles: 1,
+      pwr1: 2, pwr1Net: 2, pwr1Spare: 0,
+      pwrShort: 2, pwrShortNet: 2, pwrShortSpare: 0, pwrShortBundles: 1,
+    });
+  });
+
+  test('각 LED 노드에 저장된 spareAdj(여유분)는 필요 개수와 별도로 합산되어 합계에 더해진다', () => {
+    const zone = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 2, cols: 2, panelW: 500, panelH: 500 };
+    const led1 = ledNode('led1', 0, {
+      areaW: 1000, areaH: 1000, zones: [zone],
+      lanPorts: [['z1:0:0', 'z1:1:0']], // 사용 포트 1개, 2장 배정 → 필요: 1번랜 2, 숏랜 1
+      pwrPorts: [['z1:0:0']], // 사용 포트 1개 → 필요: 1번파워 1, 숏파워 0
+      spareAdj: { l1: 5, sl: 7, c1: 2, sp: 3 },
+    });
+    const summary = computeProjectSummary({ nodes: [led1], edges: [] });
+    expect(summary.cables).toEqual({
+      lan1: 7, lan1Net: 2, lan1Spare: 5,
+      lanShort: 8, lanShortNet: 1, lanShortSpare: 7, lanShortBundles: 1,
+      pwr1: 3, pwr1Net: 1, pwr1Spare: 2,
+      pwrShort: 3, pwrShortNet: 0, pwrShortSpare: 3, pwrShortBundles: 1,
+    });
+  });
+
+  test('구역·연결이 전혀 없으면 해상도는 null, 카드/패널/케이블은 모두 빈 값', () => {
+    const summary = computeProjectSummary({ nodes: [], edges: [] });
+    expect(summary.totalResolution).toBeNull();
+    expect(summary.sendingCards).toEqual([]);
+    expect(summary.mosaicOutputs).toEqual([]);
+    expect(summary.panelGroups).toEqual([]);
+    expect(summary.totalPanelCount).toBe(0);
+    expect(summary.cables).toEqual({
+      lan1: 0, lan1Net: 0, lan1Spare: 0,
+      lanShort: 0, lanShortNet: 0, lanShortSpare: 0, lanShortBundles: 0,
+      pwr1: 0, pwr1Net: 0, pwr1Spare: 0,
+      pwrShort: 0, pwrShortNet: 0, pwrShortSpare: 0, pwrShortBundles: 0,
+    });
   });
 });

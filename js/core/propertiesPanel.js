@@ -335,21 +335,15 @@ function inputPortListHtml(node) {
 function outputPortListHtml(node) {
   const ports = getConsoleOutputPorts(node);
   const edgesOut = State.graph.edges.filter(e => e.from.nodeId === node.id);
-  // 포트별로 실제 내보내는 해상도·Hz(사용자 요청, 2026-08-26) — 샌딩카드
-  // 카드에 표시되는 것과 같은 계산(resolveConsoleOutputInfo가
-  // resolveSendingCardOutput을 재사용).
-  const outputInfoByPort = new Map(resolveConsoleOutputInfo(State.graph, node).map(i => [i.portId, i]));
   let connected = 0;
   const rows = ports.map(p => {
     const edge = edgesOut.find(e => e.from.portId === p.id);
     const toNode = edge ? getNode(edge.to.nodeId) : null;
     if (toNode) { connected += 1; }
     const capLabel = p.maxPx ? ` (최대 ${p.maxPx.toLocaleString()}px)` : '';
-    const info = outputInfoByPort.get(p.id);
-    const resLabel = info ? ` — ${info.w}×${info.h}${info.hz ? ` · 최대 ${info.hz}Hz` : ''}` : '';
     return `<div class="props-port-row">
       <span class="props-port-name">${escapeHtml(p.label)}${capLabel}</span>
-      <span class="props-port-status ${toNode ? 'linked' : ''}">${toNode ? escapeHtml(toNode.label) + resLabel : '비어있음'}</span>
+      <span class="props-port-status ${toNode ? 'linked' : ''}">${toNode ? escapeHtml(toNode.label) : '비어있음'}</span>
     </div>`;
   }).join('');
   // 지금 설정(예: J6 듀얼링크)에서 못 쓰게 된 포트도 그냥 목록에서 빼버리면
@@ -358,13 +352,7 @@ function outputPortListHtml(node) {
       <span class="props-port-name">${escapeHtml(p.label)}</span>
       <span class="props-port-status">사용불가 (듀얼링크로 DVI1에 병합됨)</span>
     </div>`).join('');
-  // 포트 2개 이상이 같은 LED로 모자이크 합류하면 카드와 대칭으로 합계 해상도도
-  // 한 줄 보여준다(사용자 요청, 2026-08-27).
-  const combinedRows = resolveConsoleCombinedOutputs(State.graph, node).map(c => `<div class="props-port-row">
-      <span class="props-port-name">합계</span>
-      <span class="props-port-status">${c.w}×${c.h}</span>
-    </div>`).join('');
-  return { html: rows + disabledRows + combinedRows, total: ports.length, connected };
+  return { html: rows + disabledRows, total: ports.length, connected };
 }
 
 function sendingFields(node) {

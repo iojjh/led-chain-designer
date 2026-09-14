@@ -176,21 +176,9 @@ function cardSummary(node) {
       // 듀얼링크가 켜져 있으면(현재 J6만 해당, 자동 판정) 카드에서 바로 보이게
       // — 속성 패널을 열지 않아도 "DVI2가 왜 안 보이는지" 알 수 있어야 한다.
       const dualLabel = node.config.dviLink === 'dual' ? ' · 듀얼링크(DVI2 사용불가)' : '';
-      // 콘솔→샌딩카드→LED가 실제로 연결돼 있으면 포트별로 내보내는 해상도·
-      // 최대 Hz도 함께 보여준다(사용자 요청, 2026-08-26 — 샌딩카드 카드와
-      // 대칭). 포트가 여럿이면 콤마로 이어 붙이고(긴 경우 카드 자체가
-      // 말줄임표로 잘림), 속성 패널 출력 포트 목록에 전체가 있다.
-      const outputInfo = resolveConsoleOutputInfo(State.graph, node);
-      const outputLabel = outputInfo.length
-        ? ' · ' + outputInfo.map(i => `${i.portLabel} ${i.w}×${i.h}${i.hz ? `·${i.hz}Hz` : ''}`).join(', ')
-        : '';
-      // 포트 2개 이상이 같은 LED로 모자이크 합류하면 합쳐진 최종 해상도도
-      // 따로 보여준다(사용자 요청, 2026-08-27 — 포트별 몫과 헷갈리지 않게 분리).
-      const combined = resolveConsoleCombinedOutputs(State.graph, node);
-      const combinedLabel = combined.length
-        ? ' · 합계 ' + combined.map(c => `${c.w}×${c.h}`).join(', ')
-        : '';
-      return `${base} · 입력 ${occupied}/${total}${dualLabel}${outputLabel}${combinedLabel}`;
+      // 출력 해상도는 카드에 표시하지 않는다(사용자 요청, 2026-09-14 —
+      // 캔버스의 "설치 자재 요약" 패널이 대신 프로젝트 전체 기준으로 보여줌).
+      return `${base} · 입력 ${occupied}/${total}${dualLabel}`;
     }
     case 'sending': {
       const d = node.config.deviceId ? getDevice('sending', node.config.deviceId) : null;

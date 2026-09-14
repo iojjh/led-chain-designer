@@ -202,6 +202,32 @@ function resolveConsoleCombinedOutputs(graph, consoleNode) {
   return result;
 }
 
+// EC90/EC100처럼 모자이크(채널 N+M을 좌우로 이어붙여 더 넓은 화면 하나로
+// 출력)로 쓸 수 있는 콘솔은 device.mosaicOutputPairs에 실제로 짝지어야 하는
+// "a" 포트 쌍이 있다(devices.js 참고 — J6는 이 개념이 정확히 들어맞지 않아
+// 필드 자체가 없다, 사용자 확인 2026-09-14). 그 쌍의 두 포트가 각각 다른
+// 샌딩카드에 연결돼 있을 때만(하나만 연결됐거나 짝이 아닌 포트끼리 연결됐으면
+// 모자이크가 아니므로 제외) 두 카드의 실제 해상도(resolveSendingCardOutput)를
+// 가로로 합쳐 보여준다 — 세로는 두 카드가 어긋나 있을 수 있어 보수적으로
+// max를 쓴다.
+function resolveConsoleMosaicOutputs(graph, consoleNode) {
+  const device = consoleNode.config.deviceId ? getDevice('console', consoleNode.config.deviceId) : null;
+  if (!device || !device.mosaicOutputPairs) { return []; }
+
+  return device.mosaicOutputPairs.map(pair => {
+    const outs = pair.map(portId => {
+      const edge = graph.edges.find(e => e.from.nodeId === consoleNode.id && e.from.portId === portId);
+      if (!edge) { return null; }
+      const toNode = graph.nodes.find(n => n.id === edge.to.nodeId);
+      if (!toNode || toNode.type !== 'sending') { return null; }
+      return resolveSendingCardOutput(graph, toNode);
+    });
+    if (outs.some(o => !o)) { return null; }
+    const label = pair.map(id => (id.match(/(\d+)$/) || [null, id])[1]).join('+');
+    return { pairLabel: label, w: outs[0].w + outs[1].w, h: Math.max(outs[0].h, outs[1].h) };
+  }).filter(Boolean);
+}
+
 // 구역이 없는 LED는 totalRequiredPx가 0이라 위 checkConsoleOutput/checkSendingOutput이
 // "0 <= limit"로 트리비얼하게 통과한다 — 진짜 용량 확인이 아니라 LED 해상도가 아직
 // 없어서 나온 잠정 결과다. 상류(console/sending) 배지를 회색 "?"로 낮춰 표시하려면
@@ -302,6 +328,140 @@ function runValidation(graph) {
   return { nodeIssues, edgeIssues, nodeProvisional };
 }
 
+// ── 현장 자재 요약(집계) ──────────────────────────────
+// 500×500mm 패널은 1랙 24장, 그 외(500×1000/1000×500mm)는 1랙 12장
+// (led-calculator의 panelMeta와 동일 규칙, 사용자 확인 2026-09-14).
+const RACK_SIZE_500x500 = 24;
+const RACK_SIZE_DEFAULT = 12;
+const LAN_SHORT_BUNDLE_SIZE = 20;
+const PWR_SHORT_BUNDLE_SIZE = 10;
+
+// 프로젝트(캔버스 전체) 기준으로 현장에 가져가야 할 것들을 한 번에 집계한다
+// (사용자 요청, 2026-09-14 — 이슈 패널과 별개인 "설치 자재 요약" 패널이 씀).
+// 개별 조각은 전부 기존 순수 계산을 그대로 재사용해, 카드·속성 패널에 이미
+// 표시되는 값과 절대 갈라지지 않게 한다: 샌딩카드 해상도는
+// resolveSendingCardOutput, LED 최종 해상도는 boundingResolutionForZones,
+// 케이블 개수는 ledDesignView.js의 renderCableSum과 동일한 공식(1번=사용
+// 포트 수[랜은 ×2], 숏=포트별 (배정 장수-1)의 합 + 각 LED 노드에 이미
+// 저장된 spareAdj)이다.
+function computeProjectSummary(graph) {
+  const ledNodes = graph.nodes.filter(n => n.type === 'led');
+
+  // 최종 전체 해상도 — 구역이 있는 LED 노드들의 해상도를 가로로 이어붙인다
+  // (폭은 합, 높이는 가장 큰 값 — 노드마다 세로가 다를 수 있어 보수적으로 최댓값).
+  const ledResolutions = ledNodes
+    .map(n => (hasZones(n) ? boundingResolutionForZones(n.config.ledDesign.zones) : null))
+    .filter(r => r && r.w && r.h);
+  const totalResolution = ledResolutions.length
+    ? { w: ledResolutions.reduce((sum, r) => sum + r.w, 0), h: Math.max(...ledResolutions.map(r => r.h)) }
+    : null;
+
+  // 샌딩카드별 해상도 — 카드 요약에 표시되는 것과 동일한 계산.
+  const sendingCards = graph.nodes.filter(n => n.type === 'sending')
+    .map(n => {
+      const out = resolveSendingCardOutput(graph, n);
+      return out ? { nodeId: n.id, label: n.label, w: out.w, h: out.h, hz: out.hz } : null;
+    })
+    .filter(Boolean);
+
+  // 콘솔 모자이크 출력(아웃풋1+2/3+4) — EC90/EC100처럼 짝지어 쓰는 콘솔만.
+  const mosaicOutputs = [];
+  graph.nodes.filter(n => n.type === 'console').forEach(n => {
+    resolveConsoleMosaicOutputs(graph, n).forEach(m => {
+      mosaicOutputs.push({ consoleNodeId: n.id, consoleLabel: n.label, pairLabel: m.pairLabel, w: m.w, h: m.h });
+    });
+  });
+
+  // LED 패널·랙 수 — 피치×패널크기별로 묶는다(랙 크기가 패널 크기에 따라 다름).
+  const panelGroups = new Map();
+  ledNodes.forEach(n => {
+    (n.config.ledDesign.zones || []).forEach(zone => {
+      betaPanels(zone).forEach(p => {
+        const sizeKey = `${p.w}×${p.h}`;
+        const key = `${p.led}|${sizeKey}`;
+        if (!panelGroups.has(key)) {
+          const rackSize = (p.w === 500 && p.h === 500) ? RACK_SIZE_500x500 : RACK_SIZE_DEFAULT;
+          panelGroups.set(key, { pitch: p.led, sizeKey, area: p.w * p.h, rackSize, count: 0 });
+        }
+        panelGroups.get(key).count += 1;
+      });
+    });
+  });
+  const pitchOrder = ['2mm', '3mm', '4mm'];
+  const panelGroupList = Array.from(panelGroups.values())
+    .sort((a, b) => pitchOrder.indexOf(a.pitch) - pitchOrder.indexOf(b.pitch) || a.area - b.area)
+    .map(({ pitch, sizeKey, rackSize, count }) => ({ pitch, sizeKey, rackSize, count, racks: Math.ceil(count / rackSize) }));
+
+  const panelTotalsByPitchMap = new Map();
+  panelGroupList.forEach(g => {
+    const entry = panelTotalsByPitchMap.get(g.pitch) || { pitch: g.pitch, count: 0, racks: 0 };
+    entry.count += g.count;
+    entry.racks += g.racks;
+    panelTotalsByPitchMap.set(g.pitch, entry);
+  });
+  const panelTotalsByPitch = pitchOrder
+    .map(p => panelTotalsByPitchMap.get(p))
+    .filter(Boolean);
+
+  // 케이블 개수 — LED디스플레이 세부 페이지의 renderCableSum/updateCableSum과
+  // 동일한 공식을 프로젝트 내 모든 LED 노드에 대해 합산한다. 필요(net)와
+  // 여유(spare, 각 LED 노드에 이미 저장된 spareAdj)를 따로 더해뒀다가 합계와
+  // 함께 보여준다(사용자 요청, 2026-09-14 — 그 LED 페이지와 동일한 "필요 N ·
+  // 여유 M" 표기).
+  let lan1Net = 0;
+  let lan1Spare = 0;
+  let lanShortNet = 0;
+  let lanShortSpare = 0;
+  let pwr1Net = 0;
+  let pwr1Spare = 0;
+  let pwrShortNet = 0;
+  let pwrShortSpare = 0;
+  ledNodes.forEach(n => {
+    const cfg = n.config.ledDesign;
+    const spare = cfg.spareAdj || {};
+    const lanPorts = cfg.lanPorts || [];
+    const lanUsed = lanPorts.filter(a => a.length > 0).length;
+    lan1Net += lanUsed * 2;
+    lan1Spare += spare.l1 || 0;
+    lanShortNet += lanPorts.reduce((sum, a) => sum + Math.max(0, a.length - 1), 0);
+    lanShortSpare += spare.sl || 0;
+
+    const pwrPorts = cfg.pwrPorts || [];
+    const pwrUsed = pwrPorts.filter(a => a.length > 0).length;
+    pwr1Net += pwrUsed;
+    pwr1Spare += spare.c1 || 0;
+    pwrShortNet += pwrPorts.reduce((sum, a) => sum + Math.max(0, a.length - 1), 0);
+    pwrShortSpare += spare.sp || 0;
+  });
+  const lanShort = lanShortNet + lanShortSpare;
+  const pwrShort = pwrShortNet + pwrShortSpare;
+
+  return {
+    totalResolution,
+    sendingCards,
+    mosaicOutputs,
+    panelGroups: panelGroupList,
+    panelTotalsByPitch,
+    totalPanelCount: panelGroupList.reduce((sum, g) => sum + g.count, 0),
+    cables: {
+      lan1: lan1Net + lan1Spare,
+      lan1Net,
+      lan1Spare,
+      lanShort,
+      lanShortNet,
+      lanShortSpare,
+      lanShortBundles: Math.ceil(lanShort / LAN_SHORT_BUNDLE_SIZE),
+      pwr1: pwr1Net + pwr1Spare,
+      pwr1Net,
+      pwr1Spare,
+      pwrShort,
+      pwrShortNet,
+      pwrShortSpare,
+      pwrShortBundles: Math.ceil(pwrShort / PWR_SHORT_BUNDLE_SIZE),
+    },
+  };
+}
+
 // ── DOM 표면화 ──────────────────────────────────────
 let _issuesListEl = null;
 let _issuesCountEl = null;
@@ -318,6 +478,7 @@ function renderValidation() {
   renderNodeCards();
   render();
   renderIssuesPanel(result);
+  renderSummaryPanel(computeProjectSummary(State.graph));
 }
 
 let _prevIssueCount = 0;
@@ -356,6 +517,69 @@ function renderIssuesPanel(result) {
   _prevIssueCount = rows.length;
 }
 
+// 설치 자재 요약 패널 — 이슈 패널과 별개로, 캔버스 전체(프로젝트 전체) 기준의
+// 최종 해상도·LED 장수/랙 수·케이블 개수를 한눈에 보여준다(사용자 요청,
+// 2026-09-14). computeProjectSummary의 순수 결과를 그대로 DOM에 옮기기만 한다.
+function renderSummaryPanel(summary) {
+  const bodyEl = document.getElementById('summaryBody');
+  if (!bodyEl) { return; }
+  const countEl = document.getElementById('summaryCount');
+  if (countEl) { countEl.textContent = `${summary.totalPanelCount.toLocaleString()}장`; }
+
+  const resRows = [];
+  if (summary.totalResolution) {
+    resRows.push(`<div class="summary-row"><span>전체(LED 가로 합)</span><b>${summary.totalResolution.w}×${summary.totalResolution.h}</b></div>`);
+  }
+  summary.mosaicOutputs.forEach(m => {
+    resRows.push(`<div class="summary-row"><span>${escapeHtml(m.consoleLabel)} 출력${m.pairLabel}</span><b>${m.w}×${m.h}</b></div>`);
+  });
+  summary.sendingCards.forEach(c => {
+    const hzLabel = c.hz ? ` · 최대 ${c.hz}Hz` : '';
+    resRows.push(`<div class="summary-row"><span>${escapeHtml(c.label)}</span><b>${c.w}×${c.h}${hzLabel}</b></div>`);
+  });
+
+  const panelRows = summary.panelGroups.map(g => (
+    `<div class="summary-row"><span>${g.pitch} ${g.sizeKey}</span><b>${g.count.toLocaleString()}장 · ${g.racks}랙</b></div>`
+  ));
+  if (summary.panelTotalsByPitch.length > 1) {
+    summary.panelTotalsByPitch.forEach(t => panelRows.push(
+      `<div class="summary-row summary-row-total"><span>${t.pitch} 합계</span><b>${t.count.toLocaleString()}장 · ${t.racks}랙</b></div>`
+    ));
+  }
+
+  const c = summary.cables;
+  const cableItem = (label, total, net, spare, bundles) => `
+    <div class="summary-row">
+      <span>${label}</span>
+      <span class="summary-row-value">
+        <b>${total.toLocaleString()}개${bundles ? ` (${bundles}묶음)` : ''}</b>
+        <small class="summary-row-note">필요 ${net.toLocaleString()} · 여유 ${spare.toLocaleString()}</small>
+      </span>
+    </div>
+  `;
+  const cableRows = [
+    cableItem('1번 랜', c.lan1, c.lan1Net, c.lan1Spare),
+    cableItem('숏랜', c.lanShort, c.lanShortNet, c.lanShortSpare, c.lanShortBundles),
+    cableItem('1번 파워', c.pwr1, c.pwr1Net, c.pwr1Spare),
+    cableItem('숏파워', c.pwrShort, c.pwrShortNet, c.pwrShortSpare, c.pwrShortBundles),
+  ];
+
+  bodyEl.innerHTML = `
+    <div class="summary-section">
+      <div class="summary-section-title">해상도</div>
+      ${resRows.length ? resRows.join('') : '<div class="issue-empty">LED 구역이 아직 없습니다</div>'}
+    </div>
+    <div class="summary-section">
+      <div class="summary-section-title">LED 패널</div>
+      ${panelRows.length ? panelRows.join('') : '<div class="issue-empty">LED 구역이 아직 없습니다</div>'}
+    </div>
+    <div class="summary-section">
+      <div class="summary-section-title">케이블</div>
+      ${cableRows.join('')}
+    </div>
+  `;
+}
+
 function panToNode(nodeId) {
   const node = getNode(nodeId);
   if (!node) { return; }
@@ -372,6 +596,6 @@ function panToNode(nodeId) {
 if (typeof module !== 'undefined') {
   module.exports = {
     runValidation, resolveJ6DualLink, applyAutoJ6DualLink, resolveSendingCardOutput, resolveConsoleOutputInfo,
-    resolveConsoleCombinedOutputs,
+    resolveConsoleCombinedOutputs, resolveConsoleMosaicOutputs, computeProjectSummary,
   };
 }

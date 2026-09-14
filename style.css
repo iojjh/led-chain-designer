@@ -691,14 +691,25 @@ button {
 .props-port-disabled { opacity: 0.5; border-style: dashed; }
 .props-port-disabled .props-port-name { text-decoration: line-through; }
 
-/* ── 이슈 패널 ──────────────────────────────────────── */
-.issues-panel {
+/* ── 좌하단 패널 스택(설치 자재 요약 + 이슈) ──────────────── */
+/* 이슈 패널이 화면 가장자리에 가장 가깝게(더 급한 정보), 요약 패널이 그
+   위로 쌓인다 — 둘 다 접고 펼 수 있어 flex column으로 쌓아야 어느 쪽이
+   접혀 있어도 겹치지 않는다(DOM 순서: 요약이 먼저, 이슈가 나중 = 아래). */
+.bottom-left-stack {
   position: absolute;
   left: 16px;
   bottom: 16px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+/* ── 이슈 패널(+ 설치 자재 요약 패널이 이 클래스를 함께 씀) ─── */
+.issues-panel {
   width: min(300px, calc(100vw - 32px));
   max-height: 260px;
-  z-index: 10;
   background: var(--bg-1);
   border: 1px solid var(--border-float);
   border-radius: var(--radius);
@@ -768,6 +779,31 @@ button {
 
 .issue-empty { padding: 10px 12px; font-size: 12px; color: var(--text-2); }
 
+/* ── 설치 자재 요약 패널(.issues-panel 공유, .summary-body가 .issues-list 대신) ── */
+.summary-body { display: flex; flex-direction: column; }
+.summary-section { padding: 8px 12px; border-bottom: 1px solid var(--border-soft); }
+.summary-section:last-child { border-bottom: none; }
+.summary-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+.summary-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.summary-row span { color: var(--text-1); }
+.summary-row b { color: var(--text-0); font-weight: 600; text-align: right; }
+.summary-row-value { display: flex; flex-direction: column; align-items: flex-end; }
+.summary-row-total { border-top: 1px dashed var(--border-soft); margin-top: 2px; padding-top: 5px; }
+.summary-row-total span, .summary-row-total b { font-weight: 700; }
+.summary-row-note { font-size: 10px; color: var(--text-2); }
+
 /* 좁은 화면(모바일)에서는 좌상단 팔레트와 우상단 속성 패널이 나란히 놓일
    가로 폭이 부족해 서로 겹친다 — 속성 패널을 하단 시트로, 이슈 패널을
    하단 전체 폭 바로 위에 접히도록 옮겨 세로로 쌓이게 한다. */
@@ -778,12 +814,10 @@ button {
    재배치는 더 이상 필요 없다 — 오히려 팔레트에서 고른 위치와 동떨어진
    화면 하단에서 불쑥 튀어나오는 문제만 만들었었다. */
 @media (max-width: 640px) {
-  /* 저장/불러오기 버튼은 원래 자리(우하단)·원래 문구 그대로 두고, 이슈
-     패널 쪽을 그 버튼 폭(약 130px)만큼 더 좁혀 겹치지 않게 한다 — PC의
-     min(300px, ...) 규칙과 같은 형태를 쓰되 오른쪽 여유분만 늘렸다. */
+  /* 저장/불러오기 버튼은 원래 자리(우하단)·원래 문구 그대로 두고, 이슈·
+     요약 패널 쪽을 그 버튼 폭(약 130px)만큼 더 좁혀 겹치지 않게 한다 —
+     PC의 min(300px, ...) 규칙과 같은 형태를 쓰되 오른쪽 여유분만 늘렸다. */
   .issues-panel {
-    left: 16px;
-    bottom: 16px;
     width: min(300px, calc(100vw - 182px));
     max-height: 40vh;
   }

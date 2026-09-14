@@ -175,6 +175,12 @@ const DEVICES = {
         // Output 표 AUX 행). 정확한 Hz별 상한은 outputResolutionTable 참고.
         perOutputMaxPx: 4352 * 2176,
       },
+      // 모자이크(채널 1+2를 좌우로 이어붙여 더 넓은 화면 하나로 출력)로 쓸 때
+      // 실제로 짝지어야 하는 "a" 포트 쌍(사용자 확인, 2026-09-14) — validationEngine.js의
+      // resolveConsoleMosaicOutputs가 이 쌍의 두 포트가 각각 샌딩카드에 연결돼
+      // 있을 때만 두 카드의 해상도를 합쳐 보여준다. AUX(채널 3/4)는 모니터링용이라
+      // 모자이크 대상에서 제외한다.
+      mosaicOutputPairs: [['pgm1', 'pgm2']],
       // PROGRAM/AUX 채널 1개(단일 출력 기준)가 지원하는 고정 해상도 14종과
       // 각각의 Hz(매뉴얼 Output 표 그대로, 2026-08-26). 같은 해상도가 Hz만
       // 다르게 여러 번 나와 표를 합쳤다 — maxHzForPx가 이 표에서 "필요 픽셀수를
@@ -313,6 +319,10 @@ const DEVICES = {
         { w: 3840, h: 2400, hz: [60] },
         { w: 7680, h: 1200, hz: [60] },
       ],
+      // MAIN 4채널을 모자이크로 이어붙일 때 실제로 짝지어야 하는 "a" 포트
+      // 쌍(1a+2a, 3a+4a — 사용자 확인, 2026-09-14). AUX는 모자이크 대상에서
+      // 제외(resolveConsoleMosaicOutputs 참고).
+      mosaicOutputPairs: [['main1', 'main2'], ['main3', 'main4']],
       note: 'HDMI/OPT 영상 출력 — LED디스플레이 직결 불가, 샌딩카드 노드를 반드시 거쳐야 함',
       sourcePdf: 'MIG-EC100 Event Controller User Manual V1.1.pdf',
     },

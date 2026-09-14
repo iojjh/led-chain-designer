@@ -1,7 +1,7 @@
 // ── app 부트스트랩 ──────────────────────────────────
 // package.json의 version과 맞춰 수동으로 올린다. 기능 변경 시 이 값과
 // service-worker.js의 CACHE_VERSION을 함께 동기화할 것(CLAUDE.md 참고).
-const APP_VERSION = '0.11.2';
+const APP_VERSION = '0.12.3';
 
 (function () {
   const canvasEl = document.getElementById('graphCanvas');
@@ -19,6 +19,9 @@ const APP_VERSION = '0.11.2';
 
   document.getElementById('issuesToggle').addEventListener('click', () => {
     document.getElementById('issuesPanel').classList.toggle('collapsed');
+  });
+  document.getElementById('summaryToggle').addEventListener('click', () => {
+    document.getElementById('summaryPanel').classList.toggle('collapsed');
   });
 
   // 좁은 화면(모바일)에서는 이슈 패널을 접힌 채로 시작해, 속성 패널이 하단
