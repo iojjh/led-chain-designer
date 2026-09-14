@@ -288,6 +288,37 @@ describe('resolveSendingCardOutput (resolution + max achievable Hz shown on the 
     const graph = { nodes: [node('s1', 'sending', {}, 100)], edges: [] };
     expect(resolveSendingCardOutput(graph, graph.nodes[0])).toBeNull();
   });
+
+  test('one card feeding two different LED nodes lists each LED\'s own resolution instead of only the first found', () => {
+    // 버그 재현: s1이 512×512(led1)과 훨씬 큰 LED(led2)에 동시에 연결됨.
+    // 예전에는 downstreamOf().find()가 먼저 찾은 led1만 보고 512×512만 반환했다.
+    const bigZone = {
+      id: 'z2', led: '3mm', startRow: 0, startCol: 0, rows: 32, cols: 32, panelW: 500, panelH: 500,
+    };
+    const graph = {
+      nodes: [
+        node('c1', 'console', { deviceId: 'novastar-j6', mode: 'splicer' }, 0),
+        node('s1', 'sending', {}, 100),
+        ledNode('led1', 0, zoneLedDesign()),
+        ledNode('led2', 200, { areaW: 16000, areaH: 16000, zones: [bigZone], pwrPorts: [], lanPorts: [] }),
+      ],
+      edges: [
+        { id: 'e1', kind: 'video', from: { nodeId: 'c1', portId: 'dvi1' }, to: { nodeId: 's1', portId: 'in' } },
+        { id: 'e2', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led1', portId: 'in' } },
+        { id: 'e3', kind: 'lan', from: { nodeId: 's1', portId: 'out' }, to: { nodeId: 'led2', portId: 'in' } },
+      ],
+    };
+    const res = resolveSendingCardOutput(graph, graph.nodes.find(n => n.id === 's1'));
+    expect(res.multi).toBe(true);
+    expect(res.parts).toEqual(expect.arrayContaining([
+      { w: 512, h: 512 },
+      expect.objectContaining({ w: expect.any(Number), h: expect.any(Number) }),
+    ]));
+    expect(res.parts.length).toBe(2);
+    // led2 몫이 실제로 반영됐는지(512×512보다 훨씬 큼) 확인 — 예전 버그라면
+    // led2 몫이 아예 계산에서 빠졌을 것.
+    expect(Math.max(...res.parts.map(p => p.w))).toBeGreaterThan(512);
+  });
 });
 
 describe('resolveConsoleOutputInfo (per-port resolution + Hz shown on the console node itself)', () => {
@@ -625,7 +656,7 @@ describe('computeProjectSummary (설치 자재 요약 패널이 쓰는 프로젝
     // led1: resolutionForArea(2000,2000,'3mm') = 512×512. led2: resolutionForArea(1000,2000,'3mm') = 256×512.
     expect(summary.totalResolution).toEqual({ w: 512 + 256, h: 512 });
 
-    expect(summary.sendingCards).toEqual([{ nodeId: 's1', label: 'sending', w: 512, h: 512, hz: null }]);
+    expect(summary.sendingCards).toEqual([{ nodeId: 's1', label: 'sending', w: 512, h: 512, hz: null, parts: null }]);
 
     expect(summary.panelGroups).toEqual([
       { pitch: '3mm', sizeKey: '500×500', rackSize: 24, count: 16, racks: 1 },
