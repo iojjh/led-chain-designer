@@ -117,30 +117,47 @@ function hasZones(ledNode) {
 // N등분" — 사용자가 명시적으로 요청한 단순화). 주사율은 상류 콘솔의 실제 출력
 // 해상도 표(device.outputResolutionTable)에서 이 픽셀수를 감당하는 최대 Hz를
 // 찾아 정한다 — 콘솔이 없거나 장비 프리셋이 없으면(수동 모드) 주사율은 판단 불가.
+//
+// 샌딩카드 하나가 서로 다른 LED 노드 여러 대에 나눠 연결될 수도 있다(사용자
+// 신고, 2026-09-14 — 크기가 다른 LED 두 대에 연결했더니 카드에 첫 번째로
+// 찾은 LED의 해상도만 뜨고 두 번째는 통째로 무시됨). 그래서 하류 LED를
+// downstreamOf에서 하나만 find하지 않고 전부 모아(parts) 각자의 몫을 계산한
+// 뒤, 2대 이상이면 parts를 그대로 반환해 카드에 "1248×832+4608×1024"처럼
+// LED별로 나열할 수 있게 한다 — 서로 다른 화면이라 하나의 W×H로 합치면
+// (bounding box 자체가 무의미) 오히려 더 헷갈린다. 주사율은 여러 LED로 나가는
+// 신호도 결국 이 카드 하나가 내보내는 총 픽셀량이므로 parts 전체의 픽셀 합으로
+// 계산한다(pxAssignedToSendingCard/requiredPxOfDownstreamNode의 합산 방식과
+// 동일). 다른 계산(모자이크 합산 등)이 기존처럼 단일 w/h를 그대로 쓸 수 있게,
+// multi일 때도 가로 합/세로 최댓값으로 근사한 w/h를 함께 둔다.
 function resolveSendingCardOutput(graph, sendingNode) {
-  const ledNode = downstreamOf(graph, sendingNode.id).find(n => n.type === 'led' && hasZones(n));
-  if (!ledNode) { return null; }
+  const ledNodes = downstreamOf(graph, sendingNode.id).filter(n => n.type === 'led' && hasZones(n));
+  if (!ledNodes.length) { return null; }
 
-  const assignedPanels = panelsAssignedToSendingCard(graph, ledNode, sendingNode.id);
-  const actual = assignedPanels && assignedPanels.length ? boundingResolutionForPanels(assignedPanels) : null;
+  const parts = ledNodes.map(ledNode => {
+    const assignedPanels = panelsAssignedToSendingCard(graph, ledNode, sendingNode.id);
+    const actual = assignedPanels && assignedPanels.length ? boundingResolutionForPanels(assignedPanels) : null;
+    if (actual) { return actual; }
 
-  let w;
-  let h;
-  if (actual) {
-    ({ w, h } = actual);
-  } else {
     const full = boundingResolutionForZones(ledNode.config.ledDesign.zones);
     if (!full || full.w === 0 || full.h === 0) { return null; }
     const cardCount = upstreamOf(graph, ledNode.id).filter(n => n.type === 'sending').length || 1;
-    w = Math.floor(full.w / cardCount);
-    h = full.h;
-  }
+    return { w: Math.floor(full.w / cardCount), h: full.h };
+  }).filter(Boolean);
+
+  if (!parts.length) { return null; }
 
   const consoleNode = upstreamOf(graph, sendingNode.id).find(n => n.type === 'console');
   const device = consoleNode && consoleNode.config.deviceId ? getDevice('console', consoleNode.config.deviceId) : null;
-  const hz = (device && device.outputResolutionTable) ? maxHzForPx(device.outputResolutionTable, w * h) : null;
+  const totalPx = parts.reduce((sum, p) => sum + p.w * p.h, 0);
+  const hz = (device && device.outputResolutionTable) ? maxHzForPx(device.outputResolutionTable, totalPx) : null;
 
-  return { w, h, hz };
+  if (parts.length === 1) {
+    return { w: parts[0].w, h: parts[0].h, hz };
+  }
+
+  const w = parts.reduce((sum, p) => sum + p.w, 0);
+  const h = Math.max(...parts.map(p => p.h));
+  return { w, h, hz, parts, multi: true };
 }
 
 // 콘솔의 출력 포트별로, 그 포트가 실제로 물려 있는 샌딩카드 방향의 해상도·
@@ -360,7 +377,8 @@ function computeProjectSummary(graph) {
   const sendingCards = graph.nodes.filter(n => n.type === 'sending')
     .map(n => {
       const out = resolveSendingCardOutput(graph, n);
-      return out ? { nodeId: n.id, label: n.label, w: out.w, h: out.h, hz: out.hz } : null;
+      if (!out) { return null; }
+      return { nodeId: n.id, label: n.label, w: out.w, h: out.h, hz: out.hz, parts: out.multi ? out.parts : null };
     })
     .filter(Boolean);
 
@@ -535,7 +553,8 @@ function renderSummaryPanel(summary) {
   });
   summary.sendingCards.forEach(c => {
     const hzLabel = c.hz ? ` · 최대 ${c.hz}Hz` : '';
-    resRows.push(`<div class="summary-row"><span>${escapeHtml(c.label)}</span><b>${c.w}×${c.h}${hzLabel}</b></div>`);
+    const resLabel = c.parts ? c.parts.map(p => `${p.w}×${p.h}`).join('+') : `${c.w}×${c.h}`;
+    resRows.push(`<div class="summary-row"><span>${escapeHtml(c.label)}</span><b>${resLabel}${hzLabel}</b></div>`);
   });
 
   const panelRows = summary.panelGroups.map(g => (
