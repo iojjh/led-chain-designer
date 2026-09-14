@@ -85,17 +85,18 @@
     <div id="portPicker" class="port-picker" hidden></div>
 
     <!-- 좌하단에 세로로 쌓이는 패널들 — 이슈 패널이 화면 가장자리에 가깝게
-         (더 급한 정보), 설치 자재 요약이 그 위로. 둘 다 접고 펼 수 있어
+         (더 급한 정보), 설치 요약이 그 위로. 둘 다 접고 펼 수 있어
          flex column으로 쌓아야 어느 쪽이 접혀 있어도 겹치지 않는다. -->
     <div id="bottomLeftStack" class="bottom-left-stack">
-      <!-- 설치 자재 요약: 최종 해상도(LED 합산/콘솔 모자이크 출력/샌딩카드별)·
-           LED 장수·랙 수·필요 케이블 개수를 프로젝트 전체 기준으로 모아
-           보여준다(사용자 요청, 2026-09-14). 기본 접힘 — computeProjectSummary
-           (validationEngine.js)의 순수 결과를 renderSummaryPanel이 그대로 그린다. -->
+      <!-- 설치 요약: LED 노드별 해상도·피치/최종 해상도(LED 합산/콘솔 모자이크
+           출력/샌딩카드별)·LED 장수·랙 수·필요 케이블 개수를 프로젝트 전체
+           기준으로 모아 보여준다(사용자 요청, 2026-09-14, 이름·LED별 정보
+           2026-09-15). 기본 접힘 — computeProjectSummary(validationEngine.js)의
+           순수 결과를 renderSummaryPanel이 그대로 그린다. -->
       <div id="summaryPanel" class="issues-panel collapsed">
         <div class="issues-head" id="summaryToggle">
           <span class="issues-chevron">▾</span>
-          <span>설치 자재 요약</span>
+          <span>설치 요약</span>
           <span id="summaryCount" class="issues-count">0장</span>
         </div>
         <div id="summaryBody" class="issues-list summary-body"></div>

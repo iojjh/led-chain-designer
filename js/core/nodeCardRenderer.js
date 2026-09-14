@@ -177,7 +177,7 @@ function cardSummary(node) {
       // — 속성 패널을 열지 않아도 "DVI2가 왜 안 보이는지" 알 수 있어야 한다.
       const dualLabel = node.config.dviLink === 'dual' ? ' · 듀얼링크(DVI2 사용불가)' : '';
       // 출력 해상도는 카드에 표시하지 않는다(사용자 요청, 2026-09-14 —
-      // 캔버스의 "설치 자재 요약" 패널이 대신 프로젝트 전체 기준으로 보여줌).
+      // 캔버스의 "설치 요약" 패널이 대신 프로젝트 전체 기준으로 보여줌).
       return `${base} · 입력 ${occupied}/${total}${dualLabel}`;
     }
     case 'sending': {

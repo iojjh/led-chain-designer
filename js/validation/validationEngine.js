@@ -351,7 +351,7 @@ const LAN_SHORT_BUNDLE_SIZE = 20;
 const PWR_SHORT_BUNDLE_SIZE = 10;
 
 // 프로젝트(캔버스 전체) 기준으로 현장에 가져가야 할 것들을 한 번에 집계한다
-// (사용자 요청, 2026-09-14 — 이슈 패널과 별개인 "설치 자재 요약" 패널이 씀).
+// (사용자 요청, 2026-09-14 — 이슈 패널과 별개인 "설치 요약" 패널이 씀).
 // 개별 조각은 전부 기존 순수 계산을 그대로 재사용해, 카드·속성 패널에 이미
 // 표시되는 값과 절대 갈라지지 않게 한다: 샌딩카드 해상도는
 // resolveSendingCardOutput, LED 최종 해상도는 boundingResolutionForZones,
@@ -361,11 +361,24 @@ const PWR_SHORT_BUNDLE_SIZE = 10;
 function computeProjectSummary(graph) {
   const ledNodes = graph.nodes.filter(n => n.type === 'led');
 
+  // LED 노드별 해상도·피치 — 사용자가 캔버스에 배치한 LED마다 실제로 뭘
+  // 쓰고 있는지 한눈에 보려는 목적(사용자 요청, 2026-09-15). 피치는 그 LED의
+  // 구역들이 전부 같으면 그 값, 섞여 있으면(예: 한 LED디스플레이 노드 안에
+  // 2mm/3mm 구역이 공존) "/"로 이어붙여 보여준다 — 이 경우
+  // boundingResolutionForZones는 피치가 섞이면 null을 반환하므로 해상도 자체는
+  // 표시하지 못한다(피치별로 실제 크기가 달라 하나의 W×H로 합칠 수 없음).
+  const ledNodeResolutions = ledNodes
+    .filter(n => hasZones(n))
+    .map(n => {
+      const zones = n.config.ledDesign.zones;
+      const pitch = Array.from(new Set(zones.map(z => z.led))).join('/');
+      const res = boundingResolutionForZones(zones);
+      return { nodeId: n.id, label: n.label, pitch, w: res ? res.w : null, h: res ? res.h : null };
+    });
+
   // 최종 전체 해상도 — 구역이 있는 LED 노드들의 해상도를 가로로 이어붙인다
   // (폭은 합, 높이는 가장 큰 값 — 노드마다 세로가 다를 수 있어 보수적으로 최댓값).
-  const ledResolutions = ledNodes
-    .map(n => (hasZones(n) ? boundingResolutionForZones(n.config.ledDesign.zones) : null))
-    .filter(r => r && r.w && r.h);
+  const ledResolutions = ledNodeResolutions.filter(r => r.w && r.h);
   const totalResolution = ledResolutions.length
     ? { w: ledResolutions.reduce((sum, r) => sum + r.w, 0), h: Math.max(...ledResolutions.map(r => r.h)) }
     : null;
@@ -451,6 +464,7 @@ function computeProjectSummary(graph) {
   const pwrShort = pwrShortNet + pwrShortSpare;
 
   return {
+    ledNodeResolutions,
     totalResolution,
     sendingCards,
     mosaicOutputs,
@@ -531,9 +545,10 @@ function renderIssuesPanel(result) {
   _prevIssueCount = rows.length;
 }
 
-// 설치 자재 요약 패널 — 이슈 패널과 별개로, 캔버스 전체(프로젝트 전체) 기준의
-// 최종 해상도·LED 장수/랙 수·케이블 개수를 한눈에 보여준다(사용자 요청,
-// 2026-09-14). computeProjectSummary의 순수 결과를 그대로 DOM에 옮기기만 한다.
+// 설치 요약 패널 — 이슈 패널과 별개로, 캔버스 전체(프로젝트 전체) 기준의
+// LED 노드별 해상도·피치/최종 해상도·LED 장수/랙 수·케이블 개수를 한눈에
+// 보여준다(사용자 요청, 2026-09-14, 이름·LED별 정보 2026-09-15).
+// computeProjectSummary의 순수 결과를 그대로 DOM에 옮기기만 한다.
 function renderSummaryPanel(summary) {
   const bodyEl = document.getElementById('summaryBody');
   if (!bodyEl) { return; }
@@ -541,6 +556,10 @@ function renderSummaryPanel(summary) {
   if (countEl) { countEl.textContent = `${summary.totalPanelCount.toLocaleString()}장`; }
 
   const resRows = [];
+  summary.ledNodeResolutions.forEach(l => {
+    const resLabel = (l.w && l.h) ? `${l.w}×${l.h}` : '구역 없음';
+    resRows.push(`<div class="summary-row"><span>${escapeHtml(l.label)} (${escapeHtml(l.pitch)})</span><b>${resLabel}</b></div>`);
+  });
   if (summary.totalResolution) {
     resRows.push(`<div class="summary-row"><span>전체(LED 가로 합)</span><b>${summary.totalResolution.w}×${summary.totalResolution.h}</b></div>`);
   }

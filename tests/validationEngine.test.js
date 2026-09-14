@@ -628,7 +628,7 @@ describe('resolveConsoleMosaicOutputs (아웃풋 N+M 모자이크 합산 해상�
   });
 });
 
-describe('computeProjectSummary (설치 자재 요약 패널이 쓰는 프로젝트 전체 집계)', () => {
+describe('computeProjectSummary (설치 요약 패널이 쓰는 프로젝트 전체 집계)', () => {
   test('최종 해상도(LED 가로 합)·패널/랙 수(피치×패널크기별)·케이블 개수를 프로젝트 전체 기준으로 합산한다', () => {
     // led1: 3mm, 500×500 패널 4×4칸(2000×2000mm) → 16장, 1랙(500×500=24장/랙).
     const zone1 = { id: 'z1', led: '3mm', startRow: 0, startCol: 0, rows: 4, cols: 4, panelW: 500, panelH: 500 };
@@ -651,6 +651,10 @@ describe('computeProjectSummary (설치 자재 요약 패널이 쓰는 프로젝
     const summary = computeProjectSummary(graph);
 
     // led1: resolutionForArea(2000,2000,'3mm') = 512×512. led2: resolutionForArea(1000,2000,'3mm') = 256×512.
+    expect(summary.ledNodeResolutions).toEqual([
+      { nodeId: 'led1', label: 'led', pitch: '3mm', w: 512, h: 512 },
+      { nodeId: 'led2', label: 'led', pitch: '3mm', w: 256, h: 512 },
+    ]);
     expect(summary.totalResolution).toEqual({ w: 512 + 256, h: 512 });
 
     expect(summary.sendingCards).toEqual([{ nodeId: 's1', label: 'sending', w: 512, h: 512, hz: null }]);
@@ -692,6 +696,7 @@ describe('computeProjectSummary (설치 자재 요약 패널이 쓰는 프로젝
 
   test('구역·연결이 전혀 없으면 해상도는 null, 카드/패널/케이블은 모두 빈 값', () => {
     const summary = computeProjectSummary({ nodes: [], edges: [] });
+    expect(summary.ledNodeResolutions).toEqual([]);
     expect(summary.totalResolution).toBeNull();
     expect(summary.sendingCards).toEqual([]);
     expect(summary.mosaicOutputs).toEqual([]);
@@ -703,5 +708,16 @@ describe('computeProjectSummary (설치 자재 요약 패널이 쓰는 프로젝
       pwr1: 0, pwr1Net: 0, pwr1Spare: 0,
       pwrShort: 0, pwrShortNet: 0, pwrShortSpare: 0, pwrShortBundles: 0,
     });
+  });
+
+  test('한 LED 노드 안에 피치가 다른 구역이 섞여 있으면 피치는 "/"로 이어붙이고 해상도는 null(하나의 W×H로 합칠 수 없음)', () => {
+    const zoneA = { id: 'za', led: '2mm', startRow: 0, startCol: 0, rows: 2, cols: 2, panelW: 500, panelH: 500 };
+    const zoneB = { id: 'zb', led: '3mm', startRow: 0, startCol: 4, rows: 2, cols: 2, panelW: 500, panelH: 500 };
+    const led1 = ledNode('led1', 0, { areaW: 3000, areaH: 1000, zones: [zoneA, zoneB], lanPorts: [], pwrPorts: [] });
+    const summary = computeProjectSummary({ nodes: [led1], edges: [] });
+    expect(summary.ledNodeResolutions).toEqual([
+      { nodeId: 'led1', label: 'led', pitch: '2mm/3mm', w: null, h: null },
+    ]);
+    expect(summary.totalResolution).toBeNull();
   });
 });
