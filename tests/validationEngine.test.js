@@ -289,9 +289,12 @@ describe('resolveSendingCardOutput (resolution + max achievable Hz shown on the 
     expect(resolveSendingCardOutput(graph, graph.nodes[0])).toBeNull();
   });
 
-  test('one card feeding two different LED nodes lists each LED\'s own resolution instead of only the first found', () => {
-    // 버그 재현: s1이 512×512(led1)과 훨씬 큰 LED(led2)에 동시에 연결됨.
-    // 예전에는 downstreamOf().find()가 먼저 찾은 led1만 보고 512×512만 반환했다.
+  test('one card feeding two different (even different-pitch) LED nodes combines them into one bounding rectangle: widths add, height takes the max', () => {
+    // 버그 재현: s1이 512×512(led1, 3mm)와 훨씬 큰 LED(led2, 3mm)에 동시에
+    // 연결됨. 예전에는 downstreamOf().find()가 먼저 찾은 led1만 보고
+    // 512×512만 반환했다 — 지금은 가로로 이어붙이는 실제 배선을 반영해 가로는
+    // 더하고 세로는 최댓값을 취한 하나의 직사각형으로 합친다(사용자 요청,
+    // 2026-09-14).
     const bigZone = {
       id: 'z2', led: '3mm', startRow: 0, startCol: 0, rows: 32, cols: 32, panelW: 500, panelH: 500,
     };
@@ -309,15 +312,9 @@ describe('resolveSendingCardOutput (resolution + max achievable Hz shown on the 
       ],
     };
     const res = resolveSendingCardOutput(graph, graph.nodes.find(n => n.id === 's1'));
-    expect(res.multi).toBe(true);
-    expect(res.parts).toEqual(expect.arrayContaining([
-      { w: 512, h: 512 },
-      expect.objectContaining({ w: expect.any(Number), h: expect.any(Number) }),
-    ]));
-    expect(res.parts.length).toBe(2);
-    // led2 몫이 실제로 반영됐는지(512×512보다 훨씬 큼) 확인 — 예전 버그라면
-    // led2 몫이 아예 계산에서 빠졌을 것.
-    expect(Math.max(...res.parts.map(p => p.w))).toBeGreaterThan(512);
+    // led1 = 512×512, led2(32×32칸, 3mm 500mm 패널) = 4096×4096 (betaPanels.test.js와 동일 계산)
+    expect(res.w).toBe(512 + 4096);
+    expect(res.h).toBe(Math.max(512, 4096));
   });
 });
 
@@ -656,7 +653,7 @@ describe('computeProjectSummary (설치 자재 요약 패널이 쓰는 프로젝
     // led1: resolutionForArea(2000,2000,'3mm') = 512×512. led2: resolutionForArea(1000,2000,'3mm') = 256×512.
     expect(summary.totalResolution).toEqual({ w: 512 + 256, h: 512 });
 
-    expect(summary.sendingCards).toEqual([{ nodeId: 's1', label: 'sending', w: 512, h: 512, hz: null, parts: null }]);
+    expect(summary.sendingCards).toEqual([{ nodeId: 's1', label: 'sending', w: 512, h: 512, hz: null }]);
 
     expect(summary.panelGroups).toEqual([
       { pitch: '3mm', sizeKey: '500×500', rackSize: 24, count: 16, racks: 1 },
