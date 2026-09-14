@@ -186,15 +186,13 @@ function cardSummary(node) {
       // 연결된 LED의 해상도(2대 이상이 나눠 맡으면 가로로 균등 분할해 표시,
       // 사용자 요청)와, 상류 콘솔의 실제 출력 해상도 표에서 그 해상도가 낼 수
       // 있는 최대 주사율(validationEngine.js의 resolveSendingCardOutput). 카드
-      // 하나가 서로 다른 LED 여러 대에 나눠 연결돼 있으면(out.multi) 하나의
-      // W×H로 뭉뚱그리지 않고 LED별 몫을 "+"로 나열한다 — 그래야 "왜 이 카드는
-      // 큰 LED에도 연결돼 있는데 작은 해상도만 뜨지"라는 오해가 없다(사용자
-      // 신고, 2026-09-14).
+      // 하나가 서로 다른(피치가 달라도) LED 여러 대에 나눠 연결돼 있으면, 실제
+      // 배선처럼 가로로 이어붙인 하나의 직사각형(가로 합·세로 최댓값)으로 통합해
+      // 보여준다(사용자 요청, 2026-09-14).
       const out = resolveSendingCardOutput(State.graph, node);
       if (!out) { return base; }
       const hzLabel = out.hz ? ` · 최대 ${out.hz}Hz` : '';
-      const resLabel = out.multi ? out.parts.map(p => `${p.w}×${p.h}`).join('+') : `${out.w}×${out.h}`;
-      return `${base} · ${resLabel}${hzLabel}`;
+      return `${base} · ${out.w}×${out.h}${hzLabel}`;
     }
     case 'led': {
       const cfg = node.config.ledDesign;
