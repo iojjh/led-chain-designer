@@ -200,12 +200,16 @@ function cardSummary(node) {
       if (!zones.length) { return '구역 없음 (클릭해 설계)'; }
       const panelCount = zones.reduce((sum, z) => sum + betaPanels(z).length, 0);
       const px = node.config.totalRequiredPx || 0;
+      // 이 LED가 쓰는 피치 — 구역이 전부 같은 피치면 그 값 하나, 섞여 있으면
+      // (자유 설계에서 구역마다 다른 피치로 그릴 수 있음) "/"로 이어붙인다
+      // (사용자 요청, 2026-09-15 — LED 노드 카드 자체에서 바로 보여야 함).
+      const pitch = Array.from(new Set(zones.map(z => z.led))).join('/');
       // 구역이 여럿이라 비정형 배치여도, 전부 같은 피치면 그 구역들을 감싸는
       // 최소 직사각형 해상도를 보여준다(설치면적 입력값이 아니라 실제 그려진
       // 구역들의 바운딩 박스 기준 — 자유 설계는 면적을 미리 입력하지 않는다).
       const res = boundingResolutionForZones(zones);
       const resLabel = res && res.w && res.h ? `${res.w}×${res.h} · ` : '';
-      return `${resLabel}${panelCount}장 · ${px.toLocaleString()}px`;
+      return `${pitch} · ${resLabel}${panelCount}장 · ${px.toLocaleString()}px`;
     }
     default:
       return '';
