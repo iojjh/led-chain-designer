@@ -2854,23 +2854,41 @@ function drawGuideZone(ctx, zone, zi, cellX, cellY, cellPx, cv, wm, showResoluti
   if (!zRes) { return; }
   const label = labelCellForZone(zone);
   const lx = cellX(label.col); const ly = cellY(label.row);
-  const fsRes = Math.round(Math.max(wm.fSize, Math.min(cellPx * 0.9, 120)));
-  ctx.font = `300 ${fsRes}px 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+  let fsRes = Math.round(Math.max(wm.fSize, Math.min(cellPx * 0.9, 120)));
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   const wStr = `${zRes.w}`; const sepStr = '  ×  '; const hStr = `${zRes.h}`;
-  const wW = ctx.measureText(wStr).width;
-  const sepW = ctx.measureText(sepStr).width;
-  const hW = ctx.measureText(hStr).width;
-  const totalTW = wW + sepW + hW;
-  const tx = lx - totalTW / 2;
-  const ty = ly;
-  ctx.fillStyle = '#ffffff'; ctx.fillText(wStr, tx, ty);
-  ctx.fillStyle = '#FF7A2A'; ctx.fillText(sepStr, tx + wW, ty);
-  ctx.fillStyle = '#ffffff'; ctx.fillText(hStr, tx + wW + sepW, ty);
+
+  const measure = fs => {
+    ctx.font = `300 ${fs}px 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+    return { wW: ctx.measureText(wStr).width, sepW: ctx.measureText(sepStr).width, hW: ctx.measureText(hStr).width };
+  };
+  let m = measure(fsRes);
+  let totalTW = m.wW + m.sepW + m.hW;
+
+  // 좁고 긴 구역이면 라벨 칸 폭 기준 폰트 크기가 캔버스 전체 폭보다 넓은
+  // 텍스트를 만들어 양옆이 잘려 나갈 수 있었다(사용자 신고, 2026-09-16) —
+  // 위치를 옮기는 것만으로는 텍스트 자체가 캔버스보다 넓은 경우를 못 잡으므로
+  // 먼저 최대 폭에 맞춰 폰트 크기부터 줄인다.
+  const maxTextW = cv.width * 0.92;
+  if (totalTW > maxTextW) {
+    fsRes = Math.max(10, Math.floor(fsRes * maxTextW / totalTW));
+    m = measure(fsRes);
+    totalTW = m.wW + m.sepW + m.hW;
+  }
 
   const padding = Math.round(fsRes * 0.15);
   const gap = Math.min(fsRes * 0.55, zh * 0.12);
+  const edgeMargin = padding + 4;
+  // 라벨 칸이 구역 가장자리에 가까우면(오목한 자유 구역 등) 중앙 정렬 위치가
+  // 캔버스 밖으로 나갈 수 있으므로, 텍스트 전체(강조 바 포함)가 캔버스 안에
+  // 온전히 들어오도록 가로·세로 위치를 클램프한다.
+  const tx = Math.max(edgeMargin, Math.min(lx - totalTW / 2, cv.width - totalTW - edgeMargin));
+  const ty = Math.max(edgeMargin + gap, Math.min(ly, cv.height - edgeMargin - gap));
+  ctx.fillStyle = '#ffffff'; ctx.fillText(wStr, tx, ty);
+  ctx.fillStyle = '#FF7A2A'; ctx.fillText(sepStr, tx + m.wW, ty);
+  ctx.fillStyle = '#ffffff'; ctx.fillText(hStr, tx + m.wW + m.sepW, ty);
+
   const barLW = Math.max(1, Math.round(totalTW / 300));
   const barL = tx - padding; const barR = tx + totalTW + padding;
   ctx.strokeStyle = '#FF7A2A'; ctx.lineWidth = barLW;
