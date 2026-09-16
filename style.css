@@ -1562,6 +1562,10 @@ button {
   border-radius: var(--radius-sm);
   background: var(--bg-0);
 }
+.guide-image-option {
+  display: flex; align-items: center; gap: 6px;
+  margin: 10px 0; font-size: 13px; color: var(--text-2); cursor: pointer;
+}
 .guide-image-actions { display: flex; gap: 8px; }
 .guide-image-actions .props-btn { flex: 1; }
 
