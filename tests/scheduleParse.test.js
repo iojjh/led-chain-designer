@@ -111,6 +111,55 @@ describe('parseScheduleText — 멀티(좌우/중앙)', () => {
   });
 });
 
+describe('parseScheduleText — 여러 조가 줄마다 나뉜 목록(2026-09-16, 사용자 제보 실측 스크린샷 2건)', () => {
+  test('강남페스티벌: 중앙/좌/우 + 라벨 없는 항목(피치·크기가 줄마다 따로) 5개 전부 뽑힘', () => {
+    const text = [
+      '강남페스티벌 셋업',
+      '1.도산공원 진입로',
+      '3mm 중앙 6*4 좌우 3*4',
+      '4mm 콘솔 6*3.5',
+      '레이허',
+      '2.도산대로',
+      '4mm 10*6',
+      '레이허',
+      '',
+      '01시 셋업',
+    ].join('\n');
+    expect(parseScheduleText(text)).toEqual([
+      { label: '중앙', pitch: '3mm', areaWm: 6, areaHm: 4 },
+      { label: '좌', pitch: '3mm', areaWm: 3, areaHm: 4 },
+      { label: '우', pitch: '3mm', areaWm: 3, areaHm: 4 },
+      { label: '콘솔', pitch: '4mm', areaWm: 6, areaHm: 3.5 },
+      { label: '5', pitch: '4mm', areaWm: 10, areaHm: 6 },
+    ]);
+  });
+
+  test('시흥 동아리 축제: 번호 매긴 4줄 전부 뽑히고 괄호 설명은 라벨로 쓰임', () => {
+    const text = [
+      '시흥 동아리 축제 셋업',
+      '1.메인 중앙 3mm 8*3',
+      '2.4mm 4*3',
+      '3.4mm 4*3',
+      '4.4mm 3*2(게임중계화면)',
+      '프로필',
+      '오후 셋업',
+    ].join('\n');
+    expect(parseScheduleText(text)).toEqual([
+      { label: '중앙', pitch: '3mm', areaWm: 8, areaHm: 3 },
+      { label: '2', pitch: '4mm', areaWm: 4, areaHm: 3 },
+      { label: '3', pitch: '4mm', areaWm: 4, areaHm: 3 },
+      { label: '게임중계화면', pitch: '4mm', areaWm: 3, areaHm: 2 },
+    ]);
+  });
+
+  test('한 줄에만 피치+크기가 있으면(나머지는 부가 줄) 목록 모드로 안 들어가고 단일로 폴백', () => {
+    // qualifying line이 1개뿐이면(2개 미만) 기존 오탐 방지 로직 그대로 유지.
+    expect(parseScheduleText('제목\n3mm 7*3\n부가 설명 줄')).toEqual([
+      { label: null, pitch: '3mm', areaWm: 7, areaHm: 3 },
+    ]);
+  });
+});
+
 describe('parseScheduleText — 에러', () => {
   test('무관한 텍스트', () => {
     expect(() => parseScheduleText('안녕하세요 회의 잘 부탁드립니다')).toThrow(/피치 또는 설치 면적/);
