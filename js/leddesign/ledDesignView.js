@@ -450,6 +450,7 @@ function initLedDesignView() {
   });
   document.getElementById('guideImageDownloadBtn').addEventListener('click', downloadGuideImage);
   document.getElementById('guideImageShareBtn').addEventListener('click', shareGuideImage);
+  document.getElementById('guideImageShowResChk').addEventListener('change', refreshGuideImage);
   registerOverlayCloser('guideImage', closeGuideImageModal);
 
   document.querySelectorAll('.led-grid-btn').forEach(btn => {
@@ -2710,7 +2711,8 @@ let _guideImagePending = null; // { url, filename } — 모달에 떠 있는 동
 
 function openGuideImageModal() {
   const cfg = getLedConfig();
-  const url = generateGuideImageDataUrl(cfg);
+  const showRes = document.getElementById('guideImageShowResChk').checked;
+  const url = generateGuideImageDataUrl(cfg, { showResolution: showRes });
   if (!url) {
     showToast('구역들의 피치가 모두 같아야 가이드 이미지를 만들 수 있습니다');
     return;
@@ -2721,6 +2723,20 @@ function openGuideImageModal() {
   document.getElementById('guideImageShareBtn').hidden = !(navigator.share);
   document.getElementById('guideImageModal').hidden = false;
   pushHistoryOverlay('guideImage');
+}
+
+// 체크박스를 바꾸면 모달을 닫지 않고 그 자리에서 다시 그린다(사용자 요청,
+// 2026-09-16: "체크 해제시 격자 모양과 패턴만"). 체크 상태는 DOM에 그대로
+// 남으므로 같은 세션에서 모달을 다시 열면 마지막으로 고른 값이 유지된다 —
+// 기본값은 HTML의 checked(해상도 표시 켬).
+function refreshGuideImage() {
+  if (!_guideImagePending) { return; }
+  const cfg = getLedConfig();
+  const showRes = document.getElementById('guideImageShowResChk').checked;
+  const url = generateGuideImageDataUrl(cfg, { showResolution: showRes });
+  if (!url) { return; }
+  _guideImagePending.url = url;
+  document.getElementById('guideImagePreview').src = url;
 }
 
 function closeGuideImageModal() {
@@ -2779,8 +2795,10 @@ function drawGuideZoneOutline(ctx, cells, cellX, cellY, cellPx, color, lineWidth
 // cellX/cellY는 (bbox 기준 상대 row/col) → 캔버스 픽셀 변환 함수, cellPx는
 // 격자 한 칸(500mm)의 출력 픽셀 크기, wmText/fSizeWm/stepX/stepY/halfD는
 // 캔버스 전체 기준으로 미리 계산해둔 워터마크 파라미터(구역 경계를 넘어도
-// 무늬가 이어지도록 zone마다 새로 만들지 않고 공유한다).
-function drawGuideZone(ctx, zone, zi, cellX, cellY, cellPx, cv, wm) {
+// 무늬가 이어지도록 zone마다 새로 만들지 않고 공유한다). showResolution이
+// false면 중앙 해상도 텍스트·강조 바를 건너뛰고 격자·패턴·테두리만 남긴다
+// (사용자 요청, 2026-09-16 — 옵션으로 켜고 끌 수 있어야 함).
+function drawGuideZone(ctx, zone, zi, cellX, cellY, cellPx, cv, wm, showResolution) {
   const cells = zoneGridCells(zone);
   const bounds = zoneBounds(zone);
   const zx = cellX(bounds.minCol); const zy = cellY(bounds.minRow);
@@ -2828,6 +2846,8 @@ function drawGuideZone(ctx, zone, zi, cellX, cellY, cellPx, cv, wm) {
 
   drawGuideZoneOutline(ctx, cells, cellX, cellY, cellPx, portColor(zi), gridLW * 2);
 
+  if (!showResolution) { return; }
+
   // 해상도 텍스트 — ledAreaSetup.js의 labelCellForZone으로 항상 구역 내부의
   // 실제 칸 위에 놓는다(오목한 모양이면 바운딩 박스 중심이 빈 칸일 수 있어서).
   const zRes = boundingResolutionForZones([zone]);
@@ -2862,8 +2882,10 @@ function drawGuideZone(ctx, zone, zi, cellX, cellY, cellPx, cv, wm) {
 // 구역 전체(cfg.zones)를 하나의 PNG data URL로 그려낸다. 모든 구역의 피치가
 // 같아야 하나의 px 밀도로 변환할 수 있으므로(boundingResolutionForZones와
 // 동일한 제약 — 노드 카드 요약이 이미 같은 이유로 그러듯), 피치가 섞였거나
-// 구역이 없으면 null.
-function generateGuideImageDataUrl(cfg) {
+// 구역이 없으면 null. opts.showResolution(기본 true)이 false면 중앙 해상도
+// 텍스트 없이 격자·패턴·테두리만 그린다(사용자 요청, 2026-09-16).
+function generateGuideImageDataUrl(cfg, opts) {
+  const showResolution = !opts || opts.showResolution !== false;
   const zones = cfg.zones || [];
   if (!zones.length) { return null; }
   const res = boundingResolutionForZones(zones);
@@ -2911,7 +2933,7 @@ function generateGuideImageDataUrl(cfg) {
   const halfD = Math.ceil(Math.hypot(cv.width, cv.height) / 2) + Math.max(stepX, stepY);
   const wm = { text, fSize, stepX, stepY, halfD };
 
-  zones.forEach((zone, zi) => { drawGuideZone(ctx, zone, zi, cellX, cellY, cellPx, cv, wm); });
+  zones.forEach((zone, zi) => { drawGuideZone(ctx, zone, zi, cellX, cellY, cellPx, cv, wm, showResolution); });
 
   return cv.toDataURL('image/png');
 }
