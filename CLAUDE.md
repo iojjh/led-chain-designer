@@ -102,7 +102,7 @@ GraphState = {
 
 강제 튜토리얼 없이 상황에 맞을 때만 뜨는 넛지 모음. 전부 그래프 뷰(`#graphView`) 안에 있고, LED 설계 페이지가 열리면 `.view[hidden]`으로 자동으로 안 보인다.
 
-- **안내 패널(`#graphHelpPanel`)** — 3스텝 퀵스타트 + 제스처 요약 + 색상 범례(상태 배지 ✓/!/?, 연결선 kind별 색). 캔버스가 비면 자동으로 뜨고(`_helpAutoShown`), 첫 노드가 생기면 알아서 닫힌다. 우상단 `#helpBtn`(`?`)으로 언제든 다시 연다 — 이렇게 직접 열면 `_helpAutoShown=false`가 돼 노드가 생겨도 안 닫힌다. `_helpDismissed`는 사용자가 ✕/토글로 닫았거나 예시를 불러왔음을 표시(캔버스가 다시 완전히 빌 때까지 자동 표시 안 함).
+- **안내 패널(`#graphHelpPanel`)** — 3스텝 퀵스타트 + 제스처 요약 + 색상 범례(상태 배지 ✓/!/?, 연결선 kind별 색). 캔버스가 비면 자동으로 뜨고(`_helpAutoShown`), 첫 노드가 생기면 알아서 닫힌다. 우상단 `#helpBtn`(`?`)으로 언제든 다시 연다 — 이렇게 직접 열면 `_helpAutoShown=false`가 돼 노드가 생겨도 안 닫힌다. `_helpDismissed`는 사용자가 ✕/토글로 닫았거나 예시를 불러왔음을 표시(캔버스가 다시 완전히 빌 때까지 자동 표시 안 함). 패널 바깥(캔버스·다른 패널 등 아무 곳)을 탭/클릭해도 닫힌다(사용자 요청, 2026-09-21) — `initOnboarding`이 `interactions.js`의 팔레트 드롭다운(`initPaletteMenu`)과 같은 패턴으로 `window`에 `mousedown`/`touchstart` 아웃사이드 핸들러를 건다(`'click'`을 쓰면 터치에서 최대 300ms 늦게 닫혀 버벅여 보이므로 피함). ✕ 버튼과 바깥 탭 둘 다 `_dismissHelpPanel()`(닫기 + `_helpAutoShown=false` + `_helpDismissed=true`)을 공유한다.
 - **예시 현장(`SAMPLE_GRAPH` → `loadSampleGraph`)** — 인풋소스→콘솔→샌딩카드→LED가 이어진 최소 체인. 콘솔·샌딩카드는 수동(장비 미지정) 모드라 포트 id도 수동 기본값(`in1`/`out1`). `State.graph`를 통째로 갈아끼우고 저장 슬롯 불러오기와 같은 후처리(`panToLeftmostNode` 등).
 - **연결 힌트 스트립(`#connectHint`)** — 노드 ≥2 & 엣지 0일 때만. ✕로 닫으면 `localStorage`(`onboard-connect-hint-dismissed`)에 기록해 다시 안 뜬다.
 - **드롭 타깃 하이라이트** — 연결 드래그 중 커서 밑 카드에 `.node-card.drop-target`(`interactions.js`의 `_highlightDropTarget`, `resolveDropTarget` 재사용). 정확한 입력 도트를 안 맞혀도 카드 영역이면 연결된다는 걸 보여준다.
