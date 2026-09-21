@@ -78,13 +78,20 @@ function initOnboarding() {
     });
   }
   if (panel) {
-    panel.querySelector('.graph-help-close').addEventListener('click', () => {
-      _setHelpPanelOpen(false);
-      _helpAutoShown = false;
-      _helpDismissed = true;
-    });
+    panel.querySelector('.graph-help-close').addEventListener('click', _dismissHelpPanel);
     const sampleBtn = panel.querySelector('#graphHelpSampleBtn');
     if (sampleBtn) { sampleBtn.addEventListener('click', loadSampleGraph); }
+    // 패널 바깥(캔버스·다른 패널 등 아무 곳)을 탭/클릭해도 닫힌다(사용자
+    // 요청, 2026-09-21) — 팔레트 드롭다운(interactions.js의 initPaletteMenu)과
+    // 같은 패턴: mousedown/touchstart로 바깥 클릭을 잡는다('click'을 쓰면
+    // 터치에서 최대 300ms 늦게 닫혀 버벅여 보인다).
+    const outsideHandler = e => {
+      if (!panel.classList.contains('open')) { return; }
+      if (panel.contains(e.target) || (helpBtn && helpBtn.contains(e.target))) { return; }
+      _dismissHelpPanel();
+    };
+    window.addEventListener('mousedown', outsideHandler);
+    window.addEventListener('touchstart', outsideHandler, { passive: true });
   }
   const hintClose = document.querySelector('#connectHint .connect-hint-close');
   if (hintClose) {
@@ -100,6 +107,14 @@ function _setHelpPanelOpen(open) {
   const panel = document.getElementById('graphHelpPanel');
   if (!panel) { return; }
   panel.classList.toggle('open', open);
+}
+
+// ✕ 버튼과 바깥 탭/클릭이 공유하는 "사용자가 직접 닫음" 처리 — 이후 캔버스가
+// 다시 완전히 빌 때까진 자동으로 다시 뜨지 않는다(refreshOnboarding 참고).
+function _dismissHelpPanel() {
+  _setHelpPanelOpen(false);
+  _helpAutoShown = false;
+  _helpDismissed = true;
 }
 
 // 그래프가 바뀔 때마다(renderNodeCards 끝에서) 불린다 — 지금 상태에 맞게
