@@ -405,10 +405,22 @@ function isSimpleLedLayout(cfg) {
   return z.startRow === 0 && z.startCol === 0 && z.rows * 500 === cfg.areaH && z.cols * 500 === cfg.areaW;
 }
 
+// 이름 입력은 단순/복합 레이아웃 양쪽 다 보여야 하므로(구역 편집 여부와
+// 무관하게 이름은 언제나 바꿀 수 있어야 함, 사용자 요청 2026-09-21) 두
+// return 분기 앞에서 공통으로 만든다.
+function ledNameField(node) {
+  return `
+    <label class="props-field">이름
+      <input type="text" data-field="label" value="${escapeHtml(node.label)}">
+    </label>
+  `;
+}
+
 function ledFields(node) {
   const cfg = node.config.ledDesign;
   if (!isSimpleLedLayout(cfg)) {
     return `
+      ${ledNameField(node)}
       <div class="props-hint">여러 구역이나 비정형 설치면적으로 설계된 상태입니다. 세부 수정은 구역 편집 캔버스에서 진행하세요.</div>
       <button type="button" id="propsOpenLedDesignBtn" class="props-btn props-btn-primary">구역 편집 열기</button>
     `;
@@ -427,6 +439,7 @@ function ledFields(node) {
   // 속성 패널은 260px 고정 폭이라(input/console/sending과 동일하게) 2열 그리드가
   // 아니라 세로로 한 줄씩 쌓는다 — LED 추가 팝업은 폭이 넓어 2열 그리드를 쓴다.
   return `
+    ${ledNameField(node)}
     <label class="props-field">가로(m)<input type="number" min="0" step="0.5" data-field="ledAreaWm" value="${areaWm}"></label>
     <label class="props-field">세로(m)<input type="number" min="0" step="0.5" data-field="ledAreaHm" value="${areaHm}"></label>
     <label class="props-field">LED 피치
