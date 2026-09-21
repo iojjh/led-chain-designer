@@ -1611,6 +1611,16 @@ button {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* 일정 목록: 지난/다가올 구분 헤더(.summary-section-title과 같은 톤) + 지난
+   일정 행은 흐리게(디자인 확정된 과거 일정이라 우선순위가 낮음을 표시). */
+.sched-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 2px 2px 0;
+}
+.sched-section-title:first-child { margin-top: 0; }
+.save-row.sched-row-past { opacity: 0.55; }
 .save-load-row-btn, .save-del-row-btn, .cloud-share-row-btn { font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); }
 .save-load-row-btn { background: var(--accent-soft); color: var(--text-0); }
 .cloud-share-row-btn { background: var(--bg-2); border: 1px solid var(--border); color: var(--text-0); }

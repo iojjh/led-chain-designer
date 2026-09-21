@@ -126,6 +126,8 @@ GraphState = {
 - 적용(`saveStore.js`의 `applyScheduleEntry`)은 `interactions.js` `onLedAddConfirm`의 빠른 설정(rect) 분기(`:1022-1051`)를 섹션마다 반복 — `planFullAreaLed` → `createPositionedNode('led')`(같은 타입 노드를 자동으로 아래/오른쪽에 쌓아 팬아웃) → `ledDesign` 채우기 → `autoAssignLanForLedNode`/`autoAssignPwrForLedNode`. 섹션끼리 **엣지로 연결하지 않는다**. `finalizeAddedNode`/`renderValidation`은 루프가 끝난 뒤 마지막 노드에 대해 **한 번만**(반복 호출 시 팬이 튐).
 - 모달·목록 UI는 `saveStore.js`의 `renderCloudList` 옆(`initScheduleUi`/`openScheduleModal`/`closeScheduleModal`/`renderScheduleList`/`onScheduleImportClick`/`applyScheduleEntry`). `initScheduleUi()`는 `app.js`에서 `initSaveLoadUi()` 다음에 호출. 진입점은 팔레트의 `data-type="schedule"` 버튼 + `interactions.js` 카테고리 핸들러의 한 줄 분기(노드 타입이 아니라 모달 오프너). 순수 모듈 2개는 `tests/scheduleParse.test.js`·`tests/scheduleFeed.test.js`.
 
+  **지난/다가올 일정 구분(2026-09-21, 사용자 요청):** `renderScheduleList`는 `fetchScheduleEntries`가 이미 날짜 오름차순으로 준 목록을 오늘(`_cutoffYmd(0)`, `scheduleFeed.js` — 자정 기준 로컬 날짜라 파라미터 0으로 재사용) 기준으로 "지난 일정"/"다가올 일정" 두 섹션으로 나눠 헤더(`.sched-section-title`)와 함께 보여준다(오늘 시작하는 일정은 다가올 쪽). 지난 일정 행은 `.sched-row-past`로 흐리게(`opacity:0.55`) 표시해 우선순위가 낮음을 눈에 띄게 한다 — `SCHEDULE_RECENT_DAYS`(7) 덕에 지난 일정 쪽엔 최근 것만 남아 있다. 두 섹션 다 비어 있을 걱정은 없다(entries가 비면 애초에 "등록된 일정이 없습니다"로 먼저 리턴) — 한쪽만 비면 그 섹션(헤더 포함)만 통째로 생략한다. "가져오기" 버튼의 `data-idx`는 `entries`(원본 통합 배열) 안에서의 인덱스를 그대로 쓴다(`entries.indexOf(e)`) — 섹션별로 새로 번호를 매기면 `onScheduleImportClick`이 엉뚱한 항목을 가져온다.
+
 ## 버전 업 규칙
 
 기능 변경 후: `APP_VERSION`(js/app.js, package.json의 version과 맞춤)과 `CACHE_VERSION`(service-worker.js) 동기화 → 커밋 → **푸시 전 사용자 확인 후 진행**.

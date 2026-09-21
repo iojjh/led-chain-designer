@@ -224,17 +224,34 @@ async function renderScheduleList() {
   el.innerHTML = '<div class="led-zone-empty">불러오는 중…</div>';
   try {
     const entries = await fetchScheduleEntries();
-    el.innerHTML = entries.length
-      ? entries.map((e, i) => `
-        <div class="save-row">
+    if (!entries.length) {
+      el.innerHTML = '<div class="led-zone-empty">등록된 일정이 없습니다.</div>';
+      return;
+    }
+    // 지난 일정(오늘 이전 시작)과 다가올 일정을 구분해서 보여준다(사용자
+    // 요청, 2026-09-21) — fetchScheduleEntries가 이미 날짜 오름차순으로 주므로
+    // 오늘(_cutoffYmd(0), scheduleFeed.js) 기준으로 나누기만 하면 각 구간 안의
+    // 순서는 그대로 유지된다. SCHEDULE_RECENT_DAYS(7) 때문에 지난 일정 쪽엔
+    // 최근 것만 남아 있다.
+    const today = _cutoffYmd(0);
+    const past = entries.filter(e => e.date < today);
+    const upcoming = entries.filter(e => e.date >= today);
+    const rowHtml = e => {
+      const idx = entries.indexOf(e);
+      return `
+        <div class="save-row${e.date < today ? ' sched-row-past' : ''}">
           <div class="save-row-info">
             <b>${escapeHtml(e.title || '(제목 없음)')}</b>
             <span>${escapeHtml(e.date)}</span>
             ${e.body ? `<span class="sched-row-body">${escapeHtml(e.body)}</span>` : ''}
           </div>
-          <button class="save-load-row-btn" data-idx="${i}">가져오기</button>
-        </div>`).join('')
-      : '<div class="led-zone-empty">등록된 일정이 없습니다.</div>';
+          <button class="save-load-row-btn" data-idx="${idx}">가져오기</button>
+        </div>`;
+    };
+    const section = (title, list) => (list.length
+      ? `<div class="sched-section-title">${title}</div>${list.map(rowHtml).join('')}`
+      : '');
+    el.innerHTML = section('지난 일정', past) + section('다가올 일정', upcoming);
     el.querySelectorAll('.save-load-row-btn').forEach(btn => {
       btn.addEventListener('click', () => onScheduleImportClick(entries[Number(btn.dataset.idx)]));
     });
